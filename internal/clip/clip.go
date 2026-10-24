@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,13 +23,23 @@ type Provider struct {
 	OSC52Enabled bool
 }
 
+// AutoClearDelay returns cp auto-clear duration (KC_CP_CLEAR_SECONDS or 30s).
+func AutoClearDelay() time.Duration {
+	if v := os.Getenv("KC_CP_CLEAR_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 30 * time.Second
+}
+
 // Write puts text on the system clipboard (best effort chain).
 func (p Provider) Write(text string) error {
 	if err := p.writePlatform(text); err == nil {
 		return nil
 	}
 	if p.OSC52Enabled || os.Getenv("KC_CLIP_OSC52") == "1" {
-		if err := writeOSC52(text); err == nil {
+		if err := WriteOSC52(os.Stdout, text); err == nil {
 			return nil
 		}
 	}
@@ -35,45 +47,49 @@ func (p Provider) Write(text string) error {
 }
 
 func (p Provider) writePlatform(text string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		cmd := exec.Command("pbcopy")
-		cmd.Stdin = strings.NewReader(text)
-		return cmd.Run()
-	case "linux":
-		if _, err := exec.LookPath("wl-copy"); err == nil {
-			cmd := exec.Command("wl-copy", "--")
-			cmd.Stdin = strings.NewReader(text)
-			return cmd.Run()
-		}
-		if _, err := exec.LookPath("xclip"); err == nil {
-			cmd := exec.Command("xclip", "-selection", "clipboard")
-			cmd.Stdin = strings.NewReader(text)
-			return cmd.Run()
-		}
-		return fmt.Errorf("no wl-copy/xclip")
-	default:
-		return fmt.Errorf("unsupported GOOS")
+	if cmd := toolPath("KC_CLIP_PBCOPY", "pbcopy"); cmd != "" && (runtime.GOOS == "darwin" || os.Getenv("KC_CLIP_PBCOPY") != "") {
+		c := exec.Command(cmd)
+		c.Stdin = strings.NewReader(text)
+		return c.Run()
 	}
+	if cmd := toolPath("KC_CLIP_WL_COPY", "wl-copy"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_WL_COPY") != "") {
+		c := exec.Command(cmd, "--")
+		c.Stdin = strings.NewReader(text)
+		return c.Run()
+	}
+	if cmd := toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_XCLIP") != "") {
+		c := exec.Command(cmd, "-selection", "clipboard")
+		c.Stdin = strings.NewReader(text)
+		return c.Run()
+	}
+	return fmt.Errorf("no platform clipboard tool")
 }
 
 // Read returns clipboard text.
 func (p Provider) Read() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		out, err := exec.Command("pbpaste").Output()
+	if cmd := toolPath("KC_CLIP_PBPASTE", "pbpaste"); cmd != "" && (runtime.GOOS == "darwin" || os.Getenv("KC_CLIP_PBPASTE") != "") {
+		out, err := exec.Command(cmd).Output()
 		return string(out), err
-	case "linux":
-		if _, err := exec.LookPath("wl-paste"); err == nil {
-			out, err := exec.Command("wl-paste", "--", "-n").Output()
-			return string(out), err
-		}
-		if _, err := exec.LookPath("xclip"); err == nil {
-			out, err := exec.Command("xclip", "-selection", "clipboard", "-o").Output()
-			return string(out), err
-		}
+	}
+	if cmd := toolPath("KC_CLIP_WL_PASTE", "wl-paste"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_WL_PASTE") != "") {
+		out, err := exec.Command(cmd, "--", "-n").Output()
+		return string(out), err
+	}
+	if cmd := toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_XCLIP") != "") {
+		out, err := exec.Command(cmd, "-selection", "clipboard", "-o").Output()
+		return string(out), err
 	}
 	return atotto.ReadAll()
+}
+
+func toolPath(envKey, defaultName string) string {
+	if p := os.Getenv(envKey); p != "" {
+		return p
+	}
+	if _, err := exec.LookPath(defaultName); err == nil {
+		return defaultName
+	}
+	return ""
 }
 
 // Checksum fingerprints clipboard contents for timed clear.
@@ -112,41 +128,27 @@ func (p Provider) CopyWithAutoClear(ctx context.Context, text string, delay time
 	return nil
 }
 
-func writeOSC52(text string) error {
-	// OSC 52 base64 payload for terminal clipboard (tmux pass-through compatible).
-	encoded := base64Encode([]byte(text))
-	seq := fmt.Sprintf("\x1b]52;c;%s\x07", encoded)
-	_, err := io.Copy(os.Stdout, bytes.NewBufferString(seq))
-	return err
+// EncodeOSC52 returns the OSC 52 sequence payload (before tmux wrapping).
+func EncodeOSC52(text string) string {
+	return base64.StdEncoding.EncodeToString([]byte(text))
 }
 
-func base64Encode(b []byte) string {
-	const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	var out strings.Builder
-	for i := 0; i < len(b); i += 3 {
-		var n uint32
-		remain := len(b) - i
-		if remain >= 3 {
-			n = uint32(b[i])<<16 | uint32(b[i+1])<<8 | uint32(b[i+2])
-			out.WriteByte(table[n>>18&63])
-			out.WriteByte(table[n>>12&63])
-			out.WriteByte(table[n>>6&63])
-			out.WriteByte(table[n&63])
-		} else {
-			switch remain {
-			case 1:
-				n = uint32(b[i]) << 16
-				out.WriteByte(table[n>>18&63])
-				out.WriteByte(table[n>>12&63])
-				out.WriteString("==")
-			case 2:
-				n = uint32(b[i])<<16 | uint32(b[i+1])<<8
-				out.WriteByte(table[n>>18&63])
-				out.WriteByte(table[n>>12&63])
-				out.WriteByte(table[n>>6&63])
-				out.WriteString("=")
-			}
-		}
+// SequenceOSC52 builds the terminal OSC 52 escape sequence.
+func SequenceOSC52(text string) string {
+	return fmt.Sprintf("\x1b]52;c;%s\x07", EncodeOSC52(text))
+}
+
+// TmuxPassthrough wraps an OSC sequence for tmux passthrough (see tmux set-clipboard).
+func TmuxPassthrough(seq string) string {
+	return "\033Ptmux;\033" + strings.TrimPrefix(seq, "\x1b") + "\033\\"
+}
+
+// WriteOSC52 emits OSC52 to w (optionally tmux-wrapped).
+func WriteOSC52(w io.Writer, text string) error {
+	seq := SequenceOSC52(text)
+	if os.Getenv("KC_CLIP_OSC52_TMUX") == "1" {
+		seq = TmuxPassthrough(seq)
 	}
-	return out.String()
+	_, err := io.Copy(w, bytes.NewBufferString(seq))
+	return err
 }

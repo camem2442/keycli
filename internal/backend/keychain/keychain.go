@@ -31,7 +31,7 @@ func init() {
 			instance:         instanceName,
 			servicePrefix:    prefix,
 			runner:           runner,
-			allowOnNonDarwin: args.Deps.AllowKeychainOnNonDarwin,
+			allowOnNonDarwin: args.Deps.AllowKeychainOnNonDarwin || os.Getenv("KC_TEST_KEYCHAIN") == "1",
 		}, nil
 	})
 }
@@ -61,21 +61,10 @@ func (k *Keychain) Available(ctx context.Context) (bool, string, error) {
 	if k.allowOnNonDarwin {
 		return true, "", nil
 	}
-	if _, err := os.Stat(securityBin); err != nil {
+	if _, err := os.Stat(SecurityCommand()); err != nil {
 		return false, "이 환경엔 키체인이 없음", nil
 	}
 	return true, "", nil
-}
-
-func (k *Keychain) readServices(name string) []string {
-	name = strings.TrimSpace(name)
-	if strings.Contains(name, ".") {
-		return []string{name}
-	}
-	return []string{
-		k.servicePrefix + "." + name,
-		"kc.secret." + name,
-	}
 }
 
 func (k *Keychain) writeService(name string) string {
@@ -90,6 +79,14 @@ func (k *Keychain) isReadOnlyService(service string) bool {
 	return strings.HasPrefix(service, k.servicePrefix+".")
 }
 
+func (k *Keychain) isAICoreProtected(name string) bool {
+	if ac, ok := ParseAICoreName(name); ok {
+		_ = ac
+		return true
+	}
+	return false
+}
+
 func (k *Keychain) Get(ctx context.Context, name string) ([]byte, error) {
 	ok, msg, err := k.Available(ctx)
 	if err != nil {
@@ -98,16 +95,18 @@ func (k *Keychain) Get(ctx context.Context, name string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
-	var lastErr error
-	for _, service := range k.readServices(name) {
-		out, err := k.runner.Run(ctx, "find-generic-password", "-s", service, "-w")
-		if err == nil {
-			return []byte(strings.TrimSpace(string(out))), nil
-		}
-		lastErr = err
+	if ac, ok := ParseAICoreName(name); ok {
+		return AICoreLookup(ctx, k.runner, ac)
 	}
-	_ = lastErr
-	return nil, fmt.Errorf("%w", kcerrors.ErrNotFound)
+	service := k.writeService(name)
+	out, err := k.runner.Run(ctx, "find-generic-password", "-s", service, "-a", "kc", "-w")
+	if err == nil {
+		return []byte(strings.TrimSpace(string(out))), nil
+	}
+	if mapped := MapSecurityExit(err); errorsIsNotFound(mapped) {
+		return nil, mapped
+	}
+	return nil, MapSecurityExit(err)
 }
 
 func (k *Keychain) List(ctx context.Context) ([]backend.Item, error) {
@@ -118,30 +117,33 @@ func (k *Keychain) List(ctx context.Context) ([]backend.Item, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
-	// Dump generic passwords metadata only (no -w).
 	out, err := k.runner.Run(ctx, "dump-keychain")
 	if err != nil {
-		return nil, err
+		return nil, MapSecurityExit(err)
 	}
+	dump := string(out)
 	var items []backend.Item
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, p := range ListAICoreItems(dump, k.servicePrefix) {
+		items = append(items, backend.Item{Name: p})
+	}
+	for _, line := range strings.Split(dump, "\n") {
 		if !strings.Contains(line, "service:") {
 			continue
 		}
-		service := strings.TrimSpace(strings.TrimPrefix(line, "service:"))
-		if !strings.HasPrefix(service, k.servicePrefix) {
+		svc := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "service:"))
+		if !strings.HasPrefix(svc, "kc.secret.") {
 			continue
 		}
-		short := strings.TrimPrefix(service, k.servicePrefix+".")
-		if short == service {
-			short = service
-		}
+		short := strings.TrimPrefix(svc, "kc.secret.")
 		items = append(items, backend.Item{Name: short})
 	}
 	return items, nil
 }
 
 func (k *Keychain) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
+	if k.isAICoreProtected(name) {
+		return fmt.Errorf("%w: ai-core keychain items are read-only", kcerrors.ErrDenied)
+	}
 	ok, msg, err := k.Available(ctx)
 	if err != nil {
 		return err
@@ -153,13 +155,14 @@ func (k *Keychain) Set(ctx context.Context, name string, value []byte, meta back
 	if k.isReadOnlyService(service) {
 		return fmt.Errorf("%w: ai-core keychain items are read-only", kcerrors.ErrDenied)
 	}
-	account := "kc"
-	// Password via stdin per security model (no argv password).
-	_, err = k.runner.RunWithStdin(ctx, value, "add-generic-password", "-s", service, "-a", account, "-w", "-U")
-	return err
+	_, err = k.runner.RunWithStdin(ctx, value, "add-generic-password", "-s", service, "-a", "kc", "-U")
+	return MapSecurityExit(err)
 }
 
 func (k *Keychain) Delete(ctx context.Context, name string) error {
+	if k.isAICoreProtected(name) {
+		return fmt.Errorf("%w: ai-core keychain items are read-only", kcerrors.ErrDenied)
+	}
 	ok, msg, err := k.Available(ctx)
 	if err != nil {
 		return err
@@ -168,12 +171,9 @@ func (k *Keychain) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
 	service := k.writeService(name)
-	if k.isReadOnlyService(service) {
-		return fmt.Errorf("%w: ai-core keychain items are read-only", kcerrors.ErrDenied)
-	}
-	_, err = k.runner.Run(ctx, "delete-generic-password", "-s", service)
+	_, err = k.runner.Run(ctx, "delete-generic-password", "-s", service, "-a", "kc")
 	if err != nil {
-		return fmt.Errorf("%w", kcerrors.ErrNotFound)
+		return MapSecurityExit(err)
 	}
 	return nil
 }

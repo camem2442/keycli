@@ -22,12 +22,29 @@ run_vet() {
   go vet ./...
 }
 
+run_vet_darwin() {
+  GOOS=darwin GOARCH=arm64 go vet ./...
+  GOOS=darwin GOARCH=amd64 go vet ./...
+}
+
 run_unit() {
   go test ./...
 }
 
 run_backend() {
   go test ./internal/backend/... ./internal/resolve/...
+}
+
+run_keychain() {
+  go test ./internal/backend/keychain/...
+}
+
+run_clip() {
+  go test ./internal/clip/...
+}
+
+run_integration() {
+  go test ./internal/integration/...
 }
 
 run_docs() {
@@ -47,6 +64,7 @@ run_release() {
   export CGO_ENABLED=0
   mkdir -p "$ROOT/dist"
   GOOS=darwin GOARCH=arm64 go build -o "$ROOT/dist/kc-darwin-arm64" ./cmd/kc
+  GOOS=darwin GOARCH=amd64 go build -o "$ROOT/dist/kc-darwin-amd64" ./cmd/kc
   GOOS=linux GOARCH=amd64 go build -o "$ROOT/dist/kc-linux-amd64" ./cmd/kc
   GOOS=linux GOARCH=amd64 go build -o "$ROOT/dist/keycli-linux-amd64" ./cmd/keycli
 }
@@ -57,6 +75,7 @@ case "$suite" in
     run_policy
     run_gofmt
     run_vet
+    run_vet_darwin
     run_unit
     run_release
     ;;
@@ -71,6 +90,15 @@ case "$suite" in
     run_gofmt
     run_vet
     run_backend
+    ;;
+  keychain)
+    run_keychain
+    ;;
+  clip)
+    run_clip
+    ;;
+  integration)
+    run_integration
     ;;
   release)
     run_release

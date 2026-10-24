@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -39,18 +40,21 @@ func newCpCmd(a *app.App) *cobra.Command {
 			if err := cp.Write(text); err != nil {
 				return err
 			}
-			_ = sum
-			go func() {
-				time.Sleep(30 * time.Second)
+			delay := clip.AutoClearDelay()
+			if os.Getenv("KC_CP_WAIT_CLEAR") == "1" {
+				time.Sleep(delay + 50*time.Millisecond)
 				cur, err := cp.Read()
-				if err != nil {
-					return
-				}
-				if clip.Checksum(cur) == clip.Checksum(text) {
+				if err == nil && clip.Checksum(cur) == sum {
 					_ = cp.Clear()
 				}
-			}()
-			fmt.Fprintf(os.Stderr, "kc: %s 복사됨 (30초 후 자동 삭제)\n", name)
+			} else {
+				clearCmd := exec.Command(os.Args[0], "_clip-wait-clear", "--checksum", sum)
+				clearCmd.Env = os.Environ()
+				clearCmd.Stdout = nil
+				clearCmd.Stderr = nil
+				_ = clearCmd.Start()
+			}
+			fmt.Fprintf(os.Stderr, "kc: %s 복사됨 (%v 후 자동 삭제)\n", name, delay)
 			return nil
 		},
 	}

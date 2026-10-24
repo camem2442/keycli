@@ -8,6 +8,7 @@ import (
 	"github.com/camem2442/keycli/internal/backend"
 	_ "github.com/camem2442/keycli/internal/backend/env"
 	_ "github.com/camem2442/keycli/internal/backend/file"
+	"github.com/camem2442/keycli/internal/backend/keychain"
 	_ "github.com/camem2442/keycli/internal/backend/keychain"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/resolve"
@@ -35,9 +36,12 @@ func New(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	runner := keychain.ExecRunner{}
 	deps := backend.Deps{
-		Home:   home,
-		Config: cfg,
+		Home:                     home,
+		Config:                   cfg,
+		SecurityRunner:           runner,
+		AllowKeychainOnNonDarwin: os.Getenv("KC_TEST_KEYCHAIN") == "1",
 	}
 	backends, err := backend.Build(ctx, cfg, deps)
 	if err != nil {

@@ -39,6 +39,23 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 
 순수 Go(`CGO_ENABLED=0`). 값 조회는 네트워크 불필요, `kc push`만 네트워크 사용. cobra, filippo.io/age, BurntSushi/toml, atotto/clipboard. macOS 키체인은 `/usr/bin/security` 직접 호출.
 
+## Linux 빠른 시작
+
+```bash
+# age identity 생성 (stdout에 한 번 출력; `kc init`은 추후 마일스톤)
+export KC_KEY="$(go run ./cmd/kc keygen 2>/dev/null)"
+
+# 또는 age-keygen(1)으로 생성한 identity 한 줄을 KC_KEY에 넣기
+
+printf 'my-token' | kc set demo
+kc get demo
+kc ls --json
+```
+
+macOS에서는 `KC_KEY` 대신 키체인 항목 `kc.age` / 계정 `kc`에 age identity를 저장할 수 있다(**NOT VERIFIED**: 실 Mac).
+
+테스트 전용: `KC_SECURITY`로 [cmd/fakesecurity](cmd/fakesecurity) 바이너리를 가리키면 Linux에서 키체인 경로를 에뮬레이션한다.
+
 ## License
 
 Private.

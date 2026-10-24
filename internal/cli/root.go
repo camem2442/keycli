@@ -29,6 +29,8 @@ func Execute() int {
 	root.AddCommand(newExecCmd(a))
 	root.AddCommand(newCpCmd(a))
 	root.AddCommand(newRmCmd(a))
+	root.AddCommand(newKeygenCmd())
+	root.AddCommand(newClipWaitClearCmd())
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {

@@ -6,36 +6,42 @@
 
 ## Current Work Goal
 
-**M1 구현** — cobra CLI, resolver, env·file(age)·keychain 백엔드, `ls/get/exec/set/rm/cp`, 클립보드 어댑터, `verify.sh`.
+**M1 + Linux 테스트 강화** — fake `security`/clipboard, ai-core 읽기 어댑터, 통합 테스트, `verify.sh` suite 확장.
 
 ## 상태
 
 | 영역 | 상태 | 근거 |
 |---|---|---|
-| 요구·설계 문서 | **COMPLETE** | docs/ |
-| M1 CLI (`ls/get/exec/set/rm/cp`) | **COMPLETE** | cmd/kc, internal/cli |
-| env·file(age) 백엔드 | **COMPLETE** | Linux 단위 테스트 |
-| keychain 백엔드 | **PARTIAL** | FakeRunner Linux 테스트; 실제 `/usr/bin/security` **NOT VERIFIED** |
-| 클립보드 (`cp`, `set --clip`) | **PARTIAL** | atotto·어댑터 코드; pbcopy/wl-copy/OSC52 실기 **NOT VERIFIED** |
-| macOS age 키(키체인) | **DEFERRED** | `KC_KEY`만 Linux CI에서 검증 |
-| `link`, `push`, `export`, `import`, `status`, plugin | **DEFERRED** | roadmap M2+ |
-| Target·Ledger·Middleware | **PARTIAL** | 인터페이스·타입만 (architecture 예약) |
-| `verify.sh --suite all` (Linux) | **COMPLETE** | Cloud Agent VM |
-| workspace-infra 등록 | **DEFERRED** | 변경 없음 |
+| CLI M1 | **COMPLETE** | Linux `verify.sh --suite all` |
+| ai-core 읽기 (`<provider>`, `<provider>#n`) | **COMPLETE** | [0003](docs/decisions/0003-aicore-keychain.md), fake security 테스트 |
+| fake security E2E | **COMPLETE** | `cmd/fakesecurity`, `KC_SECURITY`, argv 로그 검사 |
+| age `KC_KEY` / file store | **COMPLETE** | 단위·통합 테스트 |
+| age 키 macOS 키체인(`kc.age`) | **PARTIAL** | `SecurityRunner` 경로 구현; fake security로 Linux 테스트 |
+| 클립보드 auto-clear | **COMPLETE** | 단위 테스트 + `KC_CP_WAIT_CLEAR` 통합; 프로덕션은 `_clip-wait-clear` 자식 프로세스 |
+| 통합 시나리오 (set/get/ls/exec/cp/rm, 종료 코드) | **COMPLETE** | `internal/integration` |
+| **NOT VERIFIED (실 Mac만)** | | |
+| Keychain ACL / “항상 허용” 프롬프트 | **NOT VERIFIED** | fake 불가 |
+| 실 `/usr/bin/security`·NSPasteboard·pbcopy | **NOT VERIFIED** | Linux fake로 대체 검증 |
+| `link`, `push`, export/import/status | **DEFERRED** | roadmap |
 
-## 검증
+## Linux 검증
 
 ```bash
-./verify.sh --suite all   # gofmt, vet, test, darwin/arm64+linux/amd64 cross-build, CGO_ENABLED=0
-./verify.sh --suite unit
+./verify.sh --suite all
+./verify.sh --suite integration
+./verify.sh --suite keychain
 ```
 
-macOS 키체인·클립보드·age 키체인 로드는 수동 **NOT VERIFIED** 체크리스트 필요.
+환경 변수(테스트): `KC_SECURITY`, `KC_TEST_KEYCHAIN=1`, `KC_FAKE_SECURITY_*`, `KC_CLIP_*`, `KC_CP_CLEAR_SECONDS`, `KC_CP_WAIT_CLEAR`.
 
-## 설계 편차
+## 실 Mac 수동 체크리스트 (5)
 
-[0002-m1-implementation-notes.md](docs/decisions/0002-m1-implementation-notes.md)
+1. `kc keygen` → `KC_KEY` 또는 키체인 `kc.age`/`kc` 항목에 저장 후 `kc set demo` / `kc get demo`
+2. `kc get groq` — ai-core `local.study.ai.groq` primary 키 읽기(읽기 전용; `kc set groq` 거부)
+3. `kc cp demo` — 클립보드 붙여넣기 후 ~30초 뒤 자동 삭제
+4. `kc set x --clip` — pbcopy/pbpaste 경로, 저장 후 클립보드 비움
+5. 샌드박스 터미널(Codex/Claude Code)에서 `kc get` — 키체인 실패 시 종료 3과 stderr
 
 ## NEXT CONTEXT
 
-M2: `link`, macOS keychain 실기 검증, ai-core 슬롯 형식 대조(`ai-core` 저장소).
+M2: `link`, `kc doctor`, ai-core와 config provider 목록 동기화.

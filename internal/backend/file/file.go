@@ -35,6 +35,7 @@ func init() {
 			instance: instanceName,
 			path:     path,
 			home:     args.Deps.Home,
+			security: args.Deps.SecurityRunner,
 		}, nil
 	})
 }
@@ -50,10 +51,14 @@ type storeData struct {
 }
 
 // Store is an age-encrypted file backend.
+const ageKeyService = "kc.age"
+const ageKeyAccount = "kc"
+
 type Store struct {
 	instance string
 	path     string
 	home     string
+	security backend.SecurityRunner
 	mu       sync.Mutex
 }
 
@@ -66,6 +71,9 @@ func (s *Store) Caps() backend.Capabilities {
 func (s *Store) Available(ctx context.Context) (bool, string, error) {
 	if _, err := s.loadIdentity(); err != nil {
 		if errors.Is(err, kcerrors.ErrLocked) {
+			if _, statErr := os.Stat(s.path); statErr == nil {
+				return false, "", fmt.Errorf("%w", kcerrors.ErrLocked)
+			}
 			return false, "KC_KEY 없음", nil
 		}
 		return false, err.Error(), nil
@@ -167,7 +175,7 @@ func (s *Store) readStoreLocked() (storeData, error) {
 	}
 	r, err := age.Decrypt(f, id)
 	if err != nil {
-		return storeData{}, fmt.Errorf("decrypt store: %w", err)
+		return storeData{}, fmt.Errorf("%w: decrypt store", kcerrors.ErrLocked)
 	}
 	raw, err := io.ReadAll(r)
 	if err != nil {
@@ -258,9 +266,16 @@ func (s *Store) loadIdentity() (age.Identity, error) {
 		}
 		return id, nil
 	}
-	if runtime.GOOS == "darwin" {
-		// Age key from keychain item kc.age is NOT VERIFIED on real Mac hardware.
-		return nil, fmt.Errorf("%w", kcerrors.ErrLocked)
+	if s.security != nil && (runtime.GOOS == "darwin" || os.Getenv("KC_TEST_KEYCHAIN") == "1") {
+		out, err := s.security.Run(context.Background(), "find-generic-password", "-s", ageKeyService, "-a", ageKeyAccount, "-w")
+		if err == nil {
+			key := strings.TrimSpace(string(out))
+			id, err := age.ParseX25519Identity(key)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid age key in keychain", kcerrors.ErrLocked)
+			}
+			return id, nil
+		}
 	}
 	return nil, fmt.Errorf("%w", kcerrors.ErrLocked)
 }
