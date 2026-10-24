@@ -28,10 +28,13 @@ func newExportCmd(a *app.App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			secrets := map[string][]byte{}
 			for _, name := range args {
-				val, _, err := a.Resolver.Get(cmd.Context(), name)
+				val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
 				if err != nil {
 					if kcerrors.Code(err) == kcerrors.ExitNotFound {
 						fmt.Fprintf(cmd.ErrOrStderr(), "kc: %s 없음. 사용자에게 'kc set %s' 실행을 요청하세요.\n", name, name)
+					}
+					if kcerrors.Code(err) == kcerrors.ExitDenied {
+						fmt.Fprintf(cmd.ErrOrStderr(), "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
 					}
 					return err
 				}

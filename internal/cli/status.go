@@ -28,7 +28,7 @@ func newStatusCmd(a *app.App) *cobra.Command {
 			}
 			var stale []string
 			for _, e := range entries {
-				val, _, err := a.Resolver.Get(cmd.Context(), e.Name)
+				val, _, err := a.Resolver.Get(readCtx(cmd, "status"), e.Name)
 				if err != nil {
 					continue
 				}

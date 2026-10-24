@@ -29,7 +29,7 @@ func newGitCredentialCmd(a *app.App) *cobra.Command {
 			if host != "github.com" {
 				return nil
 			}
-			val, _, err := a.Resolver.Get(cmd.Context(), "github")
+			val, _, err := a.Resolver.Get(readCtx(cmd, "git-credential"), "github")
 			if err != nil {
 				return err
 			}

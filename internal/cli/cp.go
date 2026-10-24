@@ -30,8 +30,11 @@ func newCpCmd(a *app.App) *cobra.Command {
 					return err
 				}
 			}
-			val, _, err := a.Resolver.Get(cmd.Context(), name)
+			val, _, err := a.Resolver.Get(readCtx(cmd, "cp"), name)
 			if err != nil {
+				if kcerrors.Code(err) == kcerrors.ExitDenied {
+					fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
+				}
 				return err
 			}
 			text := string(val)

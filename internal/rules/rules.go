@@ -51,6 +51,7 @@ When a token or API key is missing for %s:
 2. Prefer `+"`kc exec --only NAME -- COMMAND...`"+` to inject env for a subprocess; otherwise `+"`kc get NAME`"+` (stdout only, do not log).
 3. Never echo, paste, or commit secret values.
 4. Exit code **3** means sandbox-blocked (keychain/clipboard); ask the user to run outside the sandbox or use env-backed secrets.
+5. Exit code **5** means policy denied — ask the user to update the agent allowlist in kc config (`+"`kc policy check NAME`"+`).
 
 Docs: docs/contracts/cli.md, docs/guides/agents.md
 %s`, beginMarker, agent, endMarker)

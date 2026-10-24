@@ -42,8 +42,12 @@ func newExecCmd(a *app.App) *cobra.Command {
 						continue
 					}
 				}
-				val, _, err := a.Resolver.Get(cmd.Context(), it.Name)
+				val, _, err := a.Resolver.Get(readCtx(cmd, "exec"), it.Name)
 				if err != nil {
+					if kcerrors.Code(err) == kcerrors.ExitDenied {
+						fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", it.Name)
+						return err
+					}
 					continue
 				}
 				for _, key := range a.Resolver.EnvNames(it.Name) {

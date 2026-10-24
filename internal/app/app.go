@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -54,9 +55,13 @@ func New(ctx context.Context) (*App, error) {
 		Home:       home,
 		Config:     cfg,
 		ConfigPath: cfgPath,
-		Resolver:   resolve.New(cfg, backends),
+		Resolver:   resolve.New(cfg, backends, home, auditWarn),
 		Deps:       deps,
 	}, nil
+}
+
+func auditWarn(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
 }
 
 // StorePath returns the default age store path.
@@ -78,6 +83,6 @@ func (a *App) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a.Resolver = resolve.New(a.Config, backends)
+	a.Resolver = resolve.New(a.Config, backends, a.Home, auditWarn)
 	return nil
 }

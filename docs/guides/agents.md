@@ -10,7 +10,23 @@ status: implemented
 1. `kc ls --json`으로 이름만 확인한다 (값 금지).
 2. 명령 실행은 `kc exec --only NAME -- COMMAND…`를 우선한다. 단순 조회만 필요하면 `kc get NAME` (stdout만, 로그·커밋 금지).
 3. 종료 코드 **3**은 샌드박스/키체인 차단 — 사용자에게 샌드박스 밖 실행 또는 env 시크릿을 요청한다.
-4. ai-core 키체인 항목(`local.study.ai.*`)은 **읽기 전용**이다.
+4. 종료 코드 **5**는 정책 거부 — `kc policy check NAME`으로 확인하고 사용자에게 allowlist 수정을 요청한다.
+5. ai-core 키체인 항목(`local.study.ai.*`)은 **읽기 전용**이다.
+
+## 에이전트 식별 (감사·정책)
+
+`KC_AGENT`가 설정되면 그 값을 사용한다. 그렇지 않으면 아래 순서로 best-effort 탐지한다.
+
+| 프로필 | 조건 (환경 변수 등) |
+|---|---|
+| `cursor` | `CURSOR_AGENT` truthy 또는 `CURSOR_TRACE_ID` 설정 |
+| `claude` | `CLAUDE_CODE` 또는 `CLAUDE_CODE_ENTRYPOINT` |
+| `codex` | `CODEX_SANDBOX` 또는 `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` |
+| `ci` | `CI`, `GITHUB_ACTIONS`, `GITLAB_CI` 등 |
+| `human` | stdin이 TTY |
+| `unknown` | 위에 해당 없음 (`policy.agent.default` 적용 가능) |
+
+정책 allowlist는 **실수 방지용**이다. 에이전트가 `KC_AGENT`를 바꾸면 우회할 수 있으므로 보안 경계로 쓰지 않는다.
 
 규칙 블록 자동 삽입:
 

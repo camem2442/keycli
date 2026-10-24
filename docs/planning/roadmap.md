@@ -11,7 +11,8 @@ status: active
 | M4 | `setup-git`, `rules`, `doctor`, 에이전트별 설정 가이드 | Cursor/Claude Code/Codex/Antigravity 각 1회 실사용 |
 | M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | **COMPLETE** (Linux `verify.sh --suite all`; 실 Cursor/gh는 NOT VERIFIED) |
 | M5 | 외부 하위 명령·백엔드 프로토콜 | **COMPLETE** (`kc plugin list`, 예제 백엔드, Linux `verify.sh --suite all`) |
-| 이후 | 미들웨어(감사·허용·가림), 1Password 백엔드 | DEFERRED |
+| M6 | 감사·정책 미들웨어, `kc audit`, `kc policy check` | **COMPLETE** (Linux `verify.sh --suite all`) |
+| 이후 | TTL 캐시, rate limit, 출력 가림, 1Password 백엔드 | DEFERRED |
 
 ## 진행 (2026-10-24)
 
@@ -24,3 +25,5 @@ status: active
 | M4 `setup-git`, `rules`, `doctor`, [agents.md](../guides/agents.md) | **COMPLETE** (Linux CI); 에이전트 실사용은 **NOT VERIFIED** |
 | M4.5 `push`/`export`/`import`/`status` | **COMPLETE** (Linux CI; 실 API는 **NOT VERIFIED**) |
 | M5 external plugin protocol, `kc plugin list`, [examples/kc-backend-demo](../../examples/kc-backend-demo) | **COMPLETE** (Linux CI) |
+| M6 audit + policy middleware | **COMPLETE** (Linux CI) |
+| TTL 캐시 / rate limit / masking / 1Password | **DEFERRED** |
