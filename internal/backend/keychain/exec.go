@@ -51,6 +51,8 @@ func (e ExecRunner) runAddGenericPassword(ctx context.Context, stdin []byte, arg
 	if update {
 		line.WriteString(" -U")
 	}
+	line.WriteString(" -T ")
+	line.WriteString(securityBin)
 	line.WriteString(" -X ")
 	line.WriteString(hex.EncodeToString(password))
 	line.WriteByte('\n')

@@ -39,6 +39,14 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 
 순수 Go(`CGO_ENABLED=0`). 값 조회는 네트워크 불필요, `kc push`만 네트워크 사용. cobra, filippo.io/age, BurntSushi/toml, atotto/clipboard. macOS 키체인은 `/usr/bin/security` 직접 호출.
 
+## 설치
+
+**Mac (개발·로컬, sudo 없음):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
+
+**Cloud / Linux (원라이너):** `curl -fsSL …/scripts/install.sh | bash` 또는 클론 후 `KC_INSTALL_REF=v0.1.0 bash scripts/install.sh` — 순서: `gh release download` → `go install`(private 시 `GOPRIVATE`·git auth) → 실패 시 안내. 공개 저장소면 `go install`만으로도 가능.
+
+**제거:** `bash scripts/lifecycle.sh uninstall`
+
 ## Linux 빠른 시작
 
 ```bash

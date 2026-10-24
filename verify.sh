@@ -61,12 +61,11 @@ run_policy() {
 }
 
 run_release() {
-  export CGO_ENABLED=0
-  mkdir -p "$ROOT/dist"
-  GOOS=darwin GOARCH=arm64 go build -o "$ROOT/dist/kc-darwin-arm64" ./cmd/kc
-  GOOS=darwin GOARCH=amd64 go build -o "$ROOT/dist/kc-darwin-amd64" ./cmd/kc
-  GOOS=linux GOARCH=amd64 go build -o "$ROOT/dist/kc-linux-amd64" ./cmd/kc
-  GOOS=linux GOARCH=amd64 go build -o "$ROOT/dist/keycli-linux-amd64" ./cmd/keycli
+  bash "$ROOT/scripts/lifecycle.sh" release
+}
+
+run_mac_smoke() {
+  bash "$ROOT/scripts/mac-smoke.sh"
 }
 
 case "$suite" in
@@ -78,6 +77,7 @@ case "$suite" in
     run_vet_darwin
     run_unit
     run_release
+    run_mac_smoke
     ;;
   docs) run_docs ;;
   policy) run_policy ;;
@@ -102,6 +102,9 @@ case "$suite" in
     ;;
   release)
     run_release
+    ;;
+  mac-smoke)
+    run_mac_smoke
     ;;
   *)
     echo "unknown suite: $suite" >&2

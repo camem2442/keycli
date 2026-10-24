@@ -8,6 +8,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +22,7 @@ func Execute() int {
 	root := &cobra.Command{
 		Use:          "kc",
 		Short:        "keycli — personal secrets CLI",
+		Version:      version.String(),
 		SilenceUsage: true,
 	}
 	root.AddCommand(newLSCmd(a))
