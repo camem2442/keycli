@@ -32,6 +32,10 @@
 
 Mac 개발 루프: `bash scripts/lifecycle.sh build-dev --install` 후 `./verify.sh --suite mac-smoke`.
 
+## License
+
+저장소 **public** 전환에 맞춰 [LICENSE](LICENSE)는 **MIT**(2026 camem2442)로 두었다. owner가 다른 라이선스를 원하면 교체하면 된다.
+
 ## NEXT CONTEXT
 
 M2: `link`, `kc doctor`. Owner Mac에서 `mac-smoke` green + 키체인 쓰기 승인 후 ACL 재확인.

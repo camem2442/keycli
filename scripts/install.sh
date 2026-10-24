@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Cloud-friendly install: gh release binary, else go install, else fail.
+# Install kc to ~/.local/bin (no sudo). Public repo: curl release or go install first.
 set -euo pipefail
 
-REF="${KC_INSTALL_REF:-main}"
+REF="${KC_INSTALL_REF:-latest}"
 PREFIX="${PREFIX:-${HOME}/.local/bin}"
-REPO="${KC_INSTALL_REPO:-github.com/camem2442/keycli}"
-MODULE="${REPO}/cmd/kc"
+MODULE="github.com/camem2442/keycli/cmd/kc"
+GITHUB_REPO="camem2442/keycli"
 
 detect_platform() {
   local os arch
@@ -23,41 +23,74 @@ detect_platform() {
   PLATFORM_ARCH=$arch
 }
 
-install_from_release() {
+resolve_release_tag() {
+  local ref="$1"
+  if [[ "$ref" == "latest" || "$ref" == "main" ]]; then
+    curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
+      grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+  else
+    echo "$ref"
+  fi
+}
+
+install_from_curl() {
   local asset="kc-${PLATFORM_OS}-${PLATFORM_ARCH}"
-  local tmp repo_tag
+  local tag tmp url
+  tag="$(resolve_release_tag "$REF")"
+  if [[ -z "$tag" ]]; then
+    return 1
+  fi
   tmp="$(mktemp -d)"
-  repo_tag=()
-  if [[ "$REF" != "main" && "$REF" != "latest" ]]; then
-    repo_tag=("$REF")
+  url="https://github.com/${GITHUB_REPO}/releases/download/${tag}/${asset}"
+  if ! curl -fsSL "$url" -o "$tmp/$asset"; then
+    return 1
   fi
-  if gh release download "${repo_tag[@]}" --repo "camem2442/keycli" --pattern "${asset}" --dir "$tmp" 2>/dev/null; then
-    mkdir -p "$PREFIX"
-    install -m 755 "$tmp/$asset" "$PREFIX/kc"
-    ln -sf kc "$PREFIX/keycli"
-    echo "installed from GitHub release $REF -> $PREFIX"
-    return 0
-  fi
-  return 1
+  mkdir -p "$PREFIX"
+  install -m 755 "$tmp/$asset" "$PREFIX/kc"
+  ln -sf kc "$PREFIX/keycli"
+  echo "installed ${asset} from release ${tag} -> $PREFIX"
+  return 0
 }
 
 install_from_go() {
   if ! command -v go >/dev/null 2>&1; then
     return 1
   fi
-  echo "install: go install ${MODULE}@${REF} (private repo needs GOPRIVATE + git auth)" >&2
+  local ver="$REF"
+  if [[ "$ver" == "main" ]]; then
+    ver="latest"
+  fi
   export CGO_ENABLED=0
-  go install "${MODULE}@${REF}"
+  go install "${MODULE}@${ver}"
   local gopath
   gopath="$(go env GOPATH)/bin/kc"
   if [[ ! -x "$gopath" ]]; then
-    echo "go install did not produce $gopath" >&2
     return 1
   fi
   mkdir -p "$PREFIX"
   install -m 755 "$gopath" "$PREFIX/kc"
   ln -sf kc "$PREFIX/keycli"
-  echo "installed via go install -> $PREFIX"
+  echo "installed via go install ${MODULE}@${ver} -> $PREFIX"
+  return 0
+}
+
+install_from_gh() {
+  if ! command -v gh >/dev/null 2>&1; then
+    return 1
+  fi
+  local asset="kc-${PLATFORM_OS}-${PLATFORM_ARCH}"
+  local tmp=() tag_args=()
+  tmp="$(mktemp -d)"
+  if [[ "$REF" != "latest" && "$REF" != "main" ]]; then
+    tag_args=("$REF")
+  fi
+  if ! gh release download "${tag_args[@]}" --repo "$GITHUB_REPO" --pattern "$asset" --dir "$tmp" 2>/dev/null; then
+    return 1
+  fi
+  mkdir -p "$PREFIX"
+  install -m 755 "$tmp/$asset" "$PREFIX/kc"
+  ln -sf kc "$PREFIX/keycli"
+  echo "installed via gh release download -> $PREFIX"
   return 0
 }
 
@@ -65,28 +98,21 @@ fail_help() {
   cat >&2 <<EOF
 kc install failed.
 
-Try one of:
-  1) Authenticate gh and ensure release $REF exists:
-       gh auth login
-       KC_INSTALL_REF=$REF bash scripts/install.sh
-  2) Install with Go (private repo: export GOPRIVATE=${REPO} and configure git credentials):
-       go install ${MODULE}@${REF}
-  3) Build from clone:
-       bash scripts/lifecycle.sh build-dev --install
+Try:
+  curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh | bash
+  go install ${MODULE}@latest
+  bash scripts/lifecycle.sh build-dev --install   # from a git clone
 
-If this repository becomes public, go install works without extra auth.
+Optional: gh release download (if gh is authenticated).
+Fork/private clone: set GOPRIVATE and git credentials, then go install.
 EOF
   exit 1
 }
 
 detect_platform
 
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  install_from_release && exit 0
-fi
-
-if install_from_go; then
-  exit 0
-fi
+if install_from_curl; then exit 0; fi
+if install_from_go; then exit 0; fi
+if install_from_gh; then exit 0; fi
 
 fail_help

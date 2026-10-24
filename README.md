@@ -41,9 +41,17 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 
 ## 설치
 
-**Mac (개발·로컬, sudo 없음):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
+**Cloud / Linux (권장, 인증 불필요):** GitHub Release 바이너리 또는 `go install`:
 
-**Cloud / Linux (원라이너):** `curl -fsSL …/scripts/install.sh | bash` 또는 클론 후 `KC_INSTALL_REF=v0.1.0 bash scripts/install.sh` — 순서: `gh release download` → `go install`(private 시 `GOPRIVATE`·git auth) → 실패 시 안내. 공개 저장소면 `go install`만으로도 가능.
+```bash
+curl -fsSL https://raw.githubusercontent.com/camem2442/keycli/main/scripts/install.sh | bash
+# 또는
+go install github.com/camem2442/keycli/cmd/kc@latest
+```
+
+`KC_INSTALL_REF=v1.0.0`으로 특정 태그를 고를 수 있다. `gh release download`는 `gh` 로그인 시 선택 경로.
+
+**Mac (로컬 개발):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
 
 **제거:** `bash scripts/lifecycle.sh uninstall`
 
@@ -66,4 +74,4 @@ macOS에서는 `KC_KEY` 대신 키체인 항목 `kc.age` / 계정 `kc`에 age id
 
 ## License
 
-Private.
+[MIT](LICENSE)
