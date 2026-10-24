@@ -21,6 +21,3 @@ type Target interface {
 	Push(ctx context.Context, secrets []Secret) error
 	List(ctx context.Context) ([]string, error)
 }
-
-// Registry holds named targets (populated in later milestones).
-var Registry = map[string]Target{}

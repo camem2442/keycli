@@ -50,7 +50,8 @@ type secretRecord struct {
 }
 
 type storeData struct {
-	Secrets map[string]secretRecord `json:"secrets"`
+	Secrets       map[string]secretRecord `json:"secrets"`
+	LedgerHMACKey string                  `json:"ledger_hmac_key,omitempty"`
 }
 
 // Store is an age-encrypted file backend.
@@ -267,6 +268,15 @@ func (s *Store) loadIdentity() (age.Identity, error) {
 		id, err := age.ParseX25519Identity(key)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid KC_KEY", kcerrors.ErrLocked)
+		}
+		return id, nil
+	}
+	receiverPath := filepath.Join(s.home, ".kc", "receiver.key")
+	if data, err := os.ReadFile(receiverPath); err == nil {
+		key := strings.TrimSpace(string(data))
+		id, err := age.ParseX25519Identity(key)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid receiver.key", kcerrors.ErrLocked)
 		}
 		return id, nil
 	}

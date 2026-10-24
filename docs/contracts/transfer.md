@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 ---
 # 맥 → 클라우드 전송 계약
 
@@ -16,8 +16,8 @@ status: proposed
 
 | 대상 | 방식 | 기본값 | 비고 |
 |---|---|---|---|
-| `cursor` | Cursor Cloud Agents API `PUT /v1/environments/{id}/secrets/{name}` | 타입 `runtime_secret`, `--repos`로 범위 제한 | API 키는 맥 키체인에 보관. `409 secret_name_ambiguous` 처리. 값 1–4096바이트, 환경당 1000개. Build Secret은 API 불가. 팀 단위 엔드포인트는 **NOT VERIFIED** |
-| `gh` | `gh secret set -f - --user [--repos …] --app codespaces|actions|agents` | stdin 전달 | argv에 값 없음. Codespaces는 빌드 단계에서 시크릿 없음, 변경은 재시작 후 반영 |
+| `cursor` | Cursor Cloud Agents API `PUT /v1/environments/{id}/secrets/{name}` | 타입 `runtime_secret`, `--repos`로 범위 제한 | API 키: `cursor-api-key`(resolver) 또는 `KC_CURSOR_API_KEY`. 환경 ID: `--env-id` 또는 `KC_CURSOR_ENVIRONMENT_ID`. [공식 문서](https://cursor.com/docs/cloud-agent/api/endpoints) — Basic `API_KEY:` 인증, JSON body `value`/`type`/`repos`. `409 secret_name_ambiguous`, 값 1–4096바이트, 환경당 1000개. **실 API 호출: NOT VERIFIED** (Linux httptest만). 팀 단위 엔드포인트: **NOT VERIFIED** |
+| `gh` | `gh secret set NAME -f -` (dotenv 한 줄을 stdin) `[--user] [--repos …] --app codespaces\|actions\|agents` | `--app codespaces` | argv에 값 없음. **실 gh 호출: NOT VERIFIED** (fake `gh` 스크립트 테스트만) |
 
 ## export 형식
 
@@ -26,26 +26,28 @@ status: proposed
 | Codex Cloud, Claude Code 웹 | `--format dotenv` (클립보드) | 두 플랫폼 모두 `.env` 붙여넣기 지원 |
 | Cursor | push 우선, 일괄 붙여넣기는 **NOT VERIFIED** | |
 
-Codex·Claude Code의 **network secret**은 VM에 값이 들어오지 않아 kc가 읽을 수 없다. 프록시 주입으로 충분하면 그쪽을 권장하고, 원값이 필요한 경우에만 환경변수로 등록한다.
+`--stdout`은 stdout이 TTY가 **아닐 때만** dotenv 출력. TTY에서는 클립보드만.
+
+`--to-github USER`는 `https://github.com/USER.keys` 를 가져온다. **push 외 유일한 네트워크 사용** (export 시).
 
 ## age 전달
 
 ```bash
 # 클라우드: 수신자 키 확보
-kc init                       # age1… 공개키 출력 (SSH 키가 있으면 생략 가능)
+kc init                       # age1… 공개키 stdout, identity는 ~/.kc/receiver.key (KC_KEY 없을 때)
 # 맥
-kc export github openai --to age1...          # 또는 --to "ssh-ed25519 …"
-kc export github --to-github <user>           # github.com/<user>.keys
+kc export github openai --to age1...
+kc export github --to-github <user>
 # 클라우드
 kc import < bundle.age
 ```
 
-수신자 우선순위: `--to` → `--to-github` → `kc init` 키. SSH 수신자는 암호문에 공개키 태그가 남는다는 경고를 표시한다. ssh-agent·하드웨어 키는 age 복호화에 사용 불가.
+수신자 우선순위: `--to` → `--to-github`. SSH 수신자 사용 시 stderr 경고(암호문에 공개키 태그).
 
 ## 변경 추적
 
-- 맥 로컬 원장 `~/.kc/ledger.json`: `{name, target, hmac(value), exported_at}`. 값·평문 해시는 저장하지 않는다(HMAC 키는 kc 저장소 안).
-- `kc status`: 내보낸 뒤 값이 바뀐 항목을 "재전송 필요"로 표시. `kc ls`에도 표시.
+- 맥 로컬 원장 `~/.kc/ledger.json`: `{name, target, hmac, exported_at}`. HMAC 키는 암호화 파일 저장소의 `ledger_hmac_key` 필드.
+- `kc status`:보낸 뒤 값이 바뀐 항목. `kc ls`는 `*` 및 `stale_export` (JSON).
 
 ## 단계별 가용성
 
@@ -55,7 +57,7 @@ kc import < bundle.age
 | Codex Cloud 구버전 | 에이전트 단계 (설정 단계에서만 존재) |
 | Codespaces | 빌드 단계, dev container feature |
 
-env에 값이 없으면 종료 코드 2와 함께 "설정·빌드 단계라 아직 주입되지 않았을 수 있음"을 덧붙인다.
+env에 값이 없으면 종료 코드 2와 함께 phase hint(설정·빌드 단계)를 stderr에 덧붙인다.
 
 ## 권장 운영
 
