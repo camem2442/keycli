@@ -20,6 +20,7 @@ func newLSCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			items = a.AnnotateStale(cmd.Context(), items)
 			sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 			if asJSON {
 				payload := struct {
@@ -31,7 +32,11 @@ func newLSCmd(a *app.App) *cobra.Command {
 				return enc.Encode(payload)
 			}
 			for _, it := range items {
-				fmt.Println(it.Name)
+				line := it.Name
+				if it.StaleExport {
+					line += " *"
+				}
+				fmt.Println(line)
 			}
 			return nil
 		},

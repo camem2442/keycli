@@ -21,6 +21,9 @@ func newGetCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				if kcerrors.Code(err) == kcerrors.ExitNotFound {
 					fmt.Fprintf(os.Stderr, "kc: %s 없음. 사용자에게 'kc set %s' 실행을 요청하세요.\n", args[0], args[0])
+					if a.Resolver.HasEnvBackend() {
+						fmt.Fprintln(os.Stderr, kcerrors.PhaseHint)
+					}
 				}
 				return err
 			}
