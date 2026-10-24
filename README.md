@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **M1 구현됨.** 진행·검증 상태는 [HANDOFF.md](HANDOFF.md).
+> 상태: **M2–M4 구현됨** (`link`, `setup-git`, `rules`, `doctor`). 진행·검증은 [HANDOFF.md](HANDOFF.md).
 
 ## 사용 흐름 (설계)
 
@@ -12,9 +12,10 @@ kc set openai --clip          # 클립보드 값을 저장하고 클립보드 �
 kc link groq keychain:local.study.ai.groq
 
 # 에이전트: 필요할 때 꺼냄
-kc ls                         # 이름만
-GH_TOKEN=$(kc get github) gh pr list
-kc exec -- npm run deploy     # 환경변수로 주입
+kc ls --json                  # 이름·출처 메타만
+kc exec --only github -- gh pr list
+kc rules --write AGENTS.md     # 에이전트 규칙 블록 삽입
+kc doctor --json
 
 # 사람: 복사
 kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭제
@@ -30,6 +31,7 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 | CLI·출력·종료 코드 계약 | [docs/contracts/cli.md](docs/contracts/cli.md) |
 | 아키텍처·확장 지점 | [docs/contracts/architecture.md](docs/contracts/architecture.md) |
 | 보안 모델과 한계 | [docs/contracts/security-model.md](docs/contracts/security-model.md) |
+| 에이전트별 설정 | [docs/guides/agents.md](docs/guides/agents.md) |
 
 ## 이름
 

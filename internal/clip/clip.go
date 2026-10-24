@@ -27,6 +27,14 @@ type Provider struct {
 	OSC52Enabled bool
 }
 
+// Status reports clipboard availability for doctor (no I/O with secrets).
+func Status() string {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		return "ok"
+	}
+	return "unavailable"
+}
+
 // AutoClearDelay returns cp auto-clear duration (KC_CP_CLEAR_SECONDS or 30s).
 func AutoClearDelay() time.Duration {
 	if v := os.Getenv("KC_CP_CLEAR_SECONDS"); v != "" {

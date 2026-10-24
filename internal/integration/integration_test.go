@@ -162,6 +162,49 @@ service_prefix = "local.study.ai"
 	if strings.Contains(string(log), "piped-value") || strings.Contains(string(log), "OAIPASS") {
 		t.Fatal("secret in argv log")
 	}
+
+	_ = os.WriteFile(state, []byte(`{"entries":{"other-svc\ta1":"LINKED"}}`), 0o600)
+	linkCfg := strings.Replace(configToml, `order = ["env", "store", "work"]`, `order = ["link", "env", "store", "work"]`, 1) + `
+[backend.link]
+type = "link"
+
+[link.ext]
+type = "keychain"
+service = "other-svc"
+account = "a1"
+`
+	_ = os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(linkCfg), 0o644)
+	code, out = runKC(baseEnv, "link", "ext", "keychain:other-svc/a1")
+	if code != 0 {
+		t.Fatalf("link: %d %s", code, out)
+	}
+	code, out = runKC(baseEnv, "get", "ext")
+	if code != 0 || strings.TrimSpace(out) != "LINKED" {
+		t.Fatalf("linked get: %d %q", code, out)
+	}
+	code, out = runKC(baseEnv, "get", "ext", "--source")
+	if code != 0 || !strings.Contains(out, "link:keychain:other-svc/a1") {
+		t.Fatalf("source: %d %q", code, out)
+	}
+	code, out = runKC(baseEnv, "unlink", "ext")
+	if code != 0 {
+		t.Fatalf("unlink: %d", code)
+	}
+
+	code, out = runKC(baseEnv, "doctor", "--json")
+	if code != 0 || !strings.Contains(out, `"config_path"`) {
+		t.Fatalf("doctor: %d", code)
+	}
+
+	code, out = runKC(baseEnv, "rules", "--target", "cursor")
+	if code != 0 || !strings.Contains(out, "kc ls --json") {
+		t.Fatalf("rules: %d", code)
+	}
+
+	code, out = runKC(baseEnv, "setup-git", "--dry-run")
+	if code != 0 || !strings.Contains(out, "git-credential") {
+		t.Fatalf("setup-git: %d %q", code, out)
+	}
 }
 
 func withoutEnv(env []string, key string) []string {

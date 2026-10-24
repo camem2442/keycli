@@ -96,25 +96,24 @@ func (k *Keychain) isAICoreProtected(name string) bool {
 }
 
 func (k *Keychain) Get(ctx context.Context, name string) ([]byte, error) {
+	val, _, err := k.GetWithSource(ctx, name)
+	return val, err
+}
+
+// GetWithSource resolves a name via ai-core adapter or kc.secret.* writes.
+func (k *Keychain) GetWithSource(ctx context.Context, name string) ([]byte, string, error) {
 	ok, msg, err := k.Available(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
+		return nil, "", fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
 	if ac, ok := ParseAICoreName(name); ok {
-		return AICoreLookup(ctx, k.runner, ac)
+		return AICoreLookupWithSource(ctx, k.runner, ac)
 	}
 	service := k.writeService(name)
-	out, err := k.runner.Run(ctx, "find-generic-password", "-s", service, "-a", "kc", "-w")
-	if err == nil {
-		return []byte(strings.TrimSpace(string(out))), nil
-	}
-	if mapped := MapSecurityExit(err); errorsIsNotFound(mapped) {
-		return nil, mapped
-	}
-	return nil, MapSecurityExit(err)
+	return FindGenericPassword(ctx, k.runner, service, "kc")
 }
 
 func (k *Keychain) List(ctx context.Context) ([]backend.Item, error) {

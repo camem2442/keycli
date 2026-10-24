@@ -33,6 +33,12 @@ func Execute() int {
 	root.AddCommand(newRmCmd(a))
 	root.AddCommand(newKeygenCmd())
 	root.AddCommand(newClipWaitClearCmd())
+	root.AddCommand(newLinkCmd(a))
+	root.AddCommand(newUnlinkCmd(a))
+	root.AddCommand(newSetupGitCmd(a))
+	root.AddCommand(newGitCredentialCmd(a))
+	root.AddCommand(newRulesCmd(a))
+	root.AddCommand(newDoctorCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {

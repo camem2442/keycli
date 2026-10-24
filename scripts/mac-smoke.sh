@@ -88,18 +88,26 @@ REBUILD_BIN=""
 AGE_CREATED=false
 KC_CONFIG_PATH=""
 
-kc_keychain() {
-  env -u KC_KEY HOME="$REAL_HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" \
+kc_scrub_env() {
+  # 실제 셸의 GROQ_API_KEYS 등이 ai-core 읽기를 가리지 않도록 최소 환경만 유지.
+  env -i \
+    HOME="$REAL_HOME" \
+    USER="${USER:-$(id -un)}" \
+    LOGNAME="${LOGNAME:-$(id -un)}" \
     PATH="${REAL_HOME}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" \
-    KC_CONFIG="$KC_CONFIG_PATH" "$KC" "$@"
+    KC_CONFIG="${KC_CONFIG:-$KC_CONFIG_PATH}" \
+    ${GIT_CONFIG_GLOBAL:+GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL"} \
+    "$@"
+}
+
+kc_keychain() {
+  kc_scrub_env "$KC" "$@"
 }
 
 kc_with_config() {
   local cfg=$1
   shift
-  env -u KC_KEY HOME="$REAL_HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" \
-    PATH="${REAL_HOME}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin" \
-    KC_CONFIG="$cfg" "$KC" "$@"
+  KC_CONFIG="$cfg" kc_scrub_env "$KC" "$@"
 }
 
 cleanup() {
@@ -183,11 +191,18 @@ if /usr/bin/security find-generic-password -s local.study.ai.groq -a groq_api_ke
   /usr/bin/security find-generic-password -s local.study.ai.groq -a groq_api_key_1 >/dev/null 2>&1 || \
   /usr/bin/security dump-keychain 2>/dev/null | grep -q 'local.study.ai'; then
   groq_out=""
+  groq_src=""
   groq_rc=0
-  smoke_get_groq() { kc_keychain get groq; }
+  smoke_get_groq() { kc_keychain get groq --source 2>"$SMOKE_DIR/groq-source.err"; }
   groq_out="$(run_keychain_step "kc get groq (키체인)" smoke_get_groq)" || groq_rc=$?
+  groq_src="$(grep '^kc: source:' "$SMOKE_DIR/groq-source.err" 2>/dev/null | head -1 || true)"
   if [[ $groq_rc -eq 0 && ${#groq_out} -gt 0 ]]; then
-    echo "mac-smoke: ai-core groq present len=${#groq_out}"
+    echo "mac-smoke: ai-core groq present len=${#groq_out} source=${groq_src#kc: source: }"
+    if [[ "$groq_src" != *"keychain:"* ]]; then
+      echo "mac-smoke: expected keychain source, got: $groq_src" >&2
+      echo "mac-smoke: hint: scrubbed env required (GROQ_API_KEYS must not shadow keychain)" >&2
+      exit 1
+    fi
     run_keychain_step "ai-core groq 재읽기 (재프롬프트 없어야 함)" smoke_get_groq >/dev/null
     echo "mac-smoke: ai-core second read OK"
   else
@@ -234,6 +249,43 @@ else
   echo "mac-smoke: kc.age round-trip OK"
 fi
 
+echo "mac-smoke: kc link (throwaway keychain item)"
+LINK_ITEM="kc.test.link-$(openssl rand -hex 2)"
+LINK_NAME="smokelink-$(openssl rand -hex 2)"
+smoke_link_write() {
+  local hex
+  hex="$(printf '%s' link-smoke-val | xxd -p | tr -d '\n')"
+  printf 'add-generic-password -s %s -a kc -U -T /usr/bin/security -X %s\n' "$LINK_ITEM" "$hex" | /usr/bin/security -i
+}
+if run_keychain_step "키체인에 link 테스트 항목 저장" smoke_link_write; then
+  if kc_keychain link "$LINK_NAME" "keychain:${LINK_ITEM}/kc" >/dev/null; then
+    got_link="$(kc_keychain get "$LINK_NAME")"
+    if [[ "$got_link" == "link-smoke-val" ]]; then
+      echo "mac-smoke: link read OK"
+      kc_keychain unlink "$LINK_NAME" >/dev/null || true
+    else
+      echo "mac-smoke: link get mismatch" >&2
+      exit 1
+    fi
+  fi
+  /usr/bin/security delete-generic-password -s "$LINK_ITEM" -a kc 2>/dev/null || true
+fi
+
+echo "mac-smoke: setup-git (GIT_CONFIG_GLOBAL temp)"
+export GIT_CONFIG_GLOBAL="$SMOKE_DIR/gitconfig"
+touch "$GIT_CONFIG_GLOBAL"
+if ! kc_keychain setup-git --dry-run | grep -q git-credential; then
+  echo "mac-smoke: setup-git dry-run failed" >&2
+  exit 1
+fi
+if kc_keychain setup-git >/dev/null; then
+  if git config --global --get credential.https://github.com.helper | grep -q 'kc git-credential'; then
+    echo "mac-smoke: setup-git configured"
+    kc_keychain setup-git --undo >/dev/null || true
+  fi
+fi
+unset GIT_CONFIG_GLOBAL
+
 echo "mac-smoke: sandbox exit 3 (best effort)"
 SANDBOX_CFG="$SMOKE_DIR/sandbox.toml"
 write_keychain_only_config "$SANDBOX_CFG"
@@ -250,8 +302,9 @@ cat >"$SB_PROFILE" <<'SB'
 (allow signal)
 SB
 if sandbox-exec -f "$SB_PROFILE" \
-  env -u KC_KEY HOME="$REAL_HOME" KC_CONFIG="$SANDBOX_CFG" \
-  PATH="${REAL_HOME}/.local/bin:/usr/bin:/bin" "$KC" get groq >/dev/null 2>/tmp/kc-sandbox.err; then
+  env -i HOME="$REAL_HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" \
+  PATH="${REAL_HOME}/.local/bin:/usr/bin:/bin" KC_CONFIG="$SANDBOX_CFG" \
+  "$KC" get groq >/dev/null 2>/tmp/kc-sandbox.err; then
   echo "mac-smoke: sandbox did not block (exit 0) — NOT VERIFIED exit 3"
 else
   SANDBOX_RC=$?

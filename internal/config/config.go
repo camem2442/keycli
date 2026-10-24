@@ -21,6 +21,7 @@ type Config struct {
 	Order          []string               `toml:"order"`
 	Backend        map[string]BackendSpec `toml:"backend"`
 	Alias          map[string][]string    `toml:"alias"`
+	Link           map[string]LinkTarget  `toml:"link"`
 	AllowTestHooks bool                   `toml:"allow_test_hooks"`
 }
 
@@ -28,8 +29,9 @@ type Config struct {
 func Default(home string) Config {
 	storePath := filepath.Join(home, ".kc", "store.age")
 	return Config{
-		Order: []string{"env", "store"},
+		Order: []string{"link", "env", "store"},
 		Backend: map[string]BackendSpec{
+			"link":  {Type: "link"},
 			"env":   {Type: "env"},
 			"store": {Type: "file", Path: storePath},
 		},
@@ -71,6 +73,10 @@ func Load(home string) (Config, string, error) {
 	if c.Alias == nil {
 		c.Alias = map[string][]string{}
 	}
+	if c.Link == nil {
+		c.Link = map[string]LinkTarget{}
+	}
+	EnsureLinkBackend(&c)
 	for name, spec := range c.Backend {
 		if spec.Path != "" {
 			spec.Path = expandHome(spec.Path, home)
@@ -78,6 +84,41 @@ func Load(home string) (Config, string, error) {
 		}
 	}
 	return c, path, nil
+}
+
+// Save writes config to path (0600).
+func Save(path string, c Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf strings.Builder
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(buf.String()), 0o600)
+}
+
+// EnsureLinkBackend adds the link backend to order when links exist.
+func EnsureLinkBackend(c *Config) {
+	if len(c.Link) == 0 {
+		return
+	}
+	if c.Backend == nil {
+		c.Backend = map[string]BackendSpec{}
+	}
+	if _, ok := c.Backend["link"]; !ok {
+		c.Backend["link"] = BackendSpec{Type: "link"}
+	}
+	hasLink := false
+	for _, name := range c.Order {
+		if name == "link" {
+			hasLink = true
+			break
+		}
+	}
+	if !hasLink {
+		c.Order = append([]string{"link"}, c.Order...)
+	}
 }
 
 func expandHome(p, home string) string {
