@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "contract_version": 1,
+  "repository_id": "workspace-infra",
+  "source_commit": "ae5e8378a652cd6d55e28d2bcdf7d113a106b251",
+  "local_binding": "../../../workspace-infra",
+  "files": [
+    {
+      "path": "policies/development-policy.md",
+      "sha256": "5446bbfcddf6da7bfad78fd7e3298498ed07be654bf03280fdebd365f5b5ce60"
+    },
+    {
+      "path": "policies/documentation-structure.md",
+      "sha256": "a6a24d7da23599298b7bda8a5d779c4e36e335757ec66ff26d739c692c48f793"
+    }
+  ]
+}
