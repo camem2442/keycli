@@ -10,7 +10,27 @@ status: implemented
 1. `kc ls --json`으로 이름만 확인한다 (값 금지).
 2. 명령 실행은 `kc exec --only NAME -- COMMAND…`를 우선한다. 단순 조회만 필요하면 `kc get NAME` (stdout만, 로그·커밋 금지).
 3. 종료 코드 **3**은 샌드박스/키체인 차단 — 사용자에게 샌드박스 밖 실행 또는 env 시크릿을 요청한다.
-4. ai-core 키체인 항목(`local.study.ai.*`)은 **읽기 전용**이다.
+4. 종료 코드 **5**는 정책 거부 — `kc policy check NAME`으로 확인하고 사용자에게 allowlist 수정을 요청한다.
+5. ai-core 키체인 항목(`local.study.ai.*`)은 **읽기 전용**이다.
+
+## 에이전트 식별 (감사·정책)
+
+**`KC_AGENT`가 설정되면 항상 그 값을 사용한다** (자동 탐지보다 우선).
+
+그렇지 않으면 **더 구체적인 프로필을 먼저** 검사한다. Cursor가 부모 셸에 `CURSOR_AGENT`를 남기면 Claude Code·Codex 자식 프로세스가 이를 **상속**할 수 있으므로, Claude/Codex 마커가 있으면 `cursor`보다 앞에 판정한다.
+
+2026-10-24 macOS에서 `claude -p` / `codex exec` 및 probe 스크립트로 관측한 변수 **이름** 기준 best-effort 표 (값은 로그에 넣지 않음):
+
+| 순서 | 프로필 | 환경 변수 이름 (설정·truthy 또는 비어 있지 않음) |
+|---|---|---|
+| 1 | `claude` | `CLAUDECODE`, `CLAUDE_CODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ID` |
+| 2 | `codex` | `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, `CODEX_CI`, `CODEX_SANDBOX`, `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` |
+| 3 | `cursor` | `CURSOR_AGENT`, `CURSOR_TRACE_ID` |
+| 4 | `ci` | `CI`, `GITHUB_ACTIONS`, `GITLAB_CI` (`CODEX_CI`는 codex로 처리) |
+| 5 | `human` | stdin이 TTY |
+| 6 | `unknown` | 위에 해당 없음 (`policy.agent.default` 적용 가능) |
+
+정책 allowlist는 **실수 방지용**이다. 에이전트가 `KC_AGENT`를 바꾸면 우회할 수 있으므로 보안 경계로 쓰지 않는다.
 
 규칙 블록 자동 삽입:
 

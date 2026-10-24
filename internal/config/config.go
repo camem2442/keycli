@@ -19,9 +19,30 @@ type BackendSpec struct {
 	Enabled       *bool  `toml:"enabled"` // external: default true when listed in config
 }
 
+// AuditSettings configures the audit middleware (JSONL at ~/.kc/audit.log by default).
+type AuditSettings struct {
+	Enabled  *bool  `toml:"enabled"`
+	Required bool   `toml:"required"`
+	Path     string `toml:"path"`
+	MaxBytes int64  `toml:"max_bytes"`
+}
+
+// PolicyAgentSettings is a per-agent allowlist (globs allowed).
+type PolicyAgentSettings struct {
+	Allow []string `toml:"allow"`
+}
+
+// PolicySettings groups agent allowlists.
+type PolicySettings struct {
+	Agent map[string]PolicyAgentSettings `toml:"agent"`
+}
+
 // Config is ~/.config/kc/config.toml.
 type Config struct {
 	Order          []string               `toml:"order"`
+	Middleware     []string               `toml:"middleware"`
+	Audit          AuditSettings          `toml:"audit"`
+	Policy         PolicySettings         `toml:"policy"`
 	Backend        map[string]BackendSpec `toml:"backend"`
 	Alias          map[string][]string    `toml:"alias"`
 	Link           map[string]LinkTarget  `toml:"link"`
@@ -78,6 +99,12 @@ func Load(home string) (Config, string, error) {
 	}
 	if c.Link == nil {
 		c.Link = map[string]LinkTarget{}
+	}
+	if c.Policy.Agent == nil {
+		c.Policy.Agent = map[string]PolicyAgentSettings{}
+	}
+	if c.Audit.Path != "" {
+		c.Audit.Path = expandHome(c.Audit.Path, home)
 	}
 	EnsureLinkBackend(&c)
 	for name, spec := range c.Backend {

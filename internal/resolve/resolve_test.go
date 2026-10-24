@@ -22,7 +22,7 @@ func TestResolveAliasEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := resolve.New(cfg, backends)
+	r := resolve.New(cfg, backends, dir, nil)
 	val, _, err := r.Get(context.Background(), "gh")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestNotFoundCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := resolve.New(cfg, backends)
+	r := resolve.New(cfg, backends, dir, nil)
 	_, _, err = r.Get(context.Background(), "missing")
 	if kcerrors.Code(err) != kcerrors.ExitNotFound {
 		t.Fatalf("code %d err %v", kcerrors.Code(err), err)

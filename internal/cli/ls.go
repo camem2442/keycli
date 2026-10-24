@@ -12,11 +12,12 @@ import (
 
 func newLSCmd(a *app.App) *cobra.Command {
 	var asJSON bool
+	var showAll bool
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List secret names (never values)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := a.Resolver.List(cmd.Context())
+			items, err := a.Resolver.List(readCtx(cmd, "ls"))
 			if err != nil {
 				return err
 			}
@@ -32,9 +33,15 @@ func newLSCmd(a *app.App) *cobra.Command {
 				return enc.Encode(payload)
 			}
 			for _, it := range items {
+				if it.PolicyDenied && !showAll {
+					continue
+				}
 				line := it.Name
 				if it.StaleExport {
 					line += " *"
+				}
+				if it.PolicyDenied {
+					line += " (policy)"
 				}
 				fmt.Println(line)
 			}
@@ -42,5 +49,6 @@ func newLSCmd(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "JSON output (schema v1)")
+	cmd.Flags().BoolVar(&showAll, "all", false, "Include names denied by agent policy")
 	return cmd
 }

@@ -44,6 +44,8 @@ func Execute() int {
 	root.AddCommand(newRulesCmd(a))
 	root.AddCommand(newDoctorCmd(a))
 	root.AddCommand(newPluginCmd(a))
+	root.AddCommand(newAuditCmd(a))
+	root.AddCommand(newPolicyCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {
