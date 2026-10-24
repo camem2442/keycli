@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **M2–M4 구현됨** (`link`, `setup-git`, `rules`, `doctor`). 진행·검증은 [HANDOFF.md](HANDOFF.md).
+> 상태: **M2–M5 구현됨** (`link`, `setup-git`, `rules`, `doctor`, 외부 플러그인). 진행·검증은 [HANDOFF.md](HANDOFF.md).
 
 ## 사용 흐름 (설계)
 
@@ -30,6 +30,7 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 | 문서 목차 | [docs/README.md](docs/README.md) |
 | CLI·출력·종료 코드 계약 | [docs/contracts/cli.md](docs/contracts/cli.md) |
 | 아키텍처·확장 지점 | [docs/contracts/architecture.md](docs/contracts/architecture.md) |
+| 외부 백엔드 플러그인 | [docs/contracts/plugin-protocol.md](docs/contracts/plugin-protocol.md) |
 | 보안 모델과 한계 | [docs/contracts/security-model.md](docs/contracts/security-model.md) |
 | 에이전트별 설정 | [docs/guides/agents.md](docs/guides/agents.md) |
 

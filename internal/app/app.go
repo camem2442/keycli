@@ -7,6 +7,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/backend"
 	_ "github.com/camem2442/keycli/internal/backend/env"
+	_ "github.com/camem2442/keycli/internal/backend/external"
 	_ "github.com/camem2442/keycli/internal/backend/file"
 	"github.com/camem2442/keycli/internal/backend/keychain"
 	_ "github.com/camem2442/keycli/internal/backend/keychain"

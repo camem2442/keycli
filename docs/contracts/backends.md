@@ -8,7 +8,7 @@ status: proposed
 | env | 모두 | 아니오 | Cursor 클라우드 Secrets 등 이미 주입된 환경변수. `ls`에는 별칭에 등록된 이름과 `KC_` 접두사만 표시 |
 | file | 모두 | 예 | age 암호화 단일 파일, 0600, flock + 임시파일 rename. 키: macOS는 키체인 항목 `kc.age`/`kc`, Linux는 `KC_KEY` |
 | keychain | macOS | 예(사람만) | `/usr/bin/security` 호출. 쓰기는 `security -i` + hex `-X`(argv에 평문 없음). `-T /usr/bin/security`로 ACL 고정 |
-| external | 모두 | 구현에 따름 | `kc-backend-<name>`; 1Password·Bitwarden 등. `NeedsNetwork` 선언 |
+| external | 모두 | 구현에 따름 | `kc-backend-<name>`; config에만 등록·`enabled` 시 실행. [플러그인 프로토콜](plugin-protocol.md). PATH 발견만으로는 실행 안 함 |
 
 ## macOS Keychain ACL
 

@@ -13,7 +13,10 @@ type BackendSpec struct {
 	Type          string `toml:"type"`
 	Path          string `toml:"path"`
 	ServicePrefix string `toml:"service_prefix"`
-	Command       string `toml:"command"` // external kc-backend-* (reserved)
+	Plugin        string `toml:"plugin"`  // external: short name → kc-backend-<plugin>
+	Command       string `toml:"command"` // external: explicit path or binary name (plugins dir, then PATH)
+	Timeout       string `toml:"timeout"` // external: e.g. "30s"
+	Enabled       *bool  `toml:"enabled"` // external: default true when listed in config
 }
 
 // Config is ~/.config/kc/config.toml.
