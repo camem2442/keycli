@@ -6,24 +6,36 @@
 
 ## Current Work Goal
 
-**2026-10-24 — 구현 전 설계 문서화.** 설계·선행 조사·결정을 문서로 고정. 코드 없음.
+**설치·릴리스 UX** — `scripts/lifecycle.sh`, `scripts/install.sh`, `verify.sh` `release`/`mac-smoke`, GitHub Actions `v*` 릴리스, keychain `-T /usr/bin/security`.
 
 ## 상태
 
 | 영역 | 상태 | 근거 |
 |---|---|---|
-| 요구·설계 문서 | **COMPLETE** | 이 저장소 docs/ |
-| 전송 설계 | **COMPLETE** (문서) | [contracts/transfer.md](docs/contracts/transfer.md) |
-| 선행 조사 | **COMPLETE** | [reviews/2026-10-24-prior-art.md](docs/reviews/2026-10-24-prior-art.md) |
-| 구현 | **DEFERRED** | owner 지시 전 시작 금지 |
-| workspace-infra 등록 | **DEFERRED** | `registry/repositories.json` 미등록 |
-| git 저장소 | **PARTIAL** | `git init`만, 커밋 없음 |
+| CLI M1 | **COMPLETE** | `./verify.sh --suite all` (Linux) |
+| Linux CI (fake security/clip/integration) | **COMPLETE** | `-tags=kc_testhooks`, `cmd/fakesecurity` |
+| 설치 (`lifecycle.sh`, `install.sh`) | **COMPLETE** | `~/.local/bin`, `PREFIX` |
+| 릴리스 산출물 + checksum | **COMPLETE** | `./verify.sh --suite release` |
+| `kc --version` (ldflags) | **COMPLETE** | `scripts/lifecycle.sh build-dev` |
+| keychain 쓰기 ACL (`-T /usr/bin/security`) | **COMPLETE** (코드) | [backends.md](docs/contracts/backends.md) |
+| **NOT VERIFIED (실 Mac)** | | |
+| Keychain ACL·프롬프트·`kc.age`·ai-core 실읽기 | **NOT VERIFIED** | `./verify.sh --suite mac-smoke` (Linux에서는 skip exit 0) |
+| `link`, `push`, export/import/status | **DEFERRED** | roadmap |
 
-## 다음
+## 검증
 
-1. owner가 설계 확인 → [roadmap](docs/planning/roadmap.md) M1 착수.
-2. 열린 결정: [decisions](docs/decisions/) 의 "열린 질문" 절.
+```bash
+./verify.sh --suite all          # Linux CI
+./verify.sh --suite release      # cross-build + SHA256SUMS (keyatlas와 동일 패턴)
+./verify.sh --suite mac-smoke    # Darwin: throwaway kc.test.* ; Linux: NOT VERIFIED skip
+```
+
+Mac 개발 루프: `bash scripts/lifecycle.sh build-dev --install` 후 `./verify.sh --suite mac-smoke`.
+
+## License
+
+저장소 **public** 전환에 맞춰 [LICENSE](LICENSE)는 **MIT**(2026 camem2442)로 두었다. owner가 다른 라이선스를 원하면 교체하면 된다.
 
 ## NEXT CONTEXT
 
-같은 채팅에서 설계를 확정한 상태. 구현은 owner가 명시적으로 지시할 때만.
+M2: `link`, `kc doctor`. Owner Mac에서 `mac-smoke` green + 키체인 쓰기 승인 후 ACL 재확인.

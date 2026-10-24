@@ -1,0 +1,41 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build release binaries
+        run: |
+          export CGO_ENABLED=0
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          LDFLAGS="-s -w -X github.com/camem2442/keycli/internal/version.Version=${GITHUB_REF_NAME} -X github.com/camem2442/keycli/internal/version.Commit=${COMMIT}"
+          mkdir -p dist
+          for spec in "darwin arm64 kc-darwin-arm64" "darwin amd64 kc-darwin-amd64" "linux amd64 kc-linux-amd64" "linux arm64 kc-linux-arm64"; do
+            set -- $spec
+            GOOS=$1 GOARCH=$2 go build -ldflags "$LDFLAGS" -o "dist/$3" ./cmd/kc
+          done
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/keycli-linux-amd64 ./cmd/keycli
+          (cd dist && sha256sum kc-* keycli-* > SHA256SUMS)
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/kc-darwin-arm64
+            dist/kc-darwin-amd64
+            dist/kc-linux-amd64
+            dist/kc-linux-arm64
+            dist/keycli-linux-amd64
+            dist/SHA256SUMS
