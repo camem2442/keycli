@@ -11,6 +11,7 @@ import (
 )
 
 func TestEnvGetGHToken(t *testing.T) {
+	t.Setenv("KC_KEY", "")
 	t.Setenv("GH_TOKEN", "from-env")
 	dir := t.TempDir()
 	cfg := config.Config{

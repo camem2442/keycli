@@ -54,7 +54,7 @@ kc ls --json
 
 macOS에서는 `KC_KEY` 대신 키체인 항목 `kc.age` / 계정 `kc`에 age identity를 저장할 수 있다(**NOT VERIFIED**: 실 Mac).
 
-테스트 전용: `KC_SECURITY`로 [cmd/fakesecurity](cmd/fakesecurity) 바이너리를 가리키면 Linux에서 키체인 경로를 에뮬레이션한다.
+테스트 전용: `config.toml`에 `allow_test_hooks = true` 또는 `-tags=kc_testhooks` 빌드일 때만 `KC_SECURITY`, `KC_TEST_KEYCHAIN`, `KC_CLIP_*` 오버라이드가 동작한다. Linux CI는 [cmd/fakesecurity](cmd/fakesecurity)를 `KC_SECURITY`로 가리킨다.
 
 ## License
 

@@ -17,7 +17,9 @@ import (
 
 	"filippo.io/age"
 	"github.com/camem2442/keycli/internal/backend"
+	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/testhooks"
 	"runtime"
 )
 
@@ -35,6 +37,7 @@ func init() {
 			instance: instanceName,
 			path:     path,
 			home:     args.Deps.Home,
+			cfg:      args.Deps.Config,
 			security: args.Deps.SecurityRunner,
 		}, nil
 	})
@@ -58,6 +61,7 @@ type Store struct {
 	instance string
 	path     string
 	home     string
+	cfg      config.Config
 	security backend.SecurityRunner
 	mu       sync.Mutex
 }
@@ -266,7 +270,7 @@ func (s *Store) loadIdentity() (age.Identity, error) {
 		}
 		return id, nil
 	}
-	if s.security != nil && (runtime.GOOS == "darwin" || os.Getenv("KC_TEST_KEYCHAIN") == "1") {
+	if s.security != nil && (runtime.GOOS == "darwin" || testhooks.Env(s.cfg, "KC_TEST_KEYCHAIN") == "1") {
 		out, err := s.security.Run(context.Background(), "find-generic-password", "-s", ageKeyService, "-a", ageKeyAccount, "-w")
 		if err == nil {
 			key := strings.TrimSpace(string(out))

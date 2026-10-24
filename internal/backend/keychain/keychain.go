@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/camem2442/keycli/internal/backend"
+	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/testhooks"
 )
 
 const securityBin = "/usr/bin/security"
@@ -21,17 +23,22 @@ func init() {
 		}
 		runner := args.Deps.SecurityRunner
 		if runner == nil {
-			runner = ExecRunner{}
+			runner = ExecRunner{Config: args.Deps.Config}
+		} else if er, ok := runner.(ExecRunner); ok {
+			er.Config = args.Deps.Config
+			runner = er
 		}
 		prefix := args.Spec.ServicePrefix
 		if prefix == "" {
 			prefix = "local.study.ai"
 		}
+		cfg := args.Deps.Config
 		return &Keychain{
 			instance:         instanceName,
 			servicePrefix:    prefix,
 			runner:           runner,
-			allowOnNonDarwin: args.Deps.AllowKeychainOnNonDarwin || os.Getenv("KC_TEST_KEYCHAIN") == "1",
+			cfg:              cfg,
+			allowOnNonDarwin: args.Deps.AllowKeychainOnNonDarwin || testhooks.Env(cfg, "KC_TEST_KEYCHAIN") == "1",
 		}, nil
 	})
 }
@@ -41,6 +48,7 @@ type Keychain struct {
 	instance         string
 	servicePrefix    string
 	runner           backend.SecurityRunner
+	cfg              config.Config
 	allowOnNonDarwin bool
 }
 
@@ -61,7 +69,7 @@ func (k *Keychain) Available(ctx context.Context) (bool, string, error) {
 	if k.allowOnNonDarwin {
 		return true, "", nil
 	}
-	if _, err := os.Stat(SecurityCommand()); err != nil {
+	if _, err := os.Stat(SecurityCommand(k.cfg)); err != nil {
 		return false, "이 환경엔 키체인이 없음", nil
 	}
 	return true, "", nil

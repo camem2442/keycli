@@ -70,6 +70,7 @@ func TestKCEndToEnd(t *testing.T) {
 	_ = os.MkdirAll(cfgDir, 0o755)
 	storePath := filepath.Join(home, ".kc", "store.age")
 	configToml := `
+allow_test_hooks = true
 order = ["env", "store", "work"]
 
 [backend.env]

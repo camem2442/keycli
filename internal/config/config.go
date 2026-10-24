@@ -18,9 +18,10 @@ type BackendSpec struct {
 
 // Config is ~/.config/kc/config.toml.
 type Config struct {
-	Order   []string               `toml:"order"`
-	Backend map[string]BackendSpec `toml:"backend"`
-	Alias   map[string][]string    `toml:"alias"`
+	Order          []string               `toml:"order"`
+	Backend        map[string]BackendSpec `toml:"backend"`
+	Alias          map[string][]string    `toml:"alias"`
+	AllowTestHooks bool                   `toml:"allow_test_hooks"`
 }
 
 // Default returns sensible defaults when no file exists.

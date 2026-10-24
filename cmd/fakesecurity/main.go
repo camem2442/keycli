@@ -5,11 +5,13 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -75,15 +77,26 @@ func findPassword(args []string) {
 }
 
 func addPassword(args []string) {
-	if passwordInArgv(args) {
-		fail(2, "password must not appear in argv")
-	}
 	svc := flagVal(args, "-s")
 	acct := flagVal(args, "-a")
 	if strings.HasPrefix(svc, "local.study.ai.") {
 		fail(51, "User canceled the operation.")
 	}
-	body, _ := io.ReadAll(os.Stdin)
+	var body []byte
+	if hx := flagVal(args, "-X"); hx != "" {
+		var err error
+		body, err = hex.DecodeString(hx)
+		if err != nil {
+			fail(1, "invalid -X hex")
+		}
+	} else if pw := flagVal(args, "-w"); pw != "" {
+		body = []byte(pw)
+	} else {
+		if passwordInArgv(args) {
+			fail(2, "password must not appear in argv")
+		}
+		body, _ = io.ReadAll(os.Stdin)
+	}
 	if len(body) == 0 {
 		fail(1, "missing password on stdin")
 	}
@@ -174,13 +187,17 @@ func saveState(st state) {
 	_ = os.WriteFile(statePath(), data, 0o600)
 }
 
+var redactSecretArgv = regexp.MustCompile(`(-[wX]\s+)(\S+)`)
+
 func logArgv(argv []string) {
 	f, err := os.OpenFile(argvLogPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintln(f, strings.Join(argv, " "))
+	line := strings.Join(argv, " ")
+	line = redactSecretArgv.ReplaceAllString(line, `${1}<redacted>`)
+	fmt.Fprintln(f, line)
 }
 
 func fail(code int, msg string) {

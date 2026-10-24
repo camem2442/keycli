@@ -26,7 +26,7 @@ func newSetCmd(a *app.App) *cobra.Command {
 			var value []byte
 			var err error
 			if fromClip {
-				cp := clip.Provider{}
+				cp := clip.Provider{Config: a.Config}
 				text, err := cp.Read()
 				if err != nil {
 					return err

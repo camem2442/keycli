@@ -50,7 +50,8 @@ func TestFakeSecurityAICoreReadOnly(t *testing.T) {
 	t.Setenv("KC_TEST_KEYCHAIN", "1")
 
 	cfg := config.Config{
-		Order: []string{"work"},
+		AllowTestHooks: true,
+		Order:          []string{"work"},
 		Backend: map[string]config.BackendSpec{
 			"work": {Type: "keychain", ServicePrefix: "local.study.ai"},
 		},
@@ -58,7 +59,7 @@ func TestFakeSecurityAICoreReadOnly(t *testing.T) {
 	deps := backend.Deps{
 		Home:                     dir,
 		Config:                   cfg,
-		SecurityRunner:           keychain.ExecRunner{},
+		SecurityRunner:           keychain.ExecRunner{Config: cfg},
 		AllowKeychainOnNonDarwin: true,
 	}
 	bs, err := backend.Build(context.Background(), cfg, deps)
@@ -87,11 +88,12 @@ func TestFakeSecuritySandboxExit3(t *testing.T) {
 	t.Setenv("KC_FAKE_SECURITY_SANDBOX", "1")
 	t.Setenv("KC_TEST_KEYCHAIN", "1")
 	cfg := config.Config{
-		Order:   []string{"work"},
-		Backend: map[string]config.BackendSpec{"work": {Type: "keychain"}},
+		AllowTestHooks: true,
+		Order:          []string{"work"},
+		Backend:        map[string]config.BackendSpec{"work": {Type: "keychain"}},
 	}
 	bs, err := backend.Build(context.Background(), cfg, backend.Deps{
-		Home: dir, Config: cfg, SecurityRunner: keychain.ExecRunner{}, AllowKeychainOnNonDarwin: true,
+		Home: dir, Config: cfg, SecurityRunner: keychain.ExecRunner{Config: cfg}, AllowKeychainOnNonDarwin: true,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 	_ "github.com/camem2442/keycli/internal/backend/keychain"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/resolve"
+	"github.com/camem2442/keycli/internal/testhooks"
 )
 
 // App holds wired dependencies for CLI commands.
@@ -36,12 +37,12 @@ func New(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	runner := keychain.ExecRunner{}
+	runner := keychain.ExecRunner{Config: cfg}
 	deps := backend.Deps{
 		Home:                     home,
 		Config:                   cfg,
 		SecurityRunner:           runner,
-		AllowKeychainOnNonDarwin: os.Getenv("KC_TEST_KEYCHAIN") == "1",
+		AllowKeychainOnNonDarwin: testhooks.Env(cfg, "KC_TEST_KEYCHAIN") == "1",
 	}
 	backends, err := backend.Build(ctx, cfg, deps)
 	if err != nil {

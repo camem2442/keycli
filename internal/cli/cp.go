@@ -36,7 +36,7 @@ func newCpCmd(a *app.App) *cobra.Command {
 			}
 			text := string(val)
 			sum := clip.Checksum(text)
-			cp := clip.Provider{OSC52Enabled: os.Getenv("KC_CLIP_OSC52") == "1"}
+			cp := clip.Provider{Config: a.Config, OSC52Enabled: os.Getenv("KC_CLIP_OSC52") == "1"}
 			if err := cp.Write(text); err != nil {
 				return err
 			}

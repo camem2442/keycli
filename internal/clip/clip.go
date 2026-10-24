@@ -16,10 +16,14 @@ import (
 	"time"
 
 	atotto "github.com/atotto/clipboard"
+
+	"github.com/camem2442/keycli/internal/config"
+	"github.com/camem2442/keycli/internal/testhooks"
 )
 
 // Provider copies and reads clipboard without logging secret values.
 type Provider struct {
+	Config       config.Config
 	OSC52Enabled bool
 }
 
@@ -47,17 +51,17 @@ func (p Provider) Write(text string) error {
 }
 
 func (p Provider) writePlatform(text string) error {
-	if cmd := toolPath("KC_CLIP_PBCOPY", "pbcopy"); cmd != "" && (runtime.GOOS == "darwin" || os.Getenv("KC_CLIP_PBCOPY") != "") {
+	if cmd := p.toolPath("KC_CLIP_PBCOPY", "pbcopy"); cmd != "" && (runtime.GOOS == "darwin" || testhooks.Env(p.Config, "KC_CLIP_PBCOPY") != "") {
 		c := exec.Command(cmd)
 		c.Stdin = strings.NewReader(text)
 		return c.Run()
 	}
-	if cmd := toolPath("KC_CLIP_WL_COPY", "wl-copy"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_WL_COPY") != "") {
+	if cmd := p.toolPath("KC_CLIP_WL_COPY", "wl-copy"); cmd != "" && (runtime.GOOS == "linux" || testhooks.Env(p.Config, "KC_CLIP_WL_COPY") != "") {
 		c := exec.Command(cmd, "--")
 		c.Stdin = strings.NewReader(text)
 		return c.Run()
 	}
-	if cmd := toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_XCLIP") != "") {
+	if cmd := p.toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || testhooks.Env(p.Config, "KC_CLIP_XCLIP") != "") {
 		c := exec.Command(cmd, "-selection", "clipboard")
 		c.Stdin = strings.NewReader(text)
 		return c.Run()
@@ -67,24 +71,24 @@ func (p Provider) writePlatform(text string) error {
 
 // Read returns clipboard text.
 func (p Provider) Read() (string, error) {
-	if cmd := toolPath("KC_CLIP_PBPASTE", "pbpaste"); cmd != "" && (runtime.GOOS == "darwin" || os.Getenv("KC_CLIP_PBPASTE") != "") {
+	if cmd := p.toolPath("KC_CLIP_PBPASTE", "pbpaste"); cmd != "" && (runtime.GOOS == "darwin" || testhooks.Env(p.Config, "KC_CLIP_PBPASTE") != "") {
 		out, err := exec.Command(cmd).Output()
 		return string(out), err
 	}
-	if cmd := toolPath("KC_CLIP_WL_PASTE", "wl-paste"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_WL_PASTE") != "") {
+	if cmd := p.toolPath("KC_CLIP_WL_PASTE", "wl-paste"); cmd != "" && (runtime.GOOS == "linux" || testhooks.Env(p.Config, "KC_CLIP_WL_PASTE") != "") {
 		out, err := exec.Command(cmd, "--", "-n").Output()
 		return string(out), err
 	}
-	if cmd := toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || os.Getenv("KC_CLIP_XCLIP") != "") {
+	if cmd := p.toolPath("KC_CLIP_XCLIP", "xclip"); cmd != "" && (runtime.GOOS == "linux" || testhooks.Env(p.Config, "KC_CLIP_XCLIP") != "") {
 		out, err := exec.Command(cmd, "-selection", "clipboard", "-o").Output()
 		return string(out), err
 	}
 	return atotto.ReadAll()
 }
 
-func toolPath(envKey, defaultName string) string {
-	if p := os.Getenv(envKey); p != "" {
-		return p
+func (p Provider) toolPath(envKey, defaultName string) string {
+	if path := testhooks.Env(p.Config, envKey); path != "" {
+		return path
 	}
 	if _, err := exec.LookPath(defaultName); err == nil {
 		return defaultName
