@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 ---
 # CLI 계약
 
@@ -34,7 +34,7 @@ status: proposed
 
 ## 출력 형식
 
-`ls --json`: `{"v":1,"items":[{"name":"","aliases":[],"backend":"","source":"","note":"","expires":null}]}`. `source`는 link·출처 표시용(선택). 필드 추가는 호환, 삭제·의미 변경은 `v` 증가.
+`ls --json`: `{"v":1,"items":[{"name":"","aliases":[],"backend":"","source":"","note":"","expires":null,"stale_export":false}]}`. `source`는 link·출처 표시용(선택). `stale_export`: 원장 기록 이후 값 변경. 필드 추가는 호환, 삭제·의미 변경은 `v` 증가.
 
 ## 종료 코드
 

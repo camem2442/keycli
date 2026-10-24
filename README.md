@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **M2–M4 구현됨** (`link`, `setup-git`, `rules`, `doctor`). 진행·검증은 [HANDOFF.md](HANDOFF.md).
+> 상태: **M4.5 구현됨** (`push`, `export`/`import`, `status`). 진행·검증은 [HANDOFF.md](HANDOFF.md).
 
 ## 사용 흐름 (설계)
 
@@ -19,6 +19,12 @@ kc doctor --json
 
 # 사람: 복사
 kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭제
+
+# 맥 → 클라우드
+kc push cursor --env-id … TOKEN   # Cursor 환경 시크릿
+kc push gh --user MY_TOKEN        # gh secret (stdin)
+kc export --format dotenv A B       # 클립보드 dotenv
+kc export A --to age1… | ssh vm kc import
 ```
 
 ## 시작
@@ -39,7 +45,7 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 
 ## 언어·의존성
 
-순수 Go(`CGO_ENABLED=0`). 값 조회는 네트워크 불필요, `kc push`만 네트워크 사용. cobra, filippo.io/age, BurntSushi/toml, atotto/clipboard. macOS 키체인은 `/usr/bin/security` 직접 호출.
+순수 Go(`CGO_ENABLED=0`). 값 조회는 네트워크 불필요. 네트워크는 `internal/target/`의 `push`와 `export --to-github`만 사용. cobra, filippo.io/age, BurntSushi/toml, atotto/clipboard. macOS 키체인은 `/usr/bin/security` 직접 호출.
 
 ## 설치
 

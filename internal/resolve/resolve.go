@@ -7,6 +7,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/backend/env"
+	"github.com/camem2442/keycli/internal/backend/file"
 	"github.com/camem2442/keycli/internal/backend/keychain"
 	"github.com/camem2442/keycli/internal/backend/link"
 	"github.com/camem2442/keycli/internal/config"
@@ -135,12 +136,13 @@ func (r *Resolver) networkSkip() bool {
 
 // ListItem is one entry for ls / ls --json.
 type ListItem struct {
-	Name    string   `json:"name"`
-	Aliases []string `json:"aliases"`
-	Backend string   `json:"backend"`
-	Source  string   `json:"source,omitempty"`
-	Note    string   `json:"note"`
-	Expires *string  `json:"expires"`
+	Name        string   `json:"name"`
+	Aliases     []string `json:"aliases"`
+	Backend     string   `json:"backend"`
+	Source      string   `json:"source,omitempty"`
+	Note        string   `json:"note"`
+	Expires     *string  `json:"expires"`
+	StaleExport bool     `json:"stale_export,omitempty"`
 }
 
 // List aggregates metadata from all backends.
@@ -253,4 +255,24 @@ func (r *Resolver) Delete(ctx context.Context, name string) error {
 
 func isNotFound(err error) bool {
 	return kcerrors.Code(err) == kcerrors.ExitNotFound
+}
+
+// FileStore returns the first file backend in the resolver chain, if any.
+func (r *Resolver) FileStore() *file.Store {
+	for _, b := range r.backends {
+		if fs, ok := b.(*file.Store); ok {
+			return fs
+		}
+	}
+	return nil
+}
+
+// HasEnvBackend reports whether env is configured in backend order.
+func (r *Resolver) HasEnvBackend() bool {
+	for _, b := range r.backends {
+		if b.Kind() == "env" {
+			return true
+		}
+	}
+	return false
 }
