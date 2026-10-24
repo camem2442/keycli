@@ -30,7 +30,8 @@ status: implemented
 | `kc export NAME... --to KEY\|--to-github USER\|--format dotenv` | 암호화 번들 또는 클립보드용 dotenv |
 | `kc import` | stdin의 age 번들을 저장소에 추가 |
 | `kc status` | 내보낸 뒤 바뀐 항목 표시 |
-| `kc backends`, `kc doctor`, `kc plugin list` | 진단 |
+| `kc doctor [--json]` | 백엔드·config·키·PATH 충돌 (값 미출력) |
+| `kc plugin list [--json]` | `kc-backend-*` 발견, enabled, protocol v1, capabilities (enabled만 handshake) |
 
 ## 출력 형식
 

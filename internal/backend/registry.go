@@ -30,6 +30,9 @@ func Build(ctx context.Context, cfg config.Config, deps Deps) ([]Backend, error)
 		if !ok {
 			continue
 		}
+		if spec.Type == "external" && spec.Enabled != nil && !*spec.Enabled {
+			continue
+		}
 		f, ok := factories[spec.Type]
 		if !ok {
 			return nil, fmt.Errorf("unknown backend type %q", spec.Type)
@@ -54,6 +57,7 @@ type Deps struct {
 	Home                     string
 	Config                   config.Config
 	SecurityRunner           SecurityRunner // keychain only; nil => default exec
+	PluginRunner             interface{}    // external.PluginRunner when set (tests)
 	NetworkBlocked           func() bool    // skip NeedsNetwork backends when true
 	AllowKeychainOnNonDarwin bool           // tests only (fake security runner)
 }

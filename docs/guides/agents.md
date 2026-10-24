@@ -54,6 +54,7 @@ kc exec --only github -- gh pr list
 
 - `KC_KEY` 또는 file store ([backends.md](../contracts/backends.md)).
 - `kc doctor --json`으로 백엔드 상태 확인.
+- 외부 저장소는 `kc-backend-<name>` 플러그인 + config `type = "external"`만 사용 ([plugin-protocol.md](../contracts/plugin-protocol.md)). `kc plugin list --json`으로 enabled·capabilities 확인.
 
 ## 클라우드 에이전트 환경 (Cursor / GitHub)
 

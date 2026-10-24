@@ -14,11 +14,12 @@ const (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrBlocked  = errors.New("blocked")
-	ErrLocked   = errors.New("locked")
-	ErrDenied   = errors.New("denied")
-	ErrUsage    = errors.New("usage")
+	ErrNotFound      = errors.New("not found")
+	ErrBlocked       = errors.New("blocked")
+	ErrLocked        = errors.New("locked")
+	ErrDenied        = errors.New("denied")
+	ErrUsage         = errors.New("usage")
+	ErrPluginTimeout = errors.New("plugin timeout")
 )
 
 // Code maps known errors to exit codes; unknown errors return ExitError.

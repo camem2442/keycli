@@ -19,4 +19,4 @@
 
 ## 검증 (구현 후 예정)
 
-`bash verify.sh --suite <docs|policy|unit|backend|release>`. 변경 범위의 suite만 실행한다. 현재는 문서만 있어 전부 **NOT VERIFIED**.
+`bash verify.sh --suite <docs|policy|unit|backend|release|all>`. 변경 범위의 suite만 실행한다. Linux CI에서 `./verify.sh --suite all` 통과 시 해당 범위 **COMPLETE**; mac-smoke·실 Mac·서드파티 플러그인 실연동은 **NOT VERIFIED**.

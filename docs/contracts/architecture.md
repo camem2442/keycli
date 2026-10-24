@@ -22,7 +22,7 @@ flowchart TD
 6. **Target 인터페이스** — 보내기 전용. `Push(ctx, []Secret) error`, `List(ctx) ([]Name, error)`, `Capabilities{NeedsNetwork, CanList}`. 저장소와 별도 레지스트리. 내장 `cursor`(net/http, 키는 키체인/`KC_CURSOR_API_KEY`), `gh`(`gh secret set -f -` 호출), 외부 `kc-target-<name>`(백엔드와 같은 JSON 규칙, config 명시 경로만).
 7. **Ledger** — 보낸 기록 `{name, target, hmac, exported_at}`. HMAC 키는 암호화 파일 안에 있으므로 `kc status`는 파일 잠금 해제가 필요하다.
 4. **출력 어댑터** — 클립보드: pbcopy / wl-copy·xclip(atotto) / OSC 52(자체 구현, tmux 패스스루).
-5. **외부 확장** — 하위 명령 `kc-<name>`(git 방식, 내장 우선, 충돌 경고). 백엔드 `kc-backend-<name>`(docker-credential 방식 JSON stdin/stdout). 비밀을 받는 외부 실행 파일은 **config에 명시된 경로만** 허용.
+5. **외부 확장** — 하위 명령 `kc-<name>`(git 방식, 내장 우선, 충돌 경고). 백엔드 `kc-backend-<name>`([플러그인 프로토콜 v1](plugin-protocol.md), stdin/stdout JSON). **config `[backend.*]` + `type = "external"`로만 실행**; PATH·`~/.kc/plugins`는 발견·`kc plugin list`용.
 
 ## 폴더 구조
 
@@ -59,6 +59,11 @@ type = "link"
 type = "keychain"
 service = "other.app.service"
 account = "default"
+
+[backend.vault]
+type = "external"
+plugin = "1password"
+timeout = "15s"
 
 [alias]
 github = ["gh", "GITHUB_TOKEN", "GH_TOKEN"]

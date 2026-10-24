@@ -43,6 +43,7 @@ func Execute() int {
 	root.AddCommand(newGitCredentialCmd(a))
 	root.AddCommand(newRulesCmd(a))
 	root.AddCommand(newDoctorCmd(a))
+	root.AddCommand(newPluginCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {
