@@ -13,7 +13,7 @@ status: proposed
 ## macOS Keychain ACL
 
 - **kc가 만든 항목**(`kc.secret.*`, `kc.age` 등): `add-generic-password` 시 `-T /usr/bin/security`를 넣어 **신뢰 주체가 `security(1)`만**이 되게 한다. 이후 읽기는 `security find-generic-password -w`로 이루어지므로 **kc 바이너리를 재빌드해도** “항상 허용”을 kc마다 다시 누를 필요가 없다.
-- **다른 앱이 만든 항목**(ai-core `local.study.ai.*`, 레거시 lecturetranscriber 등): kc는 **읽기 전용**이다. 최초 읽기 때 macOS가 **한 번** “Always Allow”를 물을 수 있다(실기 **NOT VERIFIED**는 `verify.sh --suite mac-smoke`).
+- **다른 앱이 만든 항목**(ai-core `local.study.ai.*`, 레거시 lecturetranscriber 등): kc는 **읽기 전용**이다. 최초 읽기 때 macOS가 **한 번** “Always Allow”를 물을 수 있다(실기 **NOT VERIFIED**는 `verify.sh --suite mac-smoke`). mac-smoke는 **실제 `HOME`**을 쓰고 `KC_CONFIG`만 격리한다 — 임시 `HOME`은 “키체인 발견할 수 없음”을 유발한다.
 - **age 키(`kc.age`)**: 사람이 `kc keygen` 등으로 만든 identity를 키체인에 **한 번** 저장한다. 이후 file 백엔드가 같은 `-T` 규칙으로 읽는다.
 
 ## 규칙
