@@ -42,7 +42,7 @@ internal/config/        ~/.config/kc/config.toml
 ## 설정 예시
 
 ```toml
-order = ["env", "store", "work"]
+order = ["link", "env", "store", "work"]
 
 [backend.store]
 type = "file"
@@ -51,6 +51,14 @@ path = "~/.kc/store.age"
 [backend.work]
 type = "keychain"
 service_prefix = "local.study.ai"   # ai-core 항목 읽기 전용
+
+[backend.link]
+type = "link"
+
+[link.myapp]
+type = "keychain"
+service = "other.app.service"
+account = "default"
 
 [alias]
 github = ["gh", "GITHUB_TOKEN", "GH_TOKEN"]

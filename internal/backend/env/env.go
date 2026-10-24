@@ -40,12 +40,18 @@ func (e *Env) Available(ctx context.Context) (bool, string, error) {
 }
 
 func (e *Env) Get(ctx context.Context, name string) ([]byte, error) {
+	val, _, err := e.GetWithSource(ctx, name)
+	return val, err
+}
+
+// GetWithSource returns the value and env var name used.
+func (e *Env) GetWithSource(ctx context.Context, name string) ([]byte, string, error) {
 	for _, k := range envKeysForName(name) {
 		if v := os.Getenv(k); v != "" {
-			return []byte(v), nil
+			return []byte(v), "env:" + k, nil
 		}
 	}
-	return nil, fmt.Errorf("%w", kcerrors.ErrNotFound)
+	return nil, "", fmt.Errorf("%w", kcerrors.ErrNotFound)
 }
 
 func envKeysForName(name string) []string {

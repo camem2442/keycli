@@ -10,6 +10,7 @@ import (
 	_ "github.com/camem2442/keycli/internal/backend/file"
 	"github.com/camem2442/keycli/internal/backend/keychain"
 	_ "github.com/camem2442/keycli/internal/backend/keychain"
+	_ "github.com/camem2442/keycli/internal/backend/link"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/resolve"
 	"github.com/camem2442/keycli/internal/testhooks"
@@ -63,4 +64,19 @@ func (a *App) StorePath() string {
 		return spec.Path
 	}
 	return filepath.Join(a.Home, ".kc", "store.age")
+}
+
+// SaveConfig persists the in-memory config to ConfigPath.
+func (a *App) SaveConfig() error {
+	return config.Save(a.ConfigPath, a.Config)
+}
+
+// Reload rebuilds backends and resolver after config mutation.
+func (a *App) Reload(ctx context.Context) error {
+	backends, err := backend.Build(ctx, a.Config, a.Deps)
+	if err != nil {
+		return err
+	}
+	a.Resolver = resolve.New(a.Config, backends)
+	return nil
 }

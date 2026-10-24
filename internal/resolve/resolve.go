@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"github.com/camem2442/keycli/internal/backend"
+	"github.com/camem2442/keycli/internal/backend/env"
+	"github.com/camem2442/keycli/internal/backend/keychain"
+	"github.com/camem2442/keycli/internal/backend/link"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/kcerrors"
 )
@@ -67,6 +70,12 @@ func (r *Resolver) EnvNames(canonical string) []string {
 
 // Get resolves name and returns value plus backend instance name.
 func (r *Resolver) Get(ctx context.Context, name string) ([]byte, string, error) {
+	val, backendName, _, err := r.GetWithSource(ctx, name)
+	return val, backendName, err
+}
+
+// GetWithSource also returns a stable source label (never includes secret values).
+func (r *Resolver) GetWithSource(ctx context.Context, name string) ([]byte, string, string, error) {
 	canon := r.CanonicalName(name)
 	tryNames := []string{canon, name}
 	if aliases, ok := r.cfg.Alias[canon]; ok {
@@ -81,22 +90,43 @@ func (r *Resolver) Get(ctx context.Context, name string) ([]byte, string, error)
 			if kcerrors.Code(err) == kcerrors.ExitBlocked {
 				continue
 			}
-			return nil, "", err
+			return nil, "", "", err
 		}
 		if !ok {
 			continue
 		}
 		for _, n := range tryNames {
-			val, err := b.Get(ctx, n)
+			val, src, err := r.getFromBackend(ctx, b, n)
 			if err == nil {
-				return val, b.InstanceName(), nil
+				if src == "" {
+					src = b.Kind() + ":" + b.InstanceName()
+				}
+				return val, b.InstanceName(), src, nil
 			}
 			if !isNotFound(err) {
-				return nil, "", err
+				return nil, "", "", err
 			}
 		}
 	}
-	return nil, "", fmt.Errorf("%w: %s", kcerrors.ErrNotFound, canon)
+	return nil, "", "", fmt.Errorf("%w: %s", kcerrors.ErrNotFound, canon)
+}
+
+func (r *Resolver) getFromBackend(ctx context.Context, b backend.Backend, name string) ([]byte, string, error) {
+	switch x := b.(type) {
+	case *env.Env:
+		return x.GetWithSource(ctx, name)
+	case *link.Link:
+		val, err := x.Get(ctx, name)
+		if err != nil {
+			return nil, "", err
+		}
+		return val, x.SourceFor(name), nil
+	case *keychain.Keychain:
+		return x.GetWithSource(ctx, name)
+	default:
+		val, err := b.Get(ctx, name)
+		return val, "", err
+	}
 }
 
 func (r *Resolver) networkSkip() bool {
@@ -108,6 +138,7 @@ type ListItem struct {
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases"`
 	Backend string   `json:"backend"`
+	Source  string   `json:"source,omitempty"`
 	Note    string   `json:"note"`
 	Expires *string  `json:"expires"`
 }
@@ -143,10 +174,15 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 					s := it.Expires.Format("2006-01-02")
 					exp = &s
 				}
+				src := ""
+				if lk, ok := b.(*link.Link); ok {
+					src = lk.SourceFor(canon)
+				}
 				li = ListItem{
 					Name:    canon,
 					Aliases: append([]string{}, aliases...),
 					Backend: b.InstanceName(),
+					Source:  src,
 					Note:    it.Note,
 					Expires: exp,
 				}

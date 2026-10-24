@@ -3,7 +3,6 @@ package keychain
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -51,33 +50,8 @@ type svcAcct struct {
 
 // AICoreLookup reads ai-core keychain entries read-only (mirrors keychain.py).
 func AICoreLookup(ctx context.Context, runner backendSecurityRunner, n AICoreName) ([]byte, error) {
-	if os.Getenv("AI_CORE_NO_KEYCHAIN") == "1" {
-		return nil, fmt.Errorf("%w", kcerrors.ErrNotFound)
-	}
-	if v, ok := aicoreEnv(n.Provider); ok {
-		return v, nil
-	}
-	var pairs []svcAcct
-	for _, acct := range accountsForSlot(n.Provider, n.Slot) {
-		pairs = append(pairs, svcAcct{servicePrimary(n.Provider), acct})
-	}
-	if n.Provider == "gemini" || n.Provider == "groq" {
-		for _, acct := range legacyAccounts(n.Provider) {
-			pairs = append(pairs, svcAcct{legacyService(n.Provider), acct})
-		}
-	}
-	for _, p := range pairs {
-		out, err := runner.Run(ctx, "find-generic-password", "-s", p.service, "-a", p.account, "-w")
-		if err == nil {
-			return []byte(strings.TrimSpace(string(out))), nil
-		}
-		mapped := MapSecurityExit(err)
-		if errorsIsNotFound(mapped) {
-			continue
-		}
-		return nil, mapped
-	}
-	return nil, fmt.Errorf("%w", kcerrors.ErrNotFound)
+	val, _, err := AICoreLookupWithSource(ctx, runner, n)
+	return val, err
 }
 
 type backendSecurityRunner interface {
@@ -107,21 +81,6 @@ func legacyAccounts(provider string) []string {
 		provider + "_api_key",
 		strings.ToUpper(provider) + "_API_KEY",
 	}
-}
-
-func aicoreEnv(provider string) ([]byte, bool) {
-	keys := strings.ToUpper(provider) + "_API_KEYS"
-	if v := os.Getenv(keys); v != "" {
-		parts := strings.Split(v, ",")
-		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
-			return []byte(strings.TrimSpace(parts[0])), true
-		}
-	}
-	single := strings.ToUpper(provider) + "_API_KEY"
-	if v := os.Getenv(single); v != "" {
-		return []byte(v), true
-	}
-	return nil, false
 }
 
 func errorsIsNotFound(err error) bool {

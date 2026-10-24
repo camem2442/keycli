@@ -12,3 +12,14 @@ status: proposed
 | M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | 테스트 환경 1개에 push 실사용, Linux에서 import 단위 테스트 |
 | M5 | 외부 하위 명령·백엔드 프로토콜 | `kc plugin list`, 예제 백엔드 1개 |
 | 이후 | 미들웨어(감사·허용·가림), 1Password 백엔드 | DEFERRED |
+
+## 진행 (2026-10-24)
+
+| 항목 | 상태 |
+|---|---|
+| M1 | **COMPLETE** (v0.1.0) |
+| M2 keychain·ai-core | **COMPLETE** (Linux fake + mac-smoke) |
+| M2 `link` / `unlink` | **COMPLETE** |
+| M3 clip/cp | **COMPLETE** (M1에 포함) |
+| M4 `setup-git`, `rules`, `doctor`, [agents.md](../guides/agents.md) | **COMPLETE** (Linux CI); 에이전트 실사용은 **NOT VERIFIED** |
+| M4.5 `push`/`export`/`import`/`status` | **DEFERRED** |
