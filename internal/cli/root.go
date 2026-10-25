@@ -47,6 +47,7 @@ func Execute() int {
 	root.AddCommand(newPluginCmd(a))
 	root.AddCommand(newAuditCmd(a))
 	root.AddCommand(newPolicyCmd(a))
+	root.AddCommand(newWireCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {
