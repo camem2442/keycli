@@ -98,10 +98,10 @@ status: active
 - `exec` 키체인 노출 — **COMPLETE** (B-2, SJ Mac 2026-10-25)
 - Cursor/gh 실 push 각 1회 — **COMPLETE** (B-1, SJ Mac 2026-10-25, `kc git-credential`)
 - 에이전트 실사용 + 정책 운영 — **NOT VERIFIED**
-- OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-15: `--standalone` 1턴 OK; `kc exec`+`kc get` 경로 NOT VERIFIED)
-- clip 자동삭제 실측 — **NOT VERIFIED**
+- OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-18: `kc exec`+`--standalone` OK; 백그라운드 서비스 non-standalone NOT VERIFIED)
+- clip 자동삭제 실측 — **COMPLETE** (KC-20, SJ Mac `kc cp`+delay)
 
-현재: **PARTIAL** — v0.6.0 태그·CI·문서·B-1 push 게이트 완료. 에이전트·clip 실측·OpenCode exec 경로 남음.
+현재: **PARTIAL** — v0.6.0·B-1·KC-20·KC-18(standalone) 완료. 에이전트+정책·OpenCode 서비스 경로 남음.
 
 ## 마일스톤 기록
 
@@ -122,7 +122,7 @@ status: active
 |---|---|---|
 | M1 CLI 코어 | **COMPLETE** | P0-6·P0-7, P1-3·P1-4·P1-6, Linux CI |
 | M2 keychain·link | **COMPLETE** | P0-2 파서·fake·B-2 `exec`, P1-5 이름 규칙, 실 Mac mac-smoke(`kc.secret.*`, link, 샌드박스 종료 3) |
-| M3 clip/cp | **PARTIAL** | P0-4·P1-4 구현·integration 통과, clip 자동삭제 실측 NOT VERIFIED |
+| M3 clip/cp | **COMPLETE** | P0-4·P1-4·KC-20 실 Mac `cp` 자동삭제 실측 |
 | M4 setup-git·rules·doctor | **COMPLETE** | P1-1 기본 매핑, P1-8 doctor, P2-2 설치 검증, mac-smoke setup-git |
 | M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5 ledger batch; gh/git 실 push **COMPLETE**(B-1), `kc push cursor`/`gh` CLI는 NOT VERIFIED |
 | M5 external | **COMPLETE** | P0-5, Linux CI |

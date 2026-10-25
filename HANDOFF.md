@@ -6,13 +6,13 @@
 
 ## Current Work Goal
 
-**v0.6.0 출시 완료:** tag `v0.6.0` @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main`. PR [#7](https://github.com/camem2442/keycli/pull/7) merge, Linux `./verify.sh --suite all`·GitHub Actions on `main` green (2026-10-25). 릴리스 게이트: Cursor/gh 실 push·OpenCode 1턴(B-1/KC-15, SJ Mac 2026-10-25) **COMPLETE**. 남음: 에이전트+정책 실사용, `kc exec` 경로 OpenCode, clip 자동삭제 실측 — [roadmap](docs/planning/roadmap.md).
+**v0.6.0 출시 완료:** tag `v0.6.0` @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main`. PR [#7](https://github.com/camem2442/keycli/pull/7) merge, Linux `./verify.sh --suite all`·GitHub Actions on `main` green (2026-10-25). 릴리스 게이트: Cursor/gh 실 push(B-1)·clip `cp` 자동삭제 실측(KC-20)·OpenCode `kc exec --standalone`(KC-18) **COMPLETE**. OpenCode 백그라운드 서비스 경로·에이전트+정책 실사용 남음 — [roadmap](docs/planning/roadmap.md).
 
 ## 상태 (2026-10-25)
 
 | 영역 | 상태 | 근거 |
 |---|---|---|
-| P0 릴리스 차단 7건 | **COMPLETE** | 구현·Linux `./verify.sh --suite all`·실 Mac mac-smoke·`exec` 환경 노출(B-2, SJ Mac 2026-10-25). clip 자동삭제 실측은 NOT VERIFIED ([roadmap P0](docs/planning/roadmap.md)) |
+| P0 릴리스 차단 7건 | **COMPLETE** | 구현·Linux `./verify.sh --suite all`·실 Mac mac-smoke·`exec` 노출(B-2)·clip `cp` 자동삭제 실측(KC-20, SJ Mac 2026-10-25) ([roadmap P0](docs/planning/roadmap.md)) |
 | P1 계약·보안 정합성 9건 | **COMPLETE** | P1-1~P1-9 구현·Linux CI·mac-smoke ([roadmap P1](docs/planning/roadmap.md)) |
 | P2 운영·문서 6건 | **COMPLETE** | `main` merge·Actions green·tag `v0.6.0` ([roadmap P2](docs/planning/roadmap.md)) |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7 merge; `internal/opencode`, `internal/cli/wire.go`, CLI·agents 가이드; Mac `--dry-run`·Linux unit·CI |
@@ -26,9 +26,9 @@
 | Cursor Cloud 실 push | **COMPLETE** | B-1(SJ Mac 2026-10-25): `origin.cursor.com`·`kc git-credential`만으로 `context-platform` push |
 | gh 실 push | **COMPLETE** | B-1: `github.com`·`kc git-credential`만으로 `keycli` push (`setup-git`·`github` 시크릿) |
 | 에이전트 실사용 + 정책 운영 | **NOT VERIFIED** | |
-| OpenCode CLI turn (`kc wire` 후 실 `opencode`) | **PARTIAL** | KC-15: `opencode run --standalone`·vertex-byok 1턴 OK; `kc get`/`kc exec`로 `PROXY_API_KEY` 주입은 NOT VERIFIED |
+| OpenCode CLI turn (`kc wire` 후 실 `opencode`) | **PARTIAL** | KC-15/KC-18: `kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode run --standalone` 1턴 OK; 백그라운드 `opencode run`(non-standalone)은 NOT VERIFIED |
 | `exec` 환경 키체인 항목 노출 | **COMPLETE** | B-2(SJ Mac 2026-10-25): throwaway `kc.secret.*`, `kc exec -- env`에서 시크릿·`KC_*` 누출 없음 |
-| clip 자동삭제 실측 | **NOT VERIFIED** | mac-smoke는 `cp` 경로 실행만; delay 후 clear 실측 없음 |
+| clip 자동삭제 실측 | **COMPLETE** | KC-20: `KC_CP_CLEAR_SECONDS=4`·throwaway `kc cp` 후 delay 경과 시 클립보드에 시크릿 미유지 |
 | 설치본 `~/.local/bin/kc` | **COMPLETE** | Mac: `v0.6.0` @ `881758e`, mac-smoke·wire `--dry-run` 통과 |
 | TTL 캐시 / rate limit / masking / 1Password | **DEFERRED** | roadmap |
 
@@ -49,7 +49,7 @@ go test -tags=kc_testhooks ./...
 
 P0~P2·wire·Linux CI·실 Mac mac-smoke·`exec` 노출(B-2)은 끝났다. v0.6.0은 tag·release workflow까지 완료.
 
-1. 릴리스 게이트: Cursor/gh 실 push·OpenCode standalone 1턴 **COMPLETE**(B-1/KC-15). 남음: 에이전트 실사용+정책 1회, `kc exec` 경로 OpenCode, clip 자동삭제 실측.
+1. 릴리스 게이트: Cursor/gh push·clip 실측·OpenCode `kc exec --standalone` **COMPLETE**. 남음: 에이전트 실사용+정책 1회, OpenCode 백그라운드 서비스 경로.
 2. 실 Mac mac-smoke는 2026-10-25 통과했다(keychain 쓰기/읽기·rebuild 읽기·`ls --json`의 `kc.secret.*`·ai-core keychain 읽기·`kc.age` 왕복·link·setup-git·샌드박스 종료 3). 재실행 시에도 **SSH 세션에서는 불가**: `launchctl managername=Background` + 잠긴 login keychain 때문에 `security -i`가 `-25308 User interaction is not allowed`로 실패한다. Mac의 GUI 로그인 세션에서 keychain을 해제한 뒤 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh`로 실행한다.
 3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. `main` @ `v0.6.0` 설치본은 `bash scripts/lifecycle.sh build-dev --install` 또는 release 바이너리로 맞춘다.
 P1/P2에서 바뀐 동작(스크립트 주의):
