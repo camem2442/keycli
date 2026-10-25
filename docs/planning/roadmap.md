@@ -96,12 +96,12 @@ status: active
 - git tag `v0.6.0` @ `881758e` — **COMPLETE** (release workflow green)
 - 실 Mac `./verify.sh --suite mac-smoke` — **COMPLETE** (2026-10-25)
 - `exec` 키체인 노출 — **COMPLETE** (B-2, SJ Mac 2026-10-25)
-- Cursor/gh 실 push 각 1회 — **NOT VERIFIED**
+- Cursor/gh 실 push 각 1회 — **COMPLETE** (B-1, SJ Mac 2026-10-25, `kc git-credential`)
 - 에이전트 실사용 + 정책 운영 — **NOT VERIFIED**
-- OpenCode CLI turn (`wire` 후 실 `opencode`) — **NOT VERIFIED**
+- OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-15: `--standalone` 1턴 OK; `kc exec`+`kc get` 경로 NOT VERIFIED)
 - clip 자동삭제 실측 — **NOT VERIFIED**
 
-현재: **PARTIAL** — v0.6.0 태그·CI·문서 동기화 완료. 실연동 게이트(Cursor/gh·에이전트·OpenCode·clip 실측) 남음.
+현재: **PARTIAL** — v0.6.0 태그·CI·문서·B-1 push 게이트 완료. 에이전트·clip 실측·OpenCode exec 경로 남음.
 
 ## 마일스톤 기록
 
@@ -124,7 +124,7 @@ status: active
 | M2 keychain·link | **COMPLETE** | P0-2 파서·fake·B-2 `exec`, P1-5 이름 규칙, 실 Mac mac-smoke(`kc.secret.*`, link, 샌드박스 종료 3) |
 | M3 clip/cp | **PARTIAL** | P0-4·P1-4 구현·integration 통과, clip 자동삭제 실측 NOT VERIFIED |
 | M4 setup-git·rules·doctor | **COMPLETE** | P1-1 기본 매핑, P1-8 doctor, P2-2 설치 검증, mac-smoke setup-git |
-| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5 ledger batch, 실 API NOT VERIFIED |
+| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5 ledger batch; gh/git 실 push **COMPLETE**(B-1), `kc push cursor`/`gh` CLI는 NOT VERIFIED |
 | M5 external | **COMPLETE** | P0-5, Linux CI |
 | M6 audit·policy | **COMPLETE** | 체인·audit·policy 단위/integration 통과. 호출부 보정은 P1-2·P1-7 |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7, `881758e`, Linux unit·Mac `--dry-run` |
@@ -137,10 +137,8 @@ status: active
 | 항목 | 비고 |
 |---|---|
 | 실 클립보드 자동 삭제 | mac-smoke는 `cp` 경로만 실행; delay 후 clear 실측 없음 |
-| Cursor 실 push | 실 API·환경 ID (B-1 완료 시 갱신) |
-| gh 실 push | 실 토큰·repo |
 | 에이전트 실사용 + 정책 운영 | Cursor/Claude Code/Codex 각 1회 |
-| OpenCode CLI turn | `kc wire opencode-vertex` 후 실 `opencode` 세션 |
+| OpenCode `kc exec` 경로 | `PROXY_API_KEY`를 kc store·`kc exec`로 주입 후 `opencode run`(non-standalone) |
 | 서드파티 `kc-backend-*` 실연동 | demo 외 |
 
 ## DEFERRED
