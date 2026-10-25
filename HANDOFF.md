@@ -26,6 +26,7 @@
 | gh 실 push | **NOT VERIFIED** | |
 | 에이전트 실사용 + 정책 운영 | **NOT VERIFIED** | |
 | `exec` 환경 키체인 항목 노출 | **NOT VERIFIED** | mac-smoke는 `ls --json`만 확인 |
+| 설치본 `~/.local/bin/kc` | **COMPLETE** | `v0.5.0-1-gc4b09ea`, 실 Mac mac-smoke 재통과 |
 | TTL 캐시 / rate limit / masking / 1Password | **DEFERRED** | roadmap |
 
 ## 검증

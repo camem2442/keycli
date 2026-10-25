@@ -75,7 +75,7 @@ status: active
 | P2-3 | 문서 동기화 | README(`v0.5.0`, `init`/`keygen`), HANDOFF, roadmap, mac-smoke의 identity 사용법 일치 | PARTIAL |
 | P2-4 | 테스트 위생 | 태그 없는 `go test`가 실제 클립보드를 건드리지 않도록 clip 테스트 gate | PARTIAL |
 | P2-5 | push/ledger 성능 | `ledger.Record`를 항목별 호출하지 않고 일괄 기록 | PARTIAL |
-| P2-6 | 미커밋 변경 정리 | git 호스트 매핑 변경 커밋 + 설치본 재빌드 | PARTIAL |
+| P2-6 | 미커밋 변경 정리 | git 호스트 매핑 변경 커밋 + 설치본 재빌드 | COMPLETE |
 
 ### P2 구현 기록 (2026-10-25)
 
@@ -84,7 +84,7 @@ status: active
 - **P2-3:** README 상태를 `v0.5.0`으로, 설치 절에 SHA256 검증, 테스트 절에 clip gate를 반영. HANDOFF에 P1 동작 변경·검증 방법을 반영. mac-smoke는 `kc.secret.<name>` 서비스·`ls --json` 노출을 실제로 확인하도록 수정.
 - **P2-4:** `internal/clip/autoclear_test.go`에 `//go:build kc_testhooks`를 붙여 태그 없는 `go test ./...`가 실제 클립보드를 건드리지 않게 했다. 고정 sleep 대신 polling으로 flake도 제거.
 - **P2-5:** `ledger.RecordAll` 추가. `push`는 시크릿 N개를 한 번의 load/save로 기록한다. 단일 `Record`는 `RecordAll`에 위임. batch upsert·빈 입력 테스트 추가.
-- **P2-6:** 미커밋 변경(git 호스트 매핑+P0/P1/P2)은 사용자 지시 없이는 커밋하지 않는다. 설치본 재빌드도 대기.
+- **P2-6:** 미커밋 변경(git 호스트 매핑+P0/P1/P2)을 커밋 `c4b09ea`로 정리하고 `scripts/lifecycle.sh build-dev --install`로 설치본을 재빌드했다. 설치본 `~/.local/bin/kc`(`v0.5.0-1-gc4b09ea`)로 실 Mac mac-smoke를 재실행해 통과.
 
 검증: `go test -tags=kc_testhooks ./internal/ledger ./internal/clip ./internal/integration`, 태그 없는 `go test ./internal/clip ./internal/ledger`, `bash -n scripts/install.sh scripts/mac-smoke.sh`, install checksum 3케이스, `verify.sh --suite unit|docs|policy|release`, 실 Mac `mac-smoke` 통과. Linux CI `--suite all`만 **NOT VERIFIED**.
 
