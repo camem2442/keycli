@@ -83,6 +83,9 @@ EOF
 }
 
 TEST_ITEM="kc.test.smoke-$(openssl rand -hex 3)"
+# kc stores writable keychain items under kc.secret.<name>; the raw service is
+# what cleanup and duplicate checks must use.
+TEST_SERVICE="kc.secret.${TEST_ITEM}"
 SMOKE_DIR=""
 REBUILD_BIN=""
 AGE_CREATED=false
@@ -113,11 +116,11 @@ kc_with_config() {
 cleanup() {
   if [[ -n "${KC_CONFIG_PATH:-}" ]]; then
     kc_keychain rm "$TEST_ITEM" 2>/dev/null || true
-    /usr/bin/security delete-generic-password -s "$TEST_ITEM" -a kc 2>/dev/null || true
-    if /usr/bin/security find-generic-password -s "$TEST_ITEM" -a kc >/dev/null 2>&1; then
-      echo "mac-smoke: WARN $TEST_ITEM still in keychain" >&2
+    /usr/bin/security delete-generic-password -s "$TEST_SERVICE" -a kc 2>/dev/null || true
+    if /usr/bin/security find-generic-password -s "$TEST_SERVICE" -a kc >/dev/null 2>&1; then
+      echo "mac-smoke: WARN $TEST_SERVICE still in keychain" >&2
     else
-      echo "mac-smoke: confirmed deleted $TEST_ITEM"
+      echo "mac-smoke: confirmed deleted $TEST_SERVICE"
     fi
   fi
   if $AGE_CREATED; then
@@ -140,13 +143,18 @@ smoke_set_keychain() {
   printf '%s' 'smoke-value' | kc_keychain set "$TEST_ITEM"
 }
 
-echo "mac-smoke: keychain write (security -i, -T /usr/bin/security) item=$TEST_ITEM"
+echo "mac-smoke: keychain write (security -i, -T /usr/bin/security) item=$TEST_SERVICE"
 if ! run_keychain_step "키체인에 테스트 비밀 저장 (kc set)" smoke_set_keychain; then
   echo "mac-smoke: keychain set FAILED" >&2
   echo "mac-smoke: hint: real HOME required; temp HOME causes '키체인 발견할 수 없음'" >&2
   /usr/bin/security list-keychains 2>&1 | head -5 >&2 || true
   exit 1
 fi
+if ! /usr/bin/security find-generic-password -s "$TEST_SERVICE" -a kc >/dev/null 2>&1; then
+  echo "mac-smoke: expected service $TEST_SERVICE (kc.secret.<name>)" >&2
+  exit 1
+fi
+echo "mac-smoke: kc.secret.<name> service OK"
 
 got="$(kc_keychain get "$TEST_ITEM")"
 if [[ "$got" != "smoke-value" ]]; then
@@ -173,8 +181,12 @@ else
   echo "mac-smoke: go missing — skip rebuild check" >&2
 fi
 
-echo "mac-smoke: ls --json (dotted kc.test.* names may not appear in list filter)"
-kc_keychain ls --json >/dev/null || true
+echo "mac-smoke: ls --json contains kc.secret item"
+if ! kc_keychain ls --json | grep -q "\"name\": \"$TEST_ITEM\""; then
+  echo "mac-smoke: $TEST_ITEM missing from ls --json (expected after kc.secret prefix)" >&2
+  exit 1
+fi
+echo "mac-smoke: ls --json OK"
 
 echo "mac-smoke: cp + clipboard"
 export KC_CP_CLEAR_SECONDS=2
@@ -225,7 +237,9 @@ if /usr/bin/security find-generic-password -s kc.age -a kc >/dev/null 2>&1; then
   fi
 else
   echo "mac-smoke: kc.age absent — create throwaway age key in keychain"
-  AGE_KEY="$("$KC" keygen 2>/dev/null | tr -d '\n')"
+  # 임시 HOME으로 init: 실제 ~/.kc/receiver.key를 건드리지 않고 새 identity를 만든다.
+  mkdir -p "$SMOKE_DIR/init-home"
+  AGE_KEY="$(HOME="$SMOKE_DIR/init-home" "$KC" init --print-identity 2>/dev/null | tr -d '\n')"
   AGE_HEX="$(printf '%s' "$AGE_KEY" | xxd -p | tr -d '\n')"
   smoke_write_kc_age() {
     printf 'add-generic-password -s kc.age -a kc -U -T /usr/bin/security -X %s\n' "$AGE_HEX" | /usr/bin/security -i

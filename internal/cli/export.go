@@ -7,7 +7,6 @@ import (
 	"filippo.io/age"
 	"github.com/camem2442/keycli/internal/agebundle"
 	"github.com/camem2442/keycli/internal/app"
-	"github.com/camem2442/keycli/internal/clip"
 	"github.com/camem2442/keycli/internal/dotenv"
 	"github.com/camem2442/keycli/internal/exportrecv"
 	"github.com/camem2442/keycli/internal/kcerrors"
@@ -66,8 +65,7 @@ func exportDotenv(cmd *cobra.Command, a *app.App, secrets map[string][]byte, std
 	if isTTY && stdout {
 		fmt.Fprintln(cmd.ErrOrStderr(), "kc: --stdout는 stdout이 TTY가 아닐 때만 사용하세요. 클립보드로 복사합니다.")
 	}
-	p := clip.Provider{Config: a.Config, OSC52Enabled: true}
-	if err := p.CopyWithAutoClear(cmd.Context(), text, clip.AutoClearDelay()); err != nil {
+	if err := clipboardCopyWithAutoClear(a, text, true); err != nil {
 		return err
 	}
 	fmt.Fprintln(cmd.ErrOrStderr(), "kc: dotenv를 클립보드에 복사했습니다. 자동 삭제됩니다.")

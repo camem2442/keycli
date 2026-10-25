@@ -19,8 +19,6 @@ import (
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/kcerrors"
-	"github.com/camem2442/keycli/internal/testhooks"
-	"runtime"
 )
 
 func init() {
@@ -123,6 +121,11 @@ func (s *Store) List(ctx context.Context) ([]backend.Item, error) {
 func (s *Store) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockExclusive()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	data, err := s.readStoreLocked()
 	if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, kcerrors.ErrNotFound) {
 		return err
@@ -142,6 +145,11 @@ func (s *Store) Set(ctx context.Context, name string, value []byte, meta backend
 func (s *Store) Delete(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockExclusive()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	data, err := s.readStoreLocked()
 	if err != nil {
 		return err
@@ -152,6 +160,27 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 	}
 	delete(data.Secrets, key)
 	return s.writeStoreLocked(data)
+}
+
+// lockExclusive serializes read-modify-write operations across processes.
+// The lock uses a dedicated sidecar file because the store itself is replaced
+// by rename on every write.
+func (s *Store) lockExclusive() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
 }
 
 func (s *Store) readStore() (storeData, error) {
@@ -264,34 +293,18 @@ func identityRecipient(id age.Identity) (age.Recipient, error) {
 }
 
 func (s *Store) loadIdentity() (age.Identity, error) {
-	if key := strings.TrimSpace(os.Getenv("KC_KEY")); key != "" {
-		id, err := age.ParseX25519Identity(key)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid KC_KEY", kcerrors.ErrLocked)
-		}
-		return id, nil
+	res, err := ResolveIdentity(context.Background(), IdentityOptions{
+		Home:     s.home,
+		Config:   s.cfg,
+		Security: s.security,
+	})
+	if errors.Is(err, ErrNoIdentity) {
+		return nil, fmt.Errorf("%w", kcerrors.ErrLocked)
 	}
-	receiverPath := filepath.Join(s.home, ".kc", "receiver.key")
-	if data, err := os.ReadFile(receiverPath); err == nil {
-		key := strings.TrimSpace(string(data))
-		id, err := age.ParseX25519Identity(key)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid receiver.key", kcerrors.ErrLocked)
-		}
-		return id, nil
+	if err != nil {
+		return nil, err
 	}
-	if s.security != nil && (runtime.GOOS == "darwin" || testhooks.Env(s.cfg, "KC_TEST_KEYCHAIN") == "1") {
-		out, err := s.security.Run(context.Background(), "find-generic-password", "-s", ageKeyService, "-a", ageKeyAccount, "-w")
-		if err == nil {
-			key := strings.TrimSpace(string(out))
-			id, err := age.ParseX25519Identity(key)
-			if err != nil {
-				return nil, fmt.Errorf("%w: invalid age key in keychain", kcerrors.ErrLocked)
-			}
-			return id, nil
-		}
-	}
-	return nil, fmt.Errorf("%w", kcerrors.ErrLocked)
+	return res.Identity, nil
 }
 
 // GenerateKCKey creates a new age identity string for tests/setup.

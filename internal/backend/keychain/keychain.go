@@ -75,14 +75,6 @@ func (k *Keychain) Available(ctx context.Context) (bool, string, error) {
 	return true, "", nil
 }
 
-func (k *Keychain) writeService(name string) string {
-	name = strings.TrimSpace(name)
-	if strings.Contains(name, ".") {
-		return name
-	}
-	return "kc.secret." + name
-}
-
 func (k *Keychain) isReadOnlyService(service string) bool {
 	return strings.HasPrefix(service, k.servicePrefix+".")
 }
@@ -112,7 +104,10 @@ func (k *Keychain) GetWithSource(ctx context.Context, name string) ([]byte, stri
 	if ac, ok := ParseAICoreName(name); ok {
 		return AICoreLookupWithSource(ctx, k.runner, ac)
 	}
-	service := k.writeService(name)
+	service, err := k.writeService(name)
+	if err != nil {
+		return nil, "", err
+	}
 	return FindGenericPassword(ctx, k.runner, service, "kc")
 }
 
@@ -133,15 +128,22 @@ func (k *Keychain) List(ctx context.Context) ([]backend.Item, error) {
 	for _, p := range ListAICoreItems(dump, k.servicePrefix) {
 		items = append(items, backend.Item{Name: p})
 	}
-	for _, line := range strings.Split(dump, "\n") {
-		if !strings.Contains(line, "service:") {
+	seen := map[string]struct{}{}
+	for _, e := range ParseDumpEntries(dump) {
+		if !strings.HasPrefix(e.Service, "kc.secret.") {
 			continue
 		}
-		svc := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "service:"))
-		if !strings.HasPrefix(svc, "kc.secret.") {
+		short := strings.TrimPrefix(e.Service, "kc.secret.")
+		if short == "" {
 			continue
 		}
-		short := strings.TrimPrefix(svc, "kc.secret.")
+		if ValidateSecretName(short) != nil {
+			continue
+		}
+		if _, ok := seen[short]; ok {
+			continue
+		}
+		seen[short] = struct{}{}
 		items = append(items, backend.Item{Name: short})
 	}
 	return items, nil
@@ -158,7 +160,10 @@ func (k *Keychain) Set(ctx context.Context, name string, value []byte, meta back
 	if !ok {
 		return fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
-	service := k.writeService(name)
+	service, err := k.writeService(name)
+	if err != nil {
+		return err
+	}
 	if k.isReadOnlyService(service) {
 		return fmt.Errorf("%w: ai-core keychain items are read-only", kcerrors.ErrDenied)
 	}
@@ -177,7 +182,10 @@ func (k *Keychain) Delete(ctx context.Context, name string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", kcerrors.ErrBlocked, msg)
 	}
-	service := k.writeService(name)
+	service, err := k.writeService(name)
+	if err != nil {
+		return err
+	}
 	_, err = k.runner.Run(ctx, "delete-generic-password", "-s", service, "-a", "kc")
 	if err != nil {
 		return MapSecurityExit(err)

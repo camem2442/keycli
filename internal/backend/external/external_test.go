@@ -11,7 +11,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/backend/external"
-	_ "github.com/camem2442/keycli/internal/backend/file"
+	"github.com/camem2442/keycli/internal/backend/file"
 	"github.com/camem2442/keycli/internal/config"
 	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/camem2442/keycli/internal/plugin"
@@ -62,25 +62,72 @@ func TestMalformedPlugin(t *testing.T) {
 	cfg.Order = []string{"plug"}
 	cfg.Backend["plug"] = config.BackendSpec{Type: "external", Command: bin, Timeout: "2s"}
 
-	_, err := backend.Build(context.Background(), cfg, backend.Deps{Home: home, Config: cfg})
-	if err == nil || !strings.Contains(err.Error(), "invalid JSON") {
-		t.Fatalf("want invalid JSON error, got %v", err)
+	bs, err := backend.Build(context.Background(), cfg, backend.Deps{Home: home, Config: cfg})
+	if err != nil || len(bs) != 1 {
+		t.Fatalf("malformed plugin must not fail Build: %v len=%d", err, len(bs))
+	}
+	ok, reason, err := bs[0].Available(context.Background())
+	if err != nil || ok || !strings.Contains(reason, "invalid JSON") {
+		t.Fatalf("want invalid JSON reason, got ok=%v err=%v reason=%q", ok, err, reason)
 	}
 }
 
-func TestPluginTimeout(t *testing.T) {
+func TestPluginTimeoutIsolated(t *testing.T) {
 	home := t.TempDir()
 	bin := buildPlugin(t, "slow")
 	cfg := config.Default(home)
-	cfg.Order = []string{"plug"}
+	cfg.Order = []string{"plug", "store"}
 	cfg.Backend["plug"] = config.BackendSpec{Type: "external", Command: bin, Timeout: "100ms"}
-
-	_, err := backend.Build(context.Background(), cfg, backend.Deps{Home: home, Config: cfg})
-	if err == nil {
-		t.Fatal("expected timeout")
+	cfg.Backend["store"] = config.BackendSpec{Type: "file", Path: filepath.Join(home, ".kc", "store.age")}
+	key, err := file.GenerateKCKey()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("got %v", err)
+	t.Setenv("KC_KEY", key)
+
+	bs, err := backend.Build(context.Background(), cfg, backend.Deps{Home: home, Config: cfg})
+	if err != nil {
+		t.Fatalf("broken plugin must not fail Build: %v", err)
+	}
+	if len(bs) != 2 {
+		t.Fatalf("backends %d, want 2", len(bs))
+	}
+	ok, reason, err := bs[0].Available(context.Background())
+	if err != nil || ok {
+		t.Fatalf("slow plugin should be unavailable: ok=%v err=%v", ok, err)
+	}
+	if !strings.Contains(reason, "timeout") {
+		t.Fatalf("reason %q", reason)
+	}
+	ok, _, err = bs[1].Available(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("file backend must remain available: ok=%v err=%v", ok, err)
+	}
+	if err := bs[1].Set(context.Background(), "demo", []byte("v"), backend.Meta{}); err != nil {
+		t.Fatalf("file backend write: %v", err)
+	}
+}
+
+func TestMissingPluginIsolated(t *testing.T) {
+	home := t.TempDir()
+	cfg := config.Default(home)
+	cfg.Order = []string{"plug", "store"}
+	cfg.Backend["plug"] = config.BackendSpec{Type: "external", Plugin: "definitely-not-installed"}
+	cfg.Backend["store"] = config.BackendSpec{Type: "file", Path: filepath.Join(home, ".kc", "store.age")}
+
+	bs, err := backend.Build(context.Background(), cfg, backend.Deps{Home: home, Config: cfg})
+	if err != nil {
+		t.Fatalf("missing plugin must not fail Build: %v", err)
+	}
+	if len(bs) != 2 {
+		t.Fatalf("backends %d, want 2", len(bs))
+	}
+	ok, reason, err := bs[0].Available(context.Background())
+	if err != nil || ok {
+		t.Fatalf("missing plugin should be unavailable: ok=%v err=%v", ok, err)
+	}
+	if reason == "" {
+		t.Fatal("missing plugin should explain why")
 	}
 }
 

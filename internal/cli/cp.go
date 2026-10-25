@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/clip"
@@ -38,26 +36,10 @@ func newCpCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			text := string(val)
-			sum := clip.Checksum(text)
-			cp := clip.Provider{Config: a.Config, OSC52Enabled: os.Getenv("KC_CLIP_OSC52") == "1"}
-			if err := cp.Write(text); err != nil {
+			if err := clipboardCopyWithAutoClear(a, text, os.Getenv("KC_CLIP_OSC52") == "1"); err != nil {
 				return err
 			}
-			delay := clip.AutoClearDelay()
-			if os.Getenv("KC_CP_WAIT_CLEAR") == "1" {
-				time.Sleep(delay + 50*time.Millisecond)
-				cur, err := cp.Read()
-				if err == nil && clip.Checksum(cur) == sum {
-					_ = cp.Clear()
-				}
-			} else {
-				clearCmd := exec.Command(os.Args[0], "_clip-wait-clear", "--checksum", sum)
-				clearCmd.Env = os.Environ()
-				clearCmd.Stdout = nil
-				clearCmd.Stderr = nil
-				_ = clearCmd.Start()
-			}
-			fmt.Fprintf(os.Stderr, "kc: %s 복사됨 (%v 후 자동 삭제)\n", name, delay)
+			fmt.Fprintf(os.Stderr, "kc: %s 복사됨 (%v 후 자동 삭제)\n", name, clip.AutoClearDelay())
 			return nil
 		},
 	}

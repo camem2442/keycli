@@ -56,3 +56,22 @@ func TestPolicyAgentWithoutEntryAllowed(t *testing.T) {
 		t.Fatal("cursor has no policy entry")
 	}
 }
+
+func TestPolicyEnabledRequiresMiddleware(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"codex": {Allow: []string{"github"}},
+	}
+	if middleware.PolicyEnabled(cfg) {
+		t.Fatal("rules without middleware must not be enforced")
+	}
+	cfg.Middleware = []string{"audit", " POLICY "}
+	if !middleware.PolicyEnabled(cfg) {
+		t.Fatal("policy middleware should enable enforcement")
+	}
+	cfg.Middleware = []string{"audit"}
+	cfg.Policy.Agent = nil
+	if middleware.PolicyEnabled(cfg) {
+		t.Fatal("middleware without rules must not enforce")
+	}
+}

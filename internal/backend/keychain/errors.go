@@ -28,6 +28,12 @@ func MapSecurityExit(err error) error {
 		return err
 	}
 	if se.ExitCode == 44 {
+		// A sandboxed process cannot reach securityd, so the keychain search
+		// fails with "parameters ... not valid" and security reports the item
+		// as not found. Treat that as blocked (exit 3), not as a missing name.
+		if containsSandbox(se.Stderr) {
+			return fmt.Errorf("%w: %s", kcerrors.ErrBlocked, se.Stderr)
+		}
 		return fmt.Errorf("%w", kcerrors.ErrNotFound)
 	}
 	if se.ExitCode == 51 || se.ExitCode == 128 || se.ExitCode == 1 {
@@ -40,7 +46,14 @@ func MapSecurityExit(err error) error {
 }
 
 func containsSandbox(stderr string) bool {
-	for _, sub := range []string{"User interaction is not allowed", "interaction not allowed", "sandbox"} {
+	for _, sub := range []string{
+		"User interaction is not allowed",
+		"interaction not allowed",
+		"sandbox",
+		// Observed inside sandbox-exec: the keychain search list is
+		// unavailable, so SecKeychainSearchCreateFromAttributes fails.
+		"One or more parameters passed to a function were not valid",
+	} {
 		if strings.Contains(stderr, sub) {
 			return true
 		}

@@ -33,6 +33,33 @@ resolve_release_tag() {
   fi
 }
 
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+verify_checksum() {
+  local file="$1" sums="$2" asset="$3" want got
+  want="$(awk -v a="$asset" '$2 == a || $2 == "*" a {print $1; exit}' "$sums")"
+  if [[ -z "$want" ]]; then
+    echo "checksum for ${asset} missing in SHA256SUMS" >&2
+    return 1
+  fi
+  if ! got="$(sha256_of "$file")"; then
+    echo "no sha256 tool available (need sha256sum or shasum)" >&2
+    return 1
+  fi
+  if [[ "$got" != "$want" ]]; then
+    echo "checksum mismatch for ${asset}" >&2
+    return 1
+  fi
+}
+
 install_from_curl() {
   local asset="kc-${PLATFORM_OS}-${PLATFORM_ARCH}"
   local tag tmp url
@@ -45,10 +72,17 @@ install_from_curl() {
   if ! curl -fsSL "$url" -o "$tmp/$asset"; then
     return 1
   fi
+  if ! curl -fsSL "https://github.com/${GITHUB_REPO}/releases/download/${tag}/SHA256SUMS" -o "$tmp/SHA256SUMS"; then
+    echo "SHA256SUMS not available for ${tag}; refusing unverified install" >&2
+    return 1
+  fi
+  if ! verify_checksum "$tmp/$asset" "$tmp/SHA256SUMS" "$asset"; then
+    return 1
+  fi
   mkdir -p "$PREFIX"
   install -m 755 "$tmp/$asset" "$PREFIX/kc"
   ln -sf kc "$PREFIX/keycli"
-  echo "installed ${asset} from release ${tag} -> $PREFIX"
+  echo "installed ${asset} from release ${tag} -> $PREFIX (sha256 verified)"
   return 0
 }
 
@@ -84,13 +118,20 @@ install_from_gh() {
   if [[ "$REF" != "latest" && "$REF" != "main" ]]; then
     tag_args=("$REF")
   fi
-  if ! gh release download "${tag_args[@]}" --repo "$GITHUB_REPO" --pattern "$asset" --dir "$tmp" 2>/dev/null; then
+  if ! gh release download "${tag_args[@]}" --repo "$GITHUB_REPO" --pattern "$asset" --pattern "SHA256SUMS" --dir "$tmp" 2>/dev/null; then
+    return 1
+  fi
+  if [[ ! -f "$tmp/SHA256SUMS" ]]; then
+    echo "SHA256SUMS not available; refusing unverified install" >&2
+    return 1
+  fi
+  if ! verify_checksum "$tmp/$asset" "$tmp/SHA256SUMS" "$asset"; then
     return 1
   fi
   mkdir -p "$PREFIX"
   install -m 755 "$tmp/$asset" "$PREFIX/kc"
   ln -sf kc "$PREFIX/keycli"
-  echo "installed via gh release download -> $PREFIX"
+  echo "installed via gh release download -> $PREFIX (sha256 verified)"
   return 0
 }
 

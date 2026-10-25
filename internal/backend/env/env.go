@@ -79,18 +79,9 @@ func (e *Env) List(ctx context.Context) ([]backend.Item, error) {
 		}
 	nextCanon:
 	}
-	for _, entry := range os.Environ() {
-		k, v, ok := strings.Cut(entry, "=")
-		if !ok || v == "" || !strings.HasPrefix(k, "KC_") {
-			continue
-		}
-		name := strings.ToLower(strings.TrimPrefix(k, "KC_"))
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		items = append(items, backend.Item{Name: name})
-	}
+	// Do not synthesize names from KC_* variables: they are kc internals
+	// (KC_KEY, KC_AGENT, ...), not secrets, and none of them is readable by
+	// name. Listing them made ls show entries that get could not resolve.
 	return items, nil
 }
 

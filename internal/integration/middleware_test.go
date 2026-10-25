@@ -10,6 +10,64 @@ import (
 	"github.com/camem2442/keycli/internal/backend/file"
 )
 
+// TestPolicyRulesWithoutMiddleware covers P1-7: rules alone must not mark
+// names denied in ls or block get unless the policy middleware is enabled.
+func TestPolicyRulesWithoutMiddleware(t *testing.T) {
+	home := t.TempDir()
+	key, err := file.GenerateKCKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgDir := filepath.Join(home, ".config", "kc")
+	_ = os.MkdirAll(cfgDir, 0o755)
+	storePath := filepath.Join(home, ".kc", "store.age")
+	configToml := `
+allow_test_hooks = true
+order = ["store"]
+
+[backend.store]
+type = "file"
+path = "` + storePath + `"
+
+[policy.agent.ci]
+allow = ["allowed"]
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configToml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"HOME=" + home, "KC_KEY=" + key, "KC_AGENT=ci"}
+	for _, name := range []string{"allowed", "denied"} {
+		if code, out := runKC(env, "set", name); code != 0 {
+			t.Fatalf("set %s: %d %s", name, code, out)
+		}
+	}
+
+	if code, out := runKC(env, "get", "denied"); code != 0 {
+		t.Fatalf("rules without middleware must not block get: %d %s", code, out)
+	}
+	code, out := runKC(env, "ls", "--json", "--all")
+	if code != 0 {
+		t.Fatalf("ls: %d %s", code, out)
+	}
+	var payload struct {
+		Items []struct {
+			Name         string `json:"name"`
+			PolicyDenied bool   `json:"policy_denied"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range payload.Items {
+		if it.PolicyDenied {
+			t.Fatalf("rules without middleware marked %q denied", it.Name)
+		}
+	}
+	if code, out := runKC(env, "policy", "check", "denied"); code != 0 || !strings.Contains(out, "not enforced") {
+		t.Fatalf("policy check should report not enforced: %d %q", code, out)
+	}
+}
+
 func TestMiddlewarePolicyAndAudit(t *testing.T) {
 	home := t.TempDir()
 	key, err := file.GenerateKCKey()

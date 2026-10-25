@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/backend"
-	"github.com/camem2442/keycli/internal/backend/keychain"
+	"github.com/camem2442/keycli/internal/backend/file"
 	"github.com/camem2442/keycli/internal/clip"
 	"github.com/camem2442/keycli/internal/gitsetup"
 	"github.com/camem2442/keycli/internal/kcerrors"
@@ -23,12 +24,21 @@ type Report struct {
 	StorePath      string          `json:"store_path"`
 	KCKey          string          `json:"kc_key"`
 	KCAge          string          `json:"kc_age"`
+	IdentityPath   string          `json:"identity_path,omitempty"`
 	Backends       []BackendStatus `json:"backends"`
 	PathCollisions []string        `json:"path_collisions,omitempty"`
 	Keychain       string          `json:"keychain"`
 	Clipboard      string          `json:"clipboard"`
 	GitHelper      string          `json:"git_helper"`
 	GitHelperValue string          `json:"git_helper_value,omitempty"`
+	GitHosts       []GitHostStatus `json:"git_hosts,omitempty"`
+}
+
+// GitHostStatus reports the configured git credential helper per mapped host.
+type GitHostStatus struct {
+	Host   string `json:"host"`
+	Helper string `json:"helper"` // kc | other | unset
+	Value  string `json:"value,omitempty"`
 }
 
 type BackendStatus struct {
@@ -44,23 +54,54 @@ func Collect(ctx context.Context, a *app.App) Report {
 		ConfigPath: a.ConfigPath,
 		StorePath:  a.StorePath(),
 		KCKey:      kcKeyStatus(),
-		KCAge:      kcAgeStatus(ctx, a),
-		Backends:   listBackends(ctx, a),
-		Keychain:   keychainStatus(ctx, a),
-		Clipboard:  clip.Status(),
 	}
+	rep.KCAge, rep.IdentityPath = identityStatus(ctx, a)
+	rep.Backends = listBackends(ctx, a)
+	rep.Keychain = keychainStatus(ctx, a)
+	rep.Clipboard = clip.Status()
 	rep.PathCollisions = pathCollisions()
-	helper, _ := gitsetup.ReadCurrentHelper()
-	rep.GitHelperValue = helper
-	switch {
-	case helper == "":
-		rep.GitHelper = "unset"
-	case strings.Contains(helper, "kc") && strings.Contains(helper, "git-credential"):
-		rep.GitHelper = "kc"
-	default:
-		rep.GitHelper = "other"
+	rep.GitHosts = gitHostStatuses(a)
+	for _, h := range rep.GitHosts {
+		if h.Host == gitsetup.DefaultHost {
+			rep.GitHelper = h.Helper
+			rep.GitHelperValue = h.Value
+			break
+		}
 	}
 	return rep
+}
+
+func classifyHelper(value string) string {
+	switch {
+	case value == "":
+		return "unset"
+	case strings.Contains(value, "kc") && strings.Contains(value, "git-credential"):
+		return "kc"
+	default:
+		return "other"
+	}
+}
+
+// gitHostStatuses reports the credential helper state for every mapped host.
+// Values are git config strings only; no secret is read.
+func gitHostStatuses(a *app.App) []GitHostStatus {
+	hosts := a.Config.GitHosts()
+	hasDefault := false
+	for _, h := range hosts {
+		if h == gitsetup.DefaultHost {
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault {
+		hosts = append(hosts, gitsetup.DefaultHost)
+	}
+	out := make([]GitHostStatus, 0, len(hosts))
+	for _, h := range hosts {
+		v, _ := gitsetup.ReadCurrentHelper(h)
+		out = append(out, GitHostStatus{Host: h, Helper: classifyHelper(v), Value: v})
+	}
+	return out
 }
 
 func listBackends(ctx context.Context, a *app.App) []BackendStatus {
@@ -88,24 +129,37 @@ func kcKeyStatus() string {
 	return "unset"
 }
 
-func kcAgeStatus(ctx context.Context, a *app.App) string {
-	if os.Getenv("KC_KEY") != "" {
-		return "env"
+// identityStatus reports the effective age identity source (KC_KEY,
+// receiver.key, or keychain kc.age) without ever exposing the identity value.
+func identityStatus(ctx context.Context, a *app.App) (string, string) {
+	res, err := file.ResolveIdentity(ctx, file.IdentityOptions{
+		Home:     a.Home,
+		Config:   a.Config,
+		Security: a.Deps.SecurityRunner,
+	})
+	if err != nil {
+		if errors.Is(err, file.ErrNoIdentity) {
+			return "missing", ""
+		}
+		switch kcerrors.Code(err) {
+		case kcerrors.ExitLocked:
+			return "locked", ""
+		case kcerrors.ExitBlocked:
+			return "blocked", ""
+		default:
+			return "missing", ""
+		}
 	}
-	if a.Deps.SecurityRunner == nil {
-		return "missing"
+	switch res.Source {
+	case file.IdentitySourceEnv:
+		return "env", ""
+	case file.IdentitySourceFile:
+		return "file", res.Path
+	case file.IdentitySourceKeychain:
+		return "keychain", ""
+	default:
+		return "missing", ""
 	}
-	_, _, err := keychain.FindGenericPassword(ctx, a.Deps.SecurityRunner, "kc.age", "kc")
-	if err == nil {
-		return "keychain"
-	}
-	if kcerrors.Code(err) == kcerrors.ExitBlocked {
-		return "blocked"
-	}
-	if runtime.GOOS != "darwin" {
-		return "missing"
-	}
-	return "missing"
 }
 
 func keychainStatus(ctx context.Context, a *app.App) string {
@@ -160,7 +214,11 @@ func PrintHuman(w *os.File, rep Report) {
 	fmt.Fprintf(w, "config: %s\n", rep.ConfigPath)
 	fmt.Fprintf(w, "store:  %s\n", rep.StorePath)
 	fmt.Fprintf(w, "KC_KEY: %s\n", rep.KCKey)
-	fmt.Fprintf(w, "kc.age: %s\n", rep.KCAge)
+	fmt.Fprintf(w, "identity: %s", rep.KCAge)
+	if rep.IdentityPath != "" {
+		fmt.Fprintf(w, " (%s)", rep.IdentityPath)
+	}
+	fmt.Fprintln(w)
 	fmt.Fprintf(w, "keychain: %s\n", rep.Keychain)
 	fmt.Fprintf(w, "clipboard: %s\n", rep.Clipboard)
 	fmt.Fprintf(w, "git helper: %s", rep.GitHelper)
@@ -168,6 +226,16 @@ func PrintHuman(w *os.File, rep Report) {
 		fmt.Fprintf(w, " (%s)", rep.GitHelperValue)
 	}
 	fmt.Fprintln(w)
+	if len(rep.GitHosts) > 0 {
+		fmt.Fprintln(w, "git hosts:")
+		for _, h := range rep.GitHosts {
+			fmt.Fprintf(w, "  - %s: %s", h.Host, h.Helper)
+			if h.Value != "" {
+				fmt.Fprintf(w, " (%s)", h.Value)
+			}
+			fmt.Fprintln(w)
+		}
+	}
 	if len(rep.PathCollisions) > 0 {
 		fmt.Fprintln(w, "PATH collisions:")
 		for _, p := range rep.PathCollisions {

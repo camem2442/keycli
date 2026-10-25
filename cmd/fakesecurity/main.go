@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -123,10 +124,48 @@ func deletePassword(args []string) {
 func dumpKeychain() {
 	st := loadState()
 	fmt.Println(`keychain: "/Fake/Keychains/login.keychain-db"`)
+	fmt.Println("version: 512")
+	keys := make([]string, 0, len(st.Entries))
 	for key := range st.Entries {
-		svc, _ := splitKey(key)
-		fmt.Println("service:", svc)
+		keys = append(keys, key)
 	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		svc, acct := splitKey(key)
+		fmt.Println(`class: "genp"`)
+		fmt.Println("attributes:")
+		fmt.Printf("    0x00000007 <blob>=%s\n", quoteBlob(svc))
+		fmt.Printf("    0x00000008 <blob>=<NULL>\n")
+		acctVal := "<NULL>"
+		if acct != "" {
+			acctVal = quoteBlob(acct)
+		}
+		fmt.Printf("    \"acct\"<blob>=%s\n", acctVal)
+		fmt.Println(`    "cdat"<timedate>=0x32303235303430313136353730355A00  "20250401165705Z\000"`)
+		fmt.Printf("    \"svce\"<blob>=%s\n", quoteBlob(svc))
+		fmt.Println(`    "type"<uint32>=<NULL>`)
+	}
+}
+
+// quoteBlob mirrors security(1): printable ASCII is quoted, everything else is
+// emitted as a three-digit octal escape.
+func quoteBlob(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c >= 0x20 && c < 0x7f:
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, `\%03o`, c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func entryKey(service, account string) string {

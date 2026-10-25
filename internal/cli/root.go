@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/kcerrors"
@@ -31,12 +32,12 @@ func Execute() int {
 	root.AddCommand(newExecCmd(a))
 	root.AddCommand(newCpCmd(a))
 	root.AddCommand(newRmCmd(a))
-	root.AddCommand(newInitCmd())
+	root.AddCommand(newInitCmd(a))
 	root.AddCommand(newPushCmd(a))
 	root.AddCommand(newExportCmd(a))
 	root.AddCommand(newImportCmd(a))
 	root.AddCommand(newStatusCmd(a))
-	root.AddCommand(newClipWaitClearCmd())
+	root.AddCommand(newClipWaitClearCmd(a))
 	root.AddCommand(newLinkCmd(a))
 	root.AddCommand(newUnlinkCmd(a))
 	root.AddCommand(newSetupGitCmd(a))
@@ -64,9 +65,23 @@ func mapCobraErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	// cobra returns generic errors for usage
-	if err.Error() == "unknown command" || err.Error() == "unknown flag" {
-		return kcerrors.ErrUsage
+	// cobra/pflag return plain errors for usage; map them to the contract's
+	// exit code 64 instead of the generic 1.
+	msg := err.Error()
+	for _, prefix := range []string{
+		"unknown command",
+		"unknown flag",
+		"unknown shorthand flag",
+		"flag needs an argument",
+		"required flag(s)",
+		"requires at least",
+		"requires exactly",
+		"accepts ",
+		"invalid argument",
+	} {
+		if strings.HasPrefix(msg, prefix) {
+			return kcerrors.ErrUsage
+		}
 	}
 	return err
 }

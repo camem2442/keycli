@@ -37,6 +37,25 @@ type PolicySettings struct {
 	Agent map[string]PolicyAgentSettings `toml:"agent"`
 }
 
+// GitHostSpec configures `kc git-credential` for one host.
+//
+// Secret is resolved through the normal resolver (so audit/policy apply).
+// Username defaults to "git". When Command is set, the secret is exported to
+// that command through the environment variables kc derives from the secret
+// name (resolve.EnvNames) and the command's stdout becomes the password.
+// kc itself never uses the network on this path; only a user-configured
+// command may.
+type GitHostSpec struct {
+	Secret   string `toml:"secret"`
+	Username string `toml:"username"`
+	Command  string `toml:"command"`
+
+	// Implicit marks the built-in github.com fallback that exists without a
+	// [git."github.com"] section. Only explicit mappings are enforced: an
+	// implicit mapping stays silent when its secret is missing.
+	Implicit bool `toml:"-"`
+}
+
 // Config is ~/.config/kc/config.toml.
 type Config struct {
 	Order          []string               `toml:"order"`
@@ -46,6 +65,7 @@ type Config struct {
 	Backend        map[string]BackendSpec `toml:"backend"`
 	Alias          map[string][]string    `toml:"alias"`
 	Link           map[string]LinkTarget  `toml:"link"`
+	Git            map[string]GitHostSpec `toml:"git"`
 	AllowTestHooks bool                   `toml:"allow_test_hooks"`
 }
 
@@ -62,7 +82,18 @@ func Default(home string) Config {
 		Alias: map[string][]string{
 			"github": {"gh", "GITHUB_TOKEN", "GH_TOKEN"},
 		},
+		// Git mappings are explicit only. GitHost still falls back to the
+		// built-in github.com mapping so a fresh install keeps working, but
+		// that fallback is never written to config and stays silent when the
+		// github secret does not exist.
 	}
+}
+
+// defaultGitHost is the host kc configures when the user does not say otherwise.
+const defaultGitHost = "github.com"
+
+func defaultGitSpec() GitHostSpec {
+	return GitHostSpec{Secret: "github", Username: "git", Implicit: true}
 }
 
 // ConfigPath resolves the config file path (KC_CONFIG or ~/.config/kc/config.toml).
@@ -99,6 +130,9 @@ func Load(home string) (Config, string, error) {
 	}
 	if c.Link == nil {
 		c.Link = map[string]LinkTarget{}
+	}
+	if c.Git == nil {
+		c.Git = map[string]GitHostSpec{}
 	}
 	if c.Policy.Agent == nil {
 		c.Policy.Agent = map[string]PolicyAgentSettings{}

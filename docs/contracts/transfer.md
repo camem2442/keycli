@@ -34,7 +34,8 @@ status: implemented
 
 ```bash
 # 클라우드: 수신자 키 확보
-kc init                       # age1… 공개키 stdout, identity는 ~/.kc/receiver.key (KC_KEY 없을 때)
+kc init                       # 기존 identity(KC_KEY → receiver.key → kc.age)의 age1… 공개키만 stdout; 없으면 새로 만들어 receiver.key에 저장
+kc init --print-identity      # identity(비밀값)를 stdout으로 — 스크립트용, 로그 금지
 # 맥
 kc export github openai --to age1...
 kc export github --to-github <user>
@@ -46,8 +47,8 @@ kc import < bundle.age
 
 ## 변경 추적
 
-- 맥 로컬 원장 `~/.kc/ledger.json`: `{name, target, hmac, exported_at}`. HMAC 키는 암호화 파일 저장소의 `ledger_hmac_key` 필드.
-- `kc status`:보낸 뒤 값이 바뀐 항목. `kc ls`는 `*` 및 `stale_export` (JSON).
+- 맥 로컬 원장 `~/.kc/ledger.json`: `{name, target, hmac, exported_at}`. HMAC 키는 암호화 파일 저장소의 `ledger_hmac_key` 필드. 원장 갱신과 store의 read-modify-write는 전용 `.lock` 파일 flock으로 프로세스 간 직렬화한다. `push`는 한 번의 `push`에서 여러 시크릿을 한 번의 load/save로 기록한다(`ledger.RecordAll`).
+- `kc status`:보낸 뒤 값이 바뀐 항목. `kc ls --stale`은 `*` 및 `stale_export` (JSON)를 표시하며, 원장에 있는 이름만 읽는다.
 
 ## 단계별 가용성
 

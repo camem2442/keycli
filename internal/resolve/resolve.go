@@ -185,8 +185,11 @@ func (r *Resolver) getFromBackend(ctx context.Context, b backend.Backend, name s
 	}
 }
 
+// networkSkip is always true for resolver reads: kc never uses the network to
+// list or read values (see AGENTS.md invariant 3). Network-capable backends are
+// skipped instead of being contacted.
 func (r *Resolver) networkSkip() bool {
-	return false
+	return true
 }
 
 // ListItem is one entry for ls / ls --json.
@@ -197,8 +200,8 @@ type ListItem struct {
 	Source       string   `json:"source,omitempty"`
 	Note         string   `json:"note"`
 	Expires      *string  `json:"expires"`
-	StaleExport  bool     `json:"stale_export,omitempty"`
-	PolicyDenied bool     `json:"policy_denied,omitempty"`
+	StaleExport  bool     `json:"stale_export"`
+	PolicyDenied bool     `json:"policy_denied"`
 }
 
 // List aggregates metadata from all backends.
@@ -209,7 +212,13 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 			continue
 		}
 		ok, _, err := b.Available(ctx)
-		if err != nil || !ok {
+		if err != nil {
+			if kcerrors.Code(err) == kcerrors.ExitBlocked {
+				continue
+			}
+			return nil, err
+		}
+		if !ok {
 			continue
 		}
 		if !b.Caps().CanList {
@@ -250,7 +259,7 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 	}
 	out := make([]ListItem, 0, len(byName))
 	for _, li := range byName {
-		if middleware.HasRules(r.cfg) && !r.PolicyAllowed(li.Name) {
+		if middleware.PolicyEnabled(r.cfg) && !r.PolicyAllowed(li.Name) {
 			li.PolicyDenied = true
 		}
 		out = append(out, li)
@@ -277,7 +286,7 @@ func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta back
 		}
 		return b.Set(ctx, canon, value, meta)
 	}
-	return fmt.Errorf("no writable backend available")
+	return fmt.Errorf("%w: 사용 가능한 쓰기 저장소 없음 (kc init 또는 KC_KEY 확인)", kcerrors.ErrLocked)
 }
 
 // Delete removes from writable backends that hold the name.

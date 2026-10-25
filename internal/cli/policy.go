@@ -31,8 +31,12 @@ func newPolicyCheckCmd(a *app.App) *cobra.Command {
 			}
 			p := middleware.NewPolicy(a.Config, agent)
 			canon := a.Resolver.CanonicalName(args[0])
-			if !middleware.HasRules(a.Config) {
-				fmt.Fprintf(os.Stderr, "kc: no policy configured (all reads allowed)\n")
+			if !middleware.PolicyEnabled(a.Config) {
+				if middleware.HasRules(a.Config) {
+					fmt.Fprintf(os.Stderr, "kc: policy rules configured but \"policy\" is not in middleware; reads are not enforced\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "kc: no policy configured (all reads allowed)\n")
+				}
 				return nil
 			}
 			if p.Allowed(canon) {

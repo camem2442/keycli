@@ -42,7 +42,7 @@ func newAuditCmd(a *app.App) *cobra.Command {
 				}
 				sinceTime = time.Now().Add(-d)
 			}
-			var recs []audit.Record
+			recs := []audit.Record{}
 			for _, line := range strings.Split(string(data), "\n") {
 				line = strings.TrimSpace(line)
 				if line == "" {

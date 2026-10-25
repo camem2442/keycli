@@ -12,7 +12,14 @@ const ledgerHMACKeyLen = 32
 
 // LedgerHMACKey returns the per-store HMAC key, creating one if missing.
 func (s *Store) LedgerHMACKey() ([]byte, error) {
-	data, err := s.readStore()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockExclusive()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	data, err := s.readStoreLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -24,16 +31,10 @@ func (s *Store) LedgerHMACKey() ([]byte, error) {
 		return nil, err
 	}
 	data.LedgerHMACKey = ledger.EncodeHMACKey(key)
-	if err := s.writeStore(data); err != nil {
+	if err := s.writeStoreLocked(data); err != nil {
 		return nil, err
 	}
 	return key, nil
-}
-
-func (s *Store) writeStore(data storeData) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeStoreLocked(data)
 }
 
 // ErrNoStoreIdentity is returned when the store cannot be unlocked.

@@ -29,6 +29,21 @@ func HasRules(cfg config.Config) bool {
 	return len(cfg.Policy.Agent) > 0
 }
 
+// PolicyEnabled reports whether policy rules are actually enforced, i.e. the
+// "policy" middleware is listed in config. This is the single criterion used
+// by both `ls` display and read enforcement.
+func PolicyEnabled(cfg config.Config) bool {
+	if !HasRules(cfg) {
+		return false
+	}
+	for _, name := range cfg.Middleware {
+		if strings.EqualFold(strings.TrimSpace(name), "policy") {
+			return true
+		}
+	}
+	return false
+}
+
 // Middleware returns a deny-by-default wrapper for agents with a configured allowlist.
 func (p *Policy) Middleware() Middleware {
 	if !HasRules(p.cfg) {

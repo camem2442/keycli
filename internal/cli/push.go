@@ -5,6 +5,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/ledger"
 	"github.com/camem2442/keycli/internal/target"
 	"github.com/camem2442/keycli/internal/target/cursor"
 	"github.com/camem2442/keycli/internal/target/gh"
@@ -74,10 +75,12 @@ func newPushCmd(a *app.App) *cobra.Command {
 				return nil
 			}
 			lf := a.LedgerFile()
+			items := make([]ledger.RecordItem, 0, len(secrets))
 			for _, sec := range secrets {
-				if err := lf.Record(key, sec.Name, targetName, sec.Value); err != nil {
-					return err
-				}
+				items = append(items, ledger.RecordItem{Name: sec.Name, Target: targetName, Value: sec.Value})
+			}
+			if err := lf.RecordAll(key, items); err != nil {
+				return err
 			}
 			return nil
 		},

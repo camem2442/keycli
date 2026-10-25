@@ -13,6 +13,7 @@ import (
 func newLSCmd(a *app.App) *cobra.Command {
 	var asJSON bool
 	var showAll bool
+	var showStale bool
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List secret names (never values)",
@@ -21,7 +22,9 @@ func newLSCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			items = a.AnnotateStale(cmd.Context(), items)
+			if showStale {
+				items = a.AnnotateStale(readCtx(cmd, "ls"), items)
+			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 			if asJSON {
 				payload := struct {
@@ -50,5 +53,6 @@ func newLSCmd(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "JSON output (schema v1)")
 	cmd.Flags().BoolVar(&showAll, "all", false, "Include names denied by agent policy")
+	cmd.Flags().BoolVar(&showStale, "stale", false, "Read exported secrets to mark stale entries (slow; never reads policy-denied names)")
 	return cmd
 }

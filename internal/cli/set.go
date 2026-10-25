@@ -25,19 +25,20 @@ func newSetCmd(a *app.App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var value []byte
 			var err error
+			var cp clip.Provider
 			if fromClip {
-				cp := clip.Provider{Config: a.Config}
+				cp = clip.Provider{Config: a.Config}
 				text, err := cp.Read()
 				if err != nil {
 					return err
 				}
 				value = []byte(strings.TrimRight(text, "\n"))
-				defer func() { _ = cp.Clear() }()
 			} else if !term.IsTerminal(int(os.Stdin.Fd())) {
 				value, err = readAllStdin()
 				if err != nil {
 					return err
 				}
+				value = trimTrailingNewline(value)
 			} else {
 				fmt.Fprintf(os.Stderr, "값 입력: ")
 				b, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -55,10 +56,18 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				exp = &t
 			}
-			return a.Resolver.Set(cmd.Context(), args[0], value, backend.Meta{
+			if err := a.Resolver.Set(cmd.Context(), args[0], value, backend.Meta{
 				Note:    note,
 				Expires: exp,
-			})
+			}); err != nil {
+				return err
+			}
+			// Clear the clipboard only after the value was stored, so a failed
+			// save does not destroy the user's only copy.
+			if fromClip {
+				_ = cp.Clear()
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&fromClip, "clip", false, "Read from clipboard, then clear clipboard")
@@ -69,4 +78,16 @@ func newSetCmd(a *app.App) *cobra.Command {
 
 func readAllStdin() ([]byte, error) {
 	return io.ReadAll(os.Stdin)
+}
+
+// trimTrailingNewline removes exactly one line ending (LF or CRLF). Piped
+// input almost always ends with a newline that is not part of the secret.
+func trimTrailingNewline(b []byte) []byte {
+	if len(b) > 0 && b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+		if len(b) > 0 && b[len(b)-1] == '\r' {
+			b = b[:len(b)-1]
+		}
+	}
+	return b
 }

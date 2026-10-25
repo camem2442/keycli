@@ -23,13 +23,16 @@ func newStatusCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			if len(entries) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "kc: 원장에 기록된보내기가 없습니다.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "kc: 원장에 기록된 보내기가 없습니다.")
 				return nil
 			}
 			var stale []string
 			for _, e := range entries {
 				val, _, err := a.Resolver.Get(readCtx(cmd, "status"), e.Name)
 				if err != nil {
+					// Never skip silently: the name was exported, so a missing or
+					// locked value needs attention. Do not print the value.
+					fmt.Fprintf(cmd.ErrOrStderr(), "kc: %s 확인 실패: %v\n", e.Name, err)
 					continue
 				}
 				if lf.Stale(key, e.Name, e.Target, val) {
@@ -37,7 +40,7 @@ func newStatusCmd(a *app.App) *cobra.Command {
 				}
 			}
 			if len(stale) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "kc: 모든 기록된 시크릿이 마지막보내기와 일치합니다.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "kc: 모든 기록된 시크릿이 마지막 보내기와 일치합니다.")
 				return nil
 			}
 			fmt.Fprintln(os.Stderr, "kc: 재전송 필요:")

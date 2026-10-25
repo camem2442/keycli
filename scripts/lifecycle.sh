@@ -62,7 +62,18 @@ release_artifacts() {
     GOOS=$goos GOARCH=$goarch go build -ldflags "$LDFLAGS" -o "$DIST/$out" ./cmd/kc
   done
   GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o "$DIST/keycli-linux-amd64" ./cmd/keycli
-  (cd "$DIST" && sha256sum kc-* keycli-* 2>/dev/null | tee SHA256SUMS)
+  (
+    cd "$DIST"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum kc-* keycli-* >SHA256SUMS
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 kc-* keycli-* >SHA256SUMS
+    else
+      echo "release: need sha256sum or shasum for SHA256SUMS" >&2
+      exit 1
+    fi
+    cat SHA256SUMS
+  )
   echo "release artifacts in $DIST (+ SHA256SUMS)"
 }
 

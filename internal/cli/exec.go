@@ -35,7 +35,9 @@ func newExecCmd(a *app.App) *cobra.Command {
 					}
 				}
 			}
-			env := os.Environ()
+			// Never pass kc's own identity or agent identity to the child.
+			// The child only needs the secret variables injected below.
+			env := stripEnvKeys(os.Environ(), "KC_KEY", "KC_AGENT")
 			for _, it := range items {
 				if len(filter) > 0 {
 					if _, ok := filter[strings.ToLower(it.Name)]; !ok {
@@ -44,11 +46,17 @@ func newExecCmd(a *app.App) *cobra.Command {
 				}
 				val, _, err := a.Resolver.Get(readCtx(cmd, "exec"), it.Name)
 				if err != nil {
-					if kcerrors.Code(err) == kcerrors.ExitDenied {
+					switch kcerrors.Code(err) {
+					case kcerrors.ExitNotFound:
+						continue
+					case kcerrors.ExitDenied:
 						fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", it.Name)
 						return err
+					default:
+						// Never run the child without secrets when the store is
+						// locked/blocked or a backend fails.
+						return err
 					}
-					continue
 				}
 				for _, key := range a.Resolver.EnvNames(it.Name) {
 					env = append(env, fmt.Sprintf("%s=%s", key, string(val)))
@@ -70,4 +78,23 @@ func newExecCmd(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&only, "only", nil, "Only inject these secret names")
 	return cmd
+}
+
+// stripEnvKeys removes exact KEY=... entries from an environment slice.
+func stripEnvKeys(env []string, keys ...string) []string {
+	drop := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		drop[k] = struct{}{}
+	}
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		key, _, ok := strings.Cut(e, "=")
+		if ok {
+			if _, skip := drop[key]; skip {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
 }

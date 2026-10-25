@@ -93,23 +93,17 @@ func ListAICoreItems(dump string, servicePrefix string) []string {
 		servicePrefix = "local.study.ai"
 	}
 	seen := map[string]struct{}{}
-	for _, line := range strings.Split(dump, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "service:") {
+	for _, e := range ParseDumpEntries(dump) {
+		if !strings.HasPrefix(e.Service, servicePrefix+".") {
 			continue
 		}
-		svc := strings.TrimSpace(strings.TrimPrefix(line, "service:"))
-		if !strings.HasPrefix(svc, servicePrefix+".") {
+		p := strings.TrimPrefix(e.Service, servicePrefix+".")
+		if strings.Contains(p, ".") {
 			continue
 		}
-		p := strings.TrimPrefix(svc, servicePrefix+".")
 		if _, ok := knownProviders[p]; ok {
 			seen[p] = struct{}{}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	return out
+	return sortedUnique(seen)
 }

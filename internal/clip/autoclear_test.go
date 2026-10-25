@@ -1,3 +1,9 @@
+//go:build kc_testhooks
+
+// This test writes a clipboard through the test hooks. Without the build tag
+// the hooks are disabled and Provider would fall back to the real clipboard, so
+// the test is compiled only for tagged runs.
+
 package clip_test
 
 import (
@@ -34,8 +40,10 @@ func TestAutoClearUnchangedOnly(t *testing.T) {
 	if err := p.CopyWithAutoClear(context.Background(), text, 50*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(80 * time.Millisecond)
-	if b, _ := os.ReadFile(clipFile); len(b) != 0 {
+	if !waitFor(t, 3*time.Second, func() bool {
+		b, _ := os.ReadFile(clipFile)
+		return len(b) == 0
+	}) {
 		t.Fatal("expected cleared")
 	}
 
@@ -44,8 +52,22 @@ func TestAutoClearUnchangedOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = p.Write("other")
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	if b, _ := os.ReadFile(clipFile); string(b) != "other" {
 		t.Fatal("should not clear when clipboard changed")
 	}
+}
+
+// waitFor polls cond until it returns true or the timeout elapses. The
+// auto-clear runs in a goroutine, so a fixed sleep is racy on loaded CI.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
 }

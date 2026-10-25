@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **v0.4.0+** — transfer·플러그인(M5)·감사·정책 미들웨어(M6). 진행·검증은 [HANDOFF.md](HANDOFF.md).
+> 상태: **v0.5.0** — transfer·플러그인(M5)·감사·정책 미들웨어(M6) + P0/P1 보정. 진행·검증은 [HANDOFF.md](HANDOFF.md).
 
 ## 사용 흐름 (설계)
 
@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/camem2442/keycli/main/scripts/insta
 go install github.com/camem2442/keycli/cmd/kc@latest
 ```
 
-`KC_INSTALL_REF=v1.0.0`으로 특정 태그를 고를 수 있다. `gh release download`는 `gh` 로그인 시 선택 경로.
+`KC_INSTALL_REF=v1.0.0`으로 특정 태그를 고를 수 있다. release 바이너리 경로(curl·`gh release download`)는 릴리스 `SHA256SUMS`와 대조한 뒤에만 설치하며, 합계 파일이 없거나 불일치하면 중단한다. `gh release download`는 `gh` 로그인 시 선택 경로.
 
 **Mac (로컬 개발):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
 
@@ -68,8 +68,9 @@ go install github.com/camem2442/keycli/cmd/kc@latest
 ## Linux 빠른 시작
 
 ```bash
-# age identity 생성 (stdout에 한 번 출력; `kc init`은 추후 마일스톤)
-export KC_KEY="$(go run ./cmd/kc keygen 2>/dev/null)"
+# age identity: 없으면 ~/.kc/receiver.key(0600)에 만들고, 있으면 그대로 사용한다.
+# --print-identity는 identity(비밀값)를 stdout으로 낸다 — 로그에 남기지 말 것.
+export KC_KEY="$(go run ./cmd/kc init --print-identity 2>/dev/null)"
 
 # 또는 age-keygen(1)으로 생성한 identity 한 줄을 KC_KEY에 넣기
 
@@ -78,9 +79,11 @@ kc get demo
 kc ls --json
 ```
 
+`kc init`(별칭 `keygen`)은 `KC_KEY` → `~/.kc/receiver.key` → 키체인 `kc.age` 순으로 **기존 identity**를 찾아 그 공개 recipient(`age1…`)를 stdout에 출력한다. identity가 없을 때만 새로 만든다. 따라서 스크립트에서 recipient가 필요하면 `kc init`을 반복해도 같은 값이 나온다.
+
 macOS에서는 `KC_KEY` 대신 키체인 항목 `kc.age` / 계정 `kc`에 age identity를 저장할 수 있다(**NOT VERIFIED**: 실 Mac).
 
-테스트 전용: `config.toml`에 `allow_test_hooks = true` 또는 `-tags=kc_testhooks` 빌드일 때만 `KC_SECURITY`, `KC_TEST_KEYCHAIN`, `KC_CLIP_*` 오버라이드가 동작한다. Linux CI는 [cmd/fakesecurity](cmd/fakesecurity)를 `KC_SECURITY`로 가리킨다.
+테스트 전용: `config.toml`에 `allow_test_hooks = true` 또는 `-tags=kc_testhooks` 빌드일 때만 `KC_SECURITY`, `KC_TEST_KEYCHAIN`, `KC_CLIP_*` 오버라이드가 동작한다. 실제 클립보드를 쓰는 clip 테스트는 `kc_testhooks` 태그에서만 컴파일되므로 태그 없는 `go test ./...`는 클립보드를 건드리지 않는다. Linux CI는 [cmd/fakesecurity](cmd/fakesecurity)를 `KC_SECURITY`로 가리킨다.
 
 ## License
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -48,6 +49,15 @@ func (f File) Load() ([]Entry, error) {
 
 // Save writes entries atomically.
 func (f File) Save(entries []Entry) error {
+	unlock, err := f.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return f.saveLocked(entries)
+}
+
+func (f File) saveLocked(entries []Entry) error {
 	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
 		return err
 	}
@@ -75,6 +85,25 @@ func (f File) Save(entries []Entry) error {
 	return os.Rename(tmpName, f.Path)
 }
 
+// lock serializes read-modify-write updates of the ledger across processes.
+func (f File) lock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(f.Path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = file.Close()
+	}, nil
+}
+
 // Path returns the default ledger file path (~/.kc/ledger.json).
 func Path(home string) string {
 	if home == "" {
@@ -90,37 +119,60 @@ func ComputeHMAC(key, value []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
+// RecordItem is one name/target/value to record in the ledger.
+type RecordItem struct {
+	Name   string
+	Target string
+	Value  []byte
+}
+
 // Record upserts a ledger entry for name/target with the given value.
 func (f File) Record(key []byte, name, target string, value []byte) error {
+	return f.RecordAll(key, []RecordItem{{Name: name, Target: target, Value: value}})
+}
+
+// RecordAll upserts many entries with a single load and save. push uses this so
+// a batch of N secrets costs one ledger rewrite instead of N.
+func (f File) RecordAll(key []byte, items []RecordItem) error {
+	if len(items) == 0 {
+		return nil
+	}
 	if len(key) == 0 {
 		return errors.New("ledger: empty HMAC key")
 	}
-	name = strings.ToLower(strings.TrimSpace(name))
-	target = strings.TrimSpace(target)
+	unlock, err := f.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	entries, err := f.Load()
 	if err != nil {
 		return err
 	}
-	h := ComputeHMAC(key, value)
 	now := time.Now().UTC()
-	found := false
-	for i, e := range entries {
-		if strings.EqualFold(e.Name, name) && e.Target == target {
-			entries[i].HMAC = h
-			entries[i].ExportedAt = now
-			found = true
-			break
+	for _, item := range items {
+		name := strings.ToLower(strings.TrimSpace(item.Name))
+		target := strings.TrimSpace(item.Target)
+		h := ComputeHMAC(key, item.Value)
+		found := false
+		for i, e := range entries {
+			if strings.EqualFold(e.Name, name) && e.Target == target {
+				entries[i].HMAC = h
+				entries[i].ExportedAt = now
+				found = true
+				break
+			}
+		}
+		if !found {
+			entries = append(entries, Entry{
+				Name:       name,
+				Target:     target,
+				HMAC:       h,
+				ExportedAt: now,
+			})
 		}
 	}
-	if !found {
-		entries = append(entries, Entry{
-			Name:       name,
-			Target:     target,
-			HMAC:       h,
-			ExportedAt: now,
-		})
-	}
-	return f.Save(entries)
+	return f.saveLocked(entries)
 }
 
 // Stale returns true if value differs from the last recorded export for name/target.

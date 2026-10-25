@@ -79,6 +79,7 @@ func (a *App) SaveConfig() error {
 
 // Reload rebuilds backends and resolver after config mutation.
 func (a *App) Reload(ctx context.Context) error {
+	a.Deps.Config = a.Config
 	backends, err := backend.Build(ctx, a.Config, a.Deps)
 	if err != nil {
 		return err

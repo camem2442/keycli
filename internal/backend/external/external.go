@@ -28,27 +28,33 @@ type Backend struct {
 	timeout        time.Duration
 	caps           backend.Capabilities
 	handshook      bool
+	buildErr       error // missing plugin / invalid config; deferred so Build never breaks others
+	handshakeErr   error // cached handshake failure (avoid a 30s retry on every command)
 	networkBlocked func() bool
 }
 
-// New builds an external backend from config.
+// New builds an external backend from config. Plugin resolution and handshake
+// failures are deferred to Available so one broken plugin cannot take down
+// ls/doctor/plugin list or other backends.
 func New(ctx context.Context, instanceName string, args backend.BackendBuildArgs) (*Backend, error) {
 	spec := args.Spec
 	plugin := spec.Plugin
 	if plugin == "" && spec.Command != "" {
 		plugin = PluginNameFromBinary(spec.Command)
 	}
-	bin, err := ResolveCommand(args.Deps.Home, plugin, spec.Command)
-	if err != nil {
-		return nil, err
-	}
 	timeout := 30 * time.Second
+	var buildErr error
 	if spec.Timeout != "" {
 		d, err := time.ParseDuration(spec.Timeout)
 		if err != nil {
-			return nil, fmt.Errorf("invalid timeout for %q: %w", instanceName, err)
+			buildErr = fmt.Errorf("invalid timeout for %q: %w", instanceName, err)
+		} else {
+			timeout = d
 		}
-		timeout = d
+	}
+	bin, err := ResolveCommand(args.Deps.Home, plugin, spec.Command)
+	if err != nil && buildErr == nil {
+		buildErr = err
 	}
 	var runner Runner
 	if args.Deps.PluginRunner != nil {
@@ -65,9 +71,14 @@ func New(ctx context.Context, instanceName string, args backend.BackendBuildArgs
 		runner:         runner,
 		timeout:        timeout,
 		networkBlocked: args.Deps.NetworkBlocked,
+		buildErr:       buildErr,
 	}
-	if err := b.refreshCaps(ctx); err != nil {
-		return nil, err
+	if buildErr == nil {
+		if err := b.refreshCaps(ctx); err != nil {
+			// Cache the failure; Available reports it without breaking Build.
+			b.handshook = false
+			b.handshakeErr = err
+		}
 	}
 	return b, nil
 }
@@ -78,18 +89,28 @@ func (b *Backend) Kind() string         { return "external" }
 func (b *Backend) Caps() backend.Capabilities { return b.caps }
 
 func (b *Backend) Available(ctx context.Context) (bool, string, error) {
+	if b.buildErr != nil {
+		return false, b.buildErr.Error(), nil
+	}
 	if b.caps.NeedsNetwork && b.networkBlocked != nil && b.networkBlocked() {
 		return false, "network blocked", nil
 	}
 	if !b.handshook {
+		if b.handshakeErr != nil {
+			return false, b.handshakeErr.Error(), nil
+		}
 		if err := b.refreshCaps(ctx); err != nil {
-			return false, "", err
+			b.handshakeErr = err
+			return false, err.Error(), nil
 		}
 	}
 	return true, "", nil
 }
 
 func (b *Backend) refreshCaps(ctx context.Context) error {
+	if b.buildErr != nil {
+		return b.buildErr
+	}
 	resp, err := b.runner.Run(ctx, b.bin, Request{
 		V:       ProtocolVersion,
 		Op:      "handshake",

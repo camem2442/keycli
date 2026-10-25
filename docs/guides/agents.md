@@ -64,6 +64,25 @@ kc exec --only github -- gh pr list
 
 `github` 이름은 config 별칭으로 `GH_TOKEN`·`GITHUB_TOKEN`·`gh`에 매핑된다 ([cli.md](../contracts/cli.md)).
 
+## 기타 git 호스트 (예: Origin)
+
+호스트별 매핑을 config에 넣고 helper를 등록한다. password를 변환해야 하면 `command`를 쓴다.
+
+```toml
+[git."origin.cursor.com"]
+secret = "cursor_api_key"
+username = "x-access-token"
+command = "origin auth token"
+```
+
+```bash
+kc setup-git --host origin.cursor.com
+kc setup-git --host origin.cursor.com --dry-run   # 미리보기
+kc setup-git --host origin.cursor.com --undo      # 해제
+```
+
+매핑이 없는 호스트는 helper가 조용히 아무것도 출력하지 않으므로, 다른 도구의 helper를 방해하지 않는다 ([cli.md](../contracts/cli.md)).
+
 ## macOS 키체인
 
 - 다른 앱이 만든 항목: `kc link NAME keychain:SERVICE/ACCOUNT`
