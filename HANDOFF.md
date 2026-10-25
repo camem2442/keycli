@@ -6,7 +6,7 @@
 
 ## Current Work Goal
 
-**P0·P1·P2 구현·실 Mac 검증 완료:** [roadmap](docs/planning/roadmap.md)의 P0-1~P0-7, P1-1~P1-9, P2-1~P2-6을 구현했고 로컬 테스트와 실 Mac `mac-smoke`를 통과했다. 남은 일은 Linux CI(`./verify.sh --suite all`), 실 push/에이전트 사용, 그리고 사용자 승인 후 커밋이다.
+**P0·P1·P2 구현·실 Mac 검증 완료:** [roadmap](docs/planning/roadmap.md)의 P0-1~P0-7, P1-1~P1-9, P2-1~P2-6을 구현했고 로컬 테스트와 실 Mac `mac-smoke`를 통과했다. `c4b09ea`·`39a19c3` 커밋 및 설치본 재검증까지 끝났다. 남은 일은 Linux CI(`./verify.sh --suite all`)와 릴리스 게이트(원격 push 후 CI, Cursor/gh 실 push, 에이전트 실사용, 클립보드·`exec` 미검증 항목)이다.
 
 ## 상태 (2026-10-25)
 
@@ -17,7 +17,7 @@
 | P2 운영·문서 6건 | **PARTIAL** | CI 워크플로·설치 SHA256·clip gate·ledger batch·문서 동기화 구현, 실 Mac mac-smoke 통과. Linux CI NOT VERIFIED ([roadmap P2](docs/planning/roadmap.md)) |
 | CLI M1–M5 | **PARTIAL** | P1 항목 반영 완료, 실 API NOT VERIFIED |
 | M6 audit + policy middleware | **COMPLETE** | Linux `./verify.sh --suite all`; 호출부 보정은 P1-2·P1-7 |
-| git credential 호스트 매핑 (`[git."HOST"]`, `setup-git --host`) | **PARTIAL** | P1-1 반영(암묵 기본 무응답·명시 매핑 강제·`setup-git` 기록), 미커밋 |
+| git credential 호스트 매핑 (`[git."HOST"]`, `setup-git --host`) | **COMPLETE** | P1-1 반영, `c4b09ea` 커밋·mac-smoke·설치본 검증 통과 |
 | `kc audit` / `kc policy check` | **COMPLETE** | 단위·integration |
 | [0005-m6-audit-policy-middleware.md](docs/decisions/0005-m6-audit-policy-middleware.md) | **COMPLETE** | |
 | mac-smoke (Darwin) | **COMPLETE** | 2026-10-25 실 Mac(GUI 로그인·keychain unlocked)에서 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh` 통과 |
@@ -44,11 +44,11 @@ go test -tags=kc_testhooks ./...
 
 ## NEXT CONTEXT
 
-P0-1~P0-7, P1-1~P1-9, P2-1~P2-6 구현은 끝났다. 남은 일은 검증과 커밋이다.
+P0-1~P0-7, P1-1~P1-9, P2-1~P2-6 구현·커밋·설치본 검증은 끝났다. 남은 일은 Linux CI와 릴리스 게이트 검증이다.
 
 1. Linux CI에서 `./verify.sh --suite all` 실행 (`.github/workflows/test.yml`가 push/PR에서 자동 실행). 통과 시 P0·P1·P2 상태를 COMPLETE로 갱신.
 2. 실 Mac mac-smoke는 2026-10-25 통과했다(keychain 쓰기/읽기·rebuild 읽기·`ls --json`의 `kc.secret.*`·ai-core keychain 읽기·`kc.age` 왕복·link·setup-git·샌드박스 종료 3). 재실행 시에도 **SSH 세션에서는 불가**: `launchctl managername=Background` + 잠긴 login keychain 때문에 `security -i`가 `-25308 User interaction is not allowed`로 실패한다. Mac의 GUI 로그인 세션에서 keychain을 해제한 뒤 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh`로 실행한다.
-3. P2-6: 사용자 승인 후 git 호스트 매핑+P0/P1/P2 변경을 커밋하고 설치본을 재빌드.
+3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. 버전 문자열 해시를 HEAD에 맞추려면 `bash scripts/lifecycle.sh build-dev --install` 한 번 더.
 4. 릴리스 게이트: Cursor/gh 실 push 각 1회, 에이전트 실사용 1회, `exec` 환경 키체인 노출 확인.
 
 P1/P2에서 바뀐 동작(스크립트 주의):
