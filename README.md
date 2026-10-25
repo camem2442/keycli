@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **v0.5.0** — transfer·플러그인(M5)·감사·정책 미들웨어(M6) + P0/P1 보정. 진행·검증은 [HANDOFF.md](HANDOFF.md).
+> 상태: **v0.6.0** (준비 중) — P0/P1/P2 하드닝, `kc wire opencode-vertex`(vertex-byok), transfer·플러그인(M5)·감사·정책(M6). 진행·검증은 [HANDOFF.md](HANDOFF.md).
 
 ## 사용 흐름 (설계)
 

@@ -12,7 +12,7 @@ status: active
 3. **CLI 계약**(출력·종료 코드)을 먼저 고정하고 기능을 얹는다.
 4. 보안·동시성은 기능 추가보다 앞선다. 문서·CI는 마지막에 정리한다.
 
-> 작업 트리 주의: P0·P1 변경과 git 호스트 매핑이 아직 미커밋이다. 릴리스 전 P2-6에서 정리한다.
+> 릴리스 **v0.6.0** 준비: `feat/wire-opencode-vertex`에 P0~P2 + `kc wire opencode-vertex`. Linux VM `./verify.sh --suite all` 통과(2026-10-25). git tag는 사용자 승인 후.
 
 ## P0 — 릴리스 차단
 
@@ -72,7 +72,7 @@ status: active
 |---|---|---|---|
 | P2-1 | 테스트 CI | Linux에서 `go test -tags=kc_testhooks ./...` + `go vet` 자동 실행. Darwin은 수동/mac-smoke | PARTIAL |
 | P2-2 | 설치 무결성 | `scripts/install.sh`가 릴리스 `SHA256SUMS` 검증 | PARTIAL |
-| P2-3 | 문서 동기화 | README(`v0.5.0`, `init`/`keygen`), HANDOFF, roadmap, mac-smoke의 identity 사용법 일치 | PARTIAL |
+| P2-3 | 문서 동기화 | README(`v0.6.0`), HANDOFF, roadmap, mac-smoke의 identity 사용법 일치 | PARTIAL |
 | P2-4 | 테스트 위생 | 태그 없는 `go test`가 실제 클립보드를 건드리지 않도록 clip 테스트 gate | PARTIAL |
 | P2-5 | push/ledger 성능 | `ledger.Record`를 항목별 호출하지 않고 일괄 기록 | PARTIAL |
 | P2-6 | 미커밋 변경 정리 | git 호스트 매핑 변경 커밋 + 설치본 재빌드 | COMPLETE |
@@ -86,16 +86,17 @@ status: active
 - **P2-5:** `ledger.RecordAll` 추가. `push`는 시크릿 N개를 한 번의 load/save로 기록한다. 단일 `Record`는 `RecordAll`에 위임. batch upsert·빈 입력 테스트 추가.
 - **P2-6:** 미커밋 변경(git 호스트 매핑+P0/P1/P2)을 커밋 `c4b09ea`로 정리하고 `scripts/lifecycle.sh build-dev --install`로 설치본을 재빌드했다. 설치본 `~/.local/bin/kc`(`v0.5.0-1-gc4b09ea`)로 실 Mac mac-smoke를 재실행해 통과.
 
-검증: `go test -tags=kc_testhooks ./internal/ledger ./internal/clip ./internal/integration`, 태그 없는 `go test ./internal/clip ./internal/ledger`, `bash -n scripts/install.sh scripts/mac-smoke.sh`, install checksum 3케이스, `verify.sh --suite unit|docs|policy|release`, 실 Mac `mac-smoke` 통과. Linux CI `--suite all`만 **NOT VERIFIED**.
+검증: `go test -tags=kc_testhooks ./internal/ledger ./internal/clip ./internal/integration`, 태그 없는 `go test ./internal/clip ./internal/ledger`, `bash -n scripts/install.sh scripts/mac-smoke.sh`, install checksum 3케이스, `verify.sh --suite unit|docs|policy|release`, 실 Mac `mac-smoke` 통과. Linux VM `./verify.sh --suite all` **COMPLETE** (2026-10-25, wire 브랜치). GitHub Actions on `main`은 merge 후 **NOT VERIFIED**.
 
-## 릴리스 게이트
+## 릴리스 게이트 (v0.6.0)
 
-- P0 전부 **COMPLETE**
-- Linux `./verify.sh --suite all` 통과 (P2-1 CI 포함) — **NOT VERIFIED**
-- 실 Mac `./verify.sh --suite mac-smoke` 통과 (P0-2 이후) — **COMPLETE** (2026-10-25)
-- 아래 NOT VERIFIED 중 Cursor/gh 실 push 각 1회
+- P0~P2 구현 — Linux VM `verify.sh --suite all` + 실 Mac mac-smoke **COMPLETE** (wire 브랜치)
+- `main` merge + `.github/workflows/test.yml` green — **NOT VERIFIED**
+- git tag `v0.6.0` — **DEFERRED** (사용자 승인 후)
+- 실 Mac `./verify.sh --suite mac-smoke` — **COMPLETE** (2026-10-25)
+- Cursor/gh 실 push 각 1회 — **NOT VERIFIED**
 
-현재: **PARTIAL** — P0-1~P0-7, P1-1~P1-9, P2-1~P2-6 구현·로컬 테스트·실 Mac mac-smoke 완료. Linux CI `--suite all`·실 push·P2-6 커밋 대기.
+현재: **PARTIAL** — v0.6.0 문서 bump·wire PR [#7](https://github.com/camem2442/keycli/pull/7) 대기. default `main` HANDOFF COMPLETE는 merge·Actions 후.
 
 ## 마일스톤 기록
 
@@ -129,7 +130,7 @@ status: active
 
 | 항목 | 비고 |
 |---|---|
-| Linux CI `./verify.sh --suite all` | `.github/workflows/test.yml` 실행 전 |
+| GitHub Actions `./verify.sh --suite all` on `main` | Linux VM 로컬 통과; PR merge·workflow green 대기 |
 | 실 클립보드 자동 삭제 | mac-smoke는 `cp` 경로만 실행 |
 | Cursor 실 push | 실 API·환경 ID |
 | gh 실 push | 실 토큰·repo |

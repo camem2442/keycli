@@ -142,3 +142,21 @@ kc export --format dotenv A B   # 클립보드만 (TTY에 출력 안 함)
 ### 변경 추적
 
 `kc status` / `kc ls`의 `*` — 맥에서 값을 바꾼 뒤 재 `push` 필요.
+
+## Vertex BYOK (GCP) + OpenCode
+
+**축 A** (프록시·터널)는 `programs/utils/vertex-byok`. keycli는 시크릿·배선만.
+
+```bash
+# Bearer = ~/.config/cursor-vertex-proxy/config.env 의 PROXY_API_KEY 와 동일 값
+kc set vertex-byok-proxy --clip
+
+# 로컬 http://127.0.0.1:PORT/v1 → ~/.config/opencode/opencode.json provider 병합
+kc wire opencode-vertex
+kc wire opencode-vertex --dry-run
+
+# OpenCode는 PROXY_API_KEY env 필요 (별칭 vertex-byok-proxy 권장)
+kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode
+```
+
+Cursor Cloud Agent용 `kc push cursor`는 BYOK 프록시 키와 **별개** ([transfer.md](../contracts/transfer.md)).
