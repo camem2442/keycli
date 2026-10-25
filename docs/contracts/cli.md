@@ -35,6 +35,7 @@ status: implemented
 | `kc plugin list [--json]` | `kc-backend-*` 발견, enabled, protocol v1, capabilities (enabled만 handshake) |
 | `kc audit [--since DUR] [--name N] [--agent A] [--json]` | `~/.kc/audit.log` JSONL 조회(값·해시·길이 없음). `--json`은 항목이 없어도 `[]` |
 | `kc policy check [--agent A] NAME` | 현재(또는 지정) 에이전트가 NAME 읽기 허용 여부(거부 시 종료 5) |
+| `kc wire opencode-vertex [--dry-run] [--config PATH]` | `vertex-byok` 로컬 프록시용 OpenCode `provider` 블록을 `opencode.json`에 병합. `apiKey`는 `{env:PROXY_API_KEY}` |
 
 ## 출력 형식
 
