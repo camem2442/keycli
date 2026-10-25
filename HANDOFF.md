@@ -6,16 +6,16 @@
 
 ## Current Work Goal
 
-**v0.6.0 준비:** [roadmap](docs/planning/roadmap.md) P0~P2 + `kc wire opencode-vertex`가 `feat/wire-opencode-vertex`에 있다. Linux VM에서 `./verify.sh --suite all` 통과(2026-10-25). 실 Mac `mac-smoke`·wire `--dry-run` 통과(Phase 1). **default `main` merge + GitHub Actions on `main` 전까지 HANDOFF는 default branch 기준 PARTIAL.**
+**v0.6.0 출시 완료:** tag `v0.6.0` @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main`. PR [#7](https://github.com/camem2442/keycli/pull/7) merge, Linux `./verify.sh --suite all`·GitHub Actions on `main` green (2026-10-25). 다음은 릴리스 게이트 실연동(Cursor/gh push, 에이전트+정책, OpenCode CLI turn, clip 자동삭제 실측) — [roadmap](docs/planning/roadmap.md).
 
 ## 상태 (2026-10-25)
 
 | 영역 | 상태 | 근거 |
 |---|---|---|
-| P0 릴리스 차단 7건 | **PARTIAL** | 구현·로컬 `go test -tags=kc_testhooks ./...`·실 Mac mac-smoke 통과. Linux CI 대기, `exec` 키체인 노출 NOT VERIFIED ([roadmap P0](docs/planning/roadmap.md)) |
-| P1 계약·보안 정합성 9건 | **PARTIAL** | P1-1~P1-9 구현·로컬 unit/integration·mac-smoke 통과. Linux CI 대기 ([roadmap P1](docs/planning/roadmap.md)) |
-| P2 운영·문서 6건 | **PARTIAL** | 구현·실 Mac mac-smoke·Linux VM `verify.sh --suite all` 통과. `main` merge 후 Actions green 필요 ([roadmap P2](docs/planning/roadmap.md)) |
-| `kc wire opencode-vertex` | **COMPLETE** | `internal/opencode`, `internal/cli/wire.go`, CLI·agents 가이드; Mac `--dry-run`·Linux unit 통과 |
+| P0 릴리스 차단 7건 | **COMPLETE** | 구현·Linux `./verify.sh --suite all`·실 Mac mac-smoke·`exec` 환경 노출(B-2, SJ Mac 2026-10-25). clip 자동삭제 실측은 NOT VERIFIED ([roadmap P0](docs/planning/roadmap.md)) |
+| P1 계약·보안 정합성 9건 | **COMPLETE** | P1-1~P1-9 구현·Linux CI·mac-smoke ([roadmap P1](docs/planning/roadmap.md)) |
+| P2 운영·문서 6건 | **COMPLETE** | `main` merge·Actions green·tag `v0.6.0` ([roadmap P2](docs/planning/roadmap.md)) |
+| `kc wire opencode-vertex` | **COMPLETE** | PR #7 merge; `internal/opencode`, `internal/cli/wire.go`, CLI·agents 가이드; Mac `--dry-run`·Linux unit·CI |
 | CLI M1–M5 | **PARTIAL** | P1 항목 반영 완료, 실 API NOT VERIFIED |
 | M6 audit + policy middleware | **COMPLETE** | Linux `./verify.sh --suite all`; 호출부 보정은 P1-2·P1-7 |
 | git credential 호스트 매핑 (`[git."HOST"]`, `setup-git --host`) | **COMPLETE** | P1-1 반영, `c4b09ea` 커밋·mac-smoke·설치본 검증 통과 |
@@ -23,11 +23,13 @@
 | [0005-m6-audit-policy-middleware.md](docs/decisions/0005-m6-audit-policy-middleware.md) | **COMPLETE** | |
 | mac-smoke (Darwin) | **COMPLETE** | 2026-10-25 실 Mac(GUI 로그인·keychain unlocked)에서 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh` 통과 |
 | 샌드박스 종료 3 (실 Mac) | **COMPLETE** | `sandbox-exec` 안 `security` exit 44 + `... parameters ... not valid` → exit 3 매핑, 회귀 테스트 추가 |
-| Cursor Cloud 실 push | **NOT VERIFIED** | |
+| Cursor Cloud 실 push | **NOT VERIFIED** | B-1 완료 시 갱신 |
 | gh 실 push | **NOT VERIFIED** | |
 | 에이전트 실사용 + 정책 운영 | **NOT VERIFIED** | |
-| `exec` 환경 키체인 항목 노출 | **NOT VERIFIED** | mac-smoke는 `ls --json`만 확인 |
-| 설치본 `~/.local/bin/kc` | **COMPLETE** | Mac: `v0.5.0-5-ge26aa08`(wire 브랜치 HEAD), mac-smoke·wire dry-run 통과 |
+| OpenCode CLI turn (`kc wire` 후 실 `opencode`) | **NOT VERIFIED** | |
+| `exec` 환경 키체인 항목 노출 | **COMPLETE** | B-2(SJ Mac 2026-10-25): throwaway `kc.secret.*`, `kc exec -- env`에서 시크릿·`KC_*` 누출 없음 |
+| clip 자동삭제 실측 | **NOT VERIFIED** | mac-smoke는 `cp` 경로 실행만; delay 후 clear 실측 없음 |
+| 설치본 `~/.local/bin/kc` | **COMPLETE** | Mac: `v0.6.0` @ `881758e`, mac-smoke·wire `--dry-run` 통과 |
 | TTL 캐시 / rate limit / masking / 1Password | **DEFERRED** | roadmap |
 
 ## 검증
@@ -45,12 +47,12 @@ go test -tags=kc_testhooks ./...
 
 ## NEXT CONTEXT
 
-P0~P2·wire 구현·Linux VM `./verify.sh --suite all`·실 Mac 검증은 끝났다. 남은 일은 `main` merge, PR/merge 후 GitHub Actions, git tag `v0.6.0`(사용자 승인 후), 릴리스 게이트 실연동이다.
+P0~P2·wire·Linux CI·실 Mac mac-smoke·`exec` 노출(B-2)은 끝났다. v0.6.0은 tag·release workflow까지 완료.
 
-1. PR [#7](https://github.com/camem2442/keycli/pull/7) merge → `main`에서 `.github/workflows/test.yml` green. 그때 default branch HANDOFF를 COMPLETE로 갱신.
+1. 릴리스 게이트: Cursor/gh 실 push 각 1회, 에이전트 실사용+정책 1회, `kc wire opencode-vertex` 후 OpenCode CLI turn, clip 자동삭제 실측.
 2. 실 Mac mac-smoke는 2026-10-25 통과했다(keychain 쓰기/읽기·rebuild 읽기·`ls --json`의 `kc.secret.*`·ai-core keychain 읽기·`kc.age` 왕복·link·setup-git·샌드박스 종료 3). 재실행 시에도 **SSH 세션에서는 불가**: `launchctl managername=Background` + 잠긴 login keychain 때문에 `security -i`가 `-25308 User interaction is not allowed`로 실패한다. Mac의 GUI 로그인 세션에서 keychain을 해제한 뒤 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh`로 실행한다.
-3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. 버전 문자열 해시를 HEAD에 맞추려면 `bash scripts/lifecycle.sh build-dev --install` 한 번 더.
-4. 릴리스 게이트: Cursor/gh 실 push 각 1회, 에이전트 실사용 1회, `exec` 환경 키체인 노출 확인.
+3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. `main` @ `v0.6.0` 설치본은 `bash scripts/lifecycle.sh build-dev --install` 또는 release 바이너리로 맞춘다.
+4. B-1(Cursor 실 push)이 끝나면 HANDOFF의 Cursor 행만 COMPLETE로 갱신한다.
 
 P1/P2에서 바뀐 동작(스크립트 주의):
 
