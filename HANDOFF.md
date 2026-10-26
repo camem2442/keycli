@@ -1,5 +1,9 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-10-26 — 공통 정책 채택
+
+정책 lock을 `652dec3c`로 명시적으로 갱신했다. [의미 차이·검증 범위](docs/reviews/2026-10-26-workspace-policy-adoption.md) 참조. 제품/운영 인수와 별개인 로컬 문서 변경이다. NEXT CONTEXT: 기존 제품 작업 경계를 유지하며 다음 범위를 결정한다.
+
 ## Product Goal
 
 [README.md](README.md) 참조.
