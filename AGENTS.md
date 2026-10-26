@@ -4,7 +4,7 @@
 
 - 잠금 파일: [`dependencies/workspace-policy-lock.json`](dependencies/workspace-policy-lock.json)
 - 로컬 바인딩: `../../../workspace-infra` (`~/Developer/programs/utils/keycli` 기준)
-- `source_commit`: `ae5e8378a652cd6d55e28d2bcdf7d113a106b251`
+- `source_commit`: `652dec3cde2b93aa42432d57bb4ae7e6b804ed38`
 - 해시 불일치 시 자동 fallback 금지 → **BLOCKED**. infra 경로가 없으면 **NOT VERIFIED**.
 
 상태 단어: **COMPLETE / PARTIAL / BLOCKED / DEFERRED / NOT VERIFIED**만 사용. 실행하지 않은 검사는 PASS가 아니다.
