@@ -20,3 +20,9 @@
 ## 검증 (구현 후 예정)
 
 `bash verify.sh --suite <docs|policy|unit|backend|release|all>`. 변경 범위의 suite만 실행한다. Linux CI에서 `./verify.sh --suite all` 통과 시 해당 범위 **COMPLETE**; mac-smoke·실 Mac·서드파티 플러그인 실연동은 **NOT VERIFIED**.
+
+## Cursor Cloud specific instructions
+
+Linux 게이트는 GitHub Actions와 같이 `CGO_ENABLED=0 ./verify.sh --suite all`이다. `mac-smoke`는 Linux에서 건너뛰며(exit 0) 그 결과는 **NOT VERIFIED**다.
+
+Cloud install은 워크스페이스 루트에서 `keycli` 체크아웃을 찾아 `go mod download` 후 [`scripts/cloud-install.sh`](scripts/cloud-install.sh)로 릴리스 `kc`를 `~/.local/bin`과 `/usr/local/bin`에 둔다. 소스 변경 검증은 체크아웃의 `go test`다. 수동 `set`/`get`은 임시 `HOME`에서만 하고, 실제 `~/.kc`와 사용자 키체인은 쓰지 않는다. private ai-core clone은 `KC_CLOUD_CLONE_AI_CORE=1`일 때만이며 실패해도 install은 성공한다. 상세는 [docs/guides/cloud-agent.md](docs/guides/cloud-agent.md).
