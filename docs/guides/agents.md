@@ -109,6 +109,8 @@ curl -fsSL https://raw.githubusercontent.com/camem2442/keycli/main/scripts/insta
 
 ### Cursor Cloud Agents
 
+빌드·install·ai-core optional clone: [cloud-agent.md](./cloud-agent.md) (KC-40).
+
 1. 맥: Cursor API 키를 `kc set cursor-api-key --clip` (또는 키체인).
 2. 맥: `kc push cursor --env-id <ENV_ID> OPENAI_API_KEY GITHUB_TOKEN` (`--repos`로 범위 제한 가능, `--dry-run`으로 확인).
 3. 클라우드: 플랫폼 시크릿이 env로 주입되면 `kc get` / `kc exec`만으로 충분 (네트워크 불필요).

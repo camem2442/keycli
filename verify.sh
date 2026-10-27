@@ -48,9 +48,11 @@ run_integration() {
 }
 
 run_docs() {
-  for f in README.md HANDOFF.md AGENTS.md docs/contracts/*.md; do
+  for f in README.md HANDOFF.md AGENTS.md docs/contracts/*.md docs/guides/cloud-agent.md; do
     [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
   done
+  bash -n "$ROOT/scripts/cloud-install.sh"
+  bash -n "$ROOT/scripts/cloud-clone-ai-core.sh"
 }
 
 run_policy() {
