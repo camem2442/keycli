@@ -159,7 +159,7 @@ kc wire opencode-vertex --dry-run
 kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode run …
 
 # non-standalone(`opencode run` without `--standalone`)는 백그라운드 서비스가 env를 못 받음.
-# `kc exec`가 주입 직전 `opencode service set env PROXY_API_KEY` + restart로 동기화함.
+# `kc exec`가 `opencode run`(non-standalone) 직전 service.json env + restart로 PROXY_API_KEY 동기화(argv에 값 없음).
 # `--standalone`이면 동기화 생략(자식 프로세스 env만 사용).
 ```
 

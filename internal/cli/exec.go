@@ -64,7 +64,7 @@ func newExecCmd(a *app.App) *cobra.Command {
 				}
 			}
 			if opencode.ShouldSyncBackgroundService(args) {
-				if key := opencode.ProxyAPIKeyFromEnv(env); key != "" {
+				if key := opencode.EffectiveProxyAPIKey(env); key != "" {
 					if err := opencode.SyncBackgroundServiceEnv(args[0], key); err != nil {
 						return err
 					}
