@@ -10,9 +10,23 @@
 
 ## Current Work Goal
 
-**v0.6.0 출시 완료:** tag `v0.6.0` @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main`. PR [#7](https://github.com/camem2442/keycli/pull/7) merge, Linux `./verify.sh --suite all`·GitHub Actions on `main` green (2026-10-25). 릴리스 게이트: Cursor/gh 실 push(B-1)·clip `cp` 자동삭제 실측(KC-20)·OpenCode `kc exec --standalone`(KC-18) **COMPLETE**. OpenCode 백그라운드 서비스 경로·에이전트+정책 실사용 남음 — [roadmap](docs/planning/roadmap.md).
+**v0.7 Phase A (V07-A1 / KC-42):** v0.6.0 출시 증거와 README·HANDOFF·roadmap 정합. tag [`v0.6.0`](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main` (PR [#7](https://github.com/camem2442/keycli/pull/7), 2026-10-25). 다음 게이트: `kc push cursor`/`gh` **API** E2E(M4.5), Cloud Agent fresh install(KC-40), OpenCode 서비스 opt-in(KC-22) — [roadmap](docs/planning/roadmap.md).
 
-## 상태 (2026-10-25)
+## 마일스톤 (M1–M6, 2026-10-28)
+
+구현 vs 운영. `git-credential` 실 push ≠ `kc push cursor/gh` Secret API 전송.
+
+| 마일스톤 | 구현 | 운영 성숙도 |
+|----------|------|-------------|
+| M1 CLI 코어 | **COMPLETE** | 실사용 가능 |
+| M2 Keychain·Link | **COMPLETE** | Mac GUI 실사용 |
+| M3 Clip·CP | **COMPLETE** | `kc cp` 실측(KC-20); export dotenv clip 경로는 integration만 |
+| M4 Git·Rules·Doctor | **COMPLETE** | Git 실사용(B-1); 소비자별 인수 차이 |
+| M4.5 Push·Export·Import | **PARTIAL** | `kc push` API E2E **NOT VERIFIED** |
+| M5 External | **COMPLETE** | 프로토콜·Linux CI; 서드파티 플러그인 실연동 별개 |
+| M6 Audit·Policy | **COMPLETE** | 드릴·CI; 강한 OS 격리 아님 |
+
+## 상태 (2026-10-28)
 
 | 영역 | 상태 | 근거 |
 |---|---|---|
@@ -20,7 +34,7 @@
 | P1 계약·보안 정합성 9건 | **COMPLETE** | P1-1~P1-9 구현·Linux CI·mac-smoke ([roadmap P1](docs/planning/roadmap.md)) |
 | P2 운영·문서 6건 | **COMPLETE** | `main` merge·Actions green·tag `v0.6.0` ([roadmap P2](docs/planning/roadmap.md)) |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7 merge; `internal/opencode`, `internal/cli/wire.go`, CLI·agents 가이드; Mac `--dry-run`·Linux unit·CI |
-| CLI M1–M5 | **PARTIAL** | P1 항목 반영 완료, 실 API NOT VERIFIED |
+| M1–M6 (요약) | 위 표 | M4.5만 **PARTIAL** (`kc push` API); 나머지 구현 **COMPLETE** |
 | M6 audit + policy middleware | **COMPLETE** | Linux `./verify.sh --suite all`; 호출부 보정은 P1-2·P1-7 |
 | git credential 호스트 매핑 (`[git."HOST"]`, `setup-git --host`) | **COMPLETE** | P1-1 반영, `c4b09ea` 커밋·mac-smoke·설치본 검증 통과 |
 | `kc audit` / `kc policy check` | **COMPLETE** | 단위·integration |
@@ -51,9 +65,9 @@ go test -tags=kc_testhooks ./...
 
 ## NEXT CONTEXT
 
-P0~P2·wire·Linux CI·실 Mac mac-smoke·`exec` 노출(B-2)은 끝났다. v0.6.0은 tag·release workflow까지 완료.
+P0~P2·wire·Linux CI·실 Mac mac-smoke·`exec` 노출(B-2)·v0.6.0 [GitHub Release](https://github.com/camem2442/keycli/releases/tag/v0.6.0)까지 완료.
 
-1. 릴리스 게이트: Cursor/gh push·clip 실측·OpenCode `kc exec --standalone` **COMPLETE**. 남음: 에이전트 실사용+정책 1회, OpenCode 백그라운드 서비스 경로.
+1. v0.6.0 릴리스 게이트( git-credential push·clip `cp`·OpenCode `kc exec --standalone`) **COMPLETE**. v0.7 인수 남음: `kc push` Secret API E2E, 에이전트+정책 1회, OpenCode 백그라운드 서비스(opt-in/KC-22).
 2. 실 Mac mac-smoke는 2026-10-25 통과했다(keychain 쓰기/읽기·rebuild 읽기·`ls --json`의 `kc.secret.*`·ai-core keychain 읽기·`kc.age` 왕복·link·setup-git·샌드박스 종료 3). 재실행 시에도 **SSH 세션에서는 불가**: `launchctl managername=Background` + 잠긴 login keychain 때문에 `security -i`가 `-25308 User interaction is not allowed`로 실패한다. Mac의 GUI 로그인 세션에서 keychain을 해제한 뒤 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh`로 실행한다.
 3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. `main` @ `v0.6.0` 설치본은 `bash scripts/lifecycle.sh build-dev --install` 또는 release 바이너리로 맞춘다.
 P1/P2에서 바뀐 동작(스크립트 주의):

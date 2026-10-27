@@ -3,7 +3,7 @@ status: active
 ---
 # 로드맵
 
-기준: 2026-10-25 구현 리뷰. 상태어는 **COMPLETE / PARTIAL / BLOCKED / DEFERRED / NOT VERIFIED**만 사용한다.
+기준: 2026-10-28 (v0.6.0 출시·V07-A1 문서 정합). 상태어는 **COMPLETE / PARTIAL / BLOCKED / DEFERRED / NOT VERIFIED**만 사용한다.
 
 우선순위 원칙:
 
@@ -21,7 +21,7 @@ status: active
 | P0-1 | `init`/`keygen`이 기존 identity의 recipient를 출력 | `internal/cli/init.go:20-44` — 매번 새 키를 만들고, `receiver.key`가 있으면 저장은 건너뛰고 새 recipient를 출력. 연속 실행 시 다른 `age1…` 확인. README·mac-smoke가 recipient를 identity로 사용 | `KC_KEY` → `receiver.key` → `kc.age` 순으로 identity를 찾아 그 recipient만 출력. 연속 실행 동일 + export/import 왕복 테스트 | COMPLETE |
 | P0-2 | 실 macOS 키체인 목록 파서 | `internal/backend/keychain/keychain.go:136`, `aicore.go:96`은 `service:`만 파싱. 실제 `security dump-keychain`은 `"svce"<blob>=` 형식이며 `cmd/fakesecurity`가 이를 가림. macOS에서 `ls`/`exec`/`cp` 목록에서 키체인 항목 누락 | 실제 dump 형식 파싱 + fake를 실제 형식으로 갱신 + 실 Mac에서 `ls --json`·`exec` 포함 확인 | COMPLETE |
 | P0-3 | 잠김 저장소를 `ls`/`exec`에서 오류로 전파 | `internal/resolve/resolve.go:212`가 `ErrLocked`를 무시. 잠김 상태에서 `ls`는 exit 0 + 빈 목록, `exec`는 시크릿 없이 자식 실행 | 잠김/차단 시 exit 4(또는 명시적 경고) + `exec` 자식 미실행. 단위·integration 테스트 | COMPLETE |
-| P0-4 | `export --format dotenv` 자동 삭제 | `internal/cli/export.go:70`의 `CopyWithAutoClear` goroutine이 프로세스 종료와 함께 사라짐. `cp`만 `_clip-wait-clear` 자식 사용 | export 종료 후 delay 뒤 클립보드 비움(그새 변경 시 유지). 통합 테스트 | PARTIAL |
+| P0-4 | `export --format dotenv` 자동 삭제 | `internal/cli/export.go:70`의 `CopyWithAutoClear` goroutine이 프로세스 종료와 함께 사라짐. `cp`만 `_clip-wait-clear` 자식 사용 | export 종료 후 delay 뒤 클립보드 비움(그새 변경 시 유지). 통합 테스트 | COMPLETE |
 | P0-5 | external 백엔드 실패 격리 + 읽기 경로 네트워크 차단 | `internal/app/app.go:50`, `internal/backend/external/external.go:69` — 깨진 플러그인 하나로 `ls`·`doctor`까지 exit 1. `Deps.NetworkBlocked` 미연결, `networkSkip()` 항상 false | 깨진 플러그인이 있어도 `doctor`/`plugin list`/다른 백엔드 동작. 읽기 경로에서 네트워크 backend skip | COMPLETE |
 | P0-6 | env 백엔드 목록/조회 대칭 | `internal/backend/env/env.go:84`가 `KC_*`를 `key`·`agent`·`config`로 노출하지만 `get`은 불가. 임의 `MY_TOKEN`은 읽히지만 목록엔 없음 | `ls`의 모든 이름이 `get` 가능(또는 내부 변수 제외) + 테스트 | COMPLETE |
 | P0-7 | 종료 코드 계약 준수 | `internal/cli/root.go:68`의 완전 일치 비교로 unknown command/flag/인자 부족이 exit 1(계약 64). 첫 실행 `set`(키 없음)은 exit 1(계약 4) | usage 64, 잠김/키 없음 4 + 안내 문구. 표 기반 CLI 테스트 | COMPLETE |
@@ -36,7 +36,7 @@ status: active
 - **P0-6:** env `ls`에서 `KC_*` 내부 변수를 제외해 목록의 모든 이름이 resolver로 조회 가능하게 했다. 별칭 env 테스트·integration 통과.
 - **P0-7:** cobra 사용법 오류를 64로, 첫 `set`(identity 없음)을 4로 매핑. 표 기반 integration 통과.
 
-검증: macOS에서 `go test -tags=kc_testhooks ./...`, `verify.sh --suite unit|docs|policy`, 실 Mac `mac-smoke`·B-2 `exec` 노출 통과. Linux `./verify.sh --suite all`·GitHub Actions on `main` **COMPLETE** (2026-10-25). P0-4 clip 자동삭제 실측만 **NOT VERIFIED**이므로 P0-4 행은 **PARTIAL**.
+검증: macOS에서 `go test -tags=kc_testhooks ./...`, `verify.sh --suite unit|docs|policy`, 실 Mac `mac-smoke`·B-2 `exec` 노출 통과. Linux `./verify.sh --suite all`·GitHub Actions on `main` **COMPLETE** (2026-10-25). `kc cp` clip 자동삭제 실측(KC-20) **COMPLETE**; `export --format dotenv` clip 경로는 integration·mac-smoke 미포함.
 
 ## P1 — 계약·보안 정합성
 
@@ -101,7 +101,7 @@ status: active
 - OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-18: `kc exec`+`--standalone` OK; 백그라운드 서비스 non-standalone NOT VERIFIED)
 - clip 자동삭제 실측 — **COMPLETE** (KC-20, SJ Mac `kc cp`+delay)
 
-현재: **PARTIAL** — v0.6.0·B-1·KC-20·KC-18(standalone) 완료. 에이전트+정책·OpenCode 서비스 경로 남음.
+릴리스: **COMPLETE** — [v0.6.0](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ `881758e` (2026-10-25). v0.7 인수: 에이전트+정책·`kc push` API E2E(M4.5)·OpenCode 서비스 경로 **NOT VERIFIED** / **PARTIAL**.
 
 ## 마일스톤 기록
 
@@ -111,22 +111,22 @@ status: active
 | M2 | keychain 백엔드(`security`), `link`, ai-core 읽기 어댑터 | macOS 수동 체크리스트 + 가짜 구현 테스트 |
 | M3 | 클립보드 `cp`/`set --clip`, OSC 52, 자동 삭제 | 맥·SSH 수동 확인 |
 | M4 | `setup-git`, `rules`, `doctor`, 에이전트별 설정 가이드 | Cursor/Claude Code/Codex/Antigravity 각 1회 실사용 |
-| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; 실 Cursor/gh는 NOT VERIFIED |
+| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; `git-credential` 실 push(B-1) **COMPLETE**; `kc push` Secret API는 NOT VERIFIED |
 | M5 | 외부 하위 명령·백엔드 프로토콜 | `kc plugin list`, 예제 백엔드, Linux `verify.sh --suite all` |
 | M6 | 감사·정책 미들웨어, `kc audit`, `kc policy check` | Linux `verify.sh --suite all` |
 | 이후 | TTL 캐시, rate limit, 출력 가림, 1Password 백엔드 | DEFERRED |
 
-## 현재 판정 (2026-10-25)
+## 현재 판정 (2026-10-28)
 
-| 영역 | 상태 | 근거 |
+| 마일스톤 | 구현 | 운영 성숙도 |
 |---|---|---|
-| M1 CLI 코어 | **COMPLETE** | P0-6·P0-7, P1-3·P1-4·P1-6, Linux CI |
-| M2 keychain·link | **COMPLETE** | P0-2 파서·fake·B-2 `exec`, P1-5 이름 규칙, 실 Mac mac-smoke(`kc.secret.*`, link, 샌드박스 종료 3) |
-| M3 clip/cp | **COMPLETE** | P0-4·P1-4·KC-20 실 Mac `cp` 자동삭제 실측 |
-| M4 setup-git·rules·doctor | **COMPLETE** | P1-1 기본 매핑, P1-8 doctor, P2-2 설치 검증, mac-smoke setup-git |
-| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5 ledger batch; gh/git 실 push **COMPLETE**(B-1), `kc push cursor`/`gh` CLI는 NOT VERIFIED |
-| M5 external | **COMPLETE** | P0-5, Linux CI |
-| M6 audit·policy | **COMPLETE** | 체인·audit·policy 단위/integration 통과. 호출부 보정은 P1-2·P1-7 |
+| M1 CLI 코어 | **COMPLETE** | P0-6·P0-7, P1-3·P1-4·P1-6, Linux CI; 실사용 가능 |
+| M2 keychain·link | **COMPLETE** | P0-2·P1-5, mac-smoke; Mac GUI 실사용 |
+| M3 clip/cp | **COMPLETE** | P0-4·P1-4·KC-20 `cp` 실측; export dotenv clip은 integration |
+| M4 setup-git·rules·doctor | **COMPLETE** | P1-1·P1-8, B-1 git push; 소비자별 인수 차이 |
+| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5; `kc push` Secret API E2E **NOT VERIFIED** |
+| M5 external | **COMPLETE** | P0-5, Linux CI; 서드파티 플러그인 실연동 별개 |
+| M6 audit·policy | **COMPLETE** | P1-2·P1-7; 드릴·CI, 강한 OS 격리 아님 |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7, `881758e`, Linux unit·Mac `--dry-run` |
 | git credential 호스트 매핑 | **COMPLETE** | P1-1, `c4b09ea`, mac-smoke |
 | P2 운영·문서 | **COMPLETE** | CI green on `main`, 설치 검증·clip gate·ledger batch·v0.6.0 문서 |
@@ -136,7 +136,8 @@ status: active
 
 | 항목 | 비고 |
 |---|---|
-| 실 클립보드 자동 삭제 | mac-smoke는 `cp` 경로만 실행; delay 후 clear 실측 없음 |
+| `kc push cursor` / `kc push gh` Secret API | M4.5; `git-credential` push(B-1)와 독립 |
+| `export --format dotenv` clip 자동삭제 실측 | integration만; mac-smoke 미포함 |
 | 에이전트 실사용 + 정책 운영 | Cursor/Claude Code/Codex 각 1회 |
 | OpenCode `kc exec` 경로 | `PROXY_API_KEY`를 kc store·`kc exec`로 주입 후 `opencode run`(non-standalone) |
 | 서드파티 `kc-backend-*` 실연동 | demo 외 |
