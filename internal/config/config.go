@@ -80,7 +80,8 @@ func Default(home string) Config {
 			"store": {Type: "file", Path: storePath},
 		},
 		Alias: map[string][]string{
-			"github": {"gh", "GITHUB_TOKEN", "GH_TOKEN"},
+			"github":         {"gh", "GITHUB_TOKEN", "GH_TOKEN"},
+			"cursor-api-key": {"cursor_api_key"},
 		},
 		// Git mappings are explicit only. GitHost still falls back to the
 		// built-in github.com mapping so a fresh install keeps working, but
@@ -128,6 +129,7 @@ func Load(home string) (Config, string, error) {
 	if c.Alias == nil {
 		c.Alias = map[string][]string{}
 	}
+	ensureBuiltinAliases(&c)
 	if c.Link == nil {
 		c.Link = map[string]LinkTarget{}
 	}
@@ -182,6 +184,13 @@ func EnsureLinkBackend(c *Config) {
 	}
 	if !hasLink {
 		c.Order = append([]string{"link"}, c.Order...)
+	}
+}
+
+// ensureBuiltinAliases adds built-in name mappings when the user has not defined them.
+func ensureBuiltinAliases(c *Config) {
+	if _, ok := c.Alias["cursor-api-key"]; !ok {
+		c.Alias["cursor-api-key"] = []string{"cursor_api_key"}
 	}
 }
 
