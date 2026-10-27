@@ -16,8 +16,8 @@ status: implemented
 
 | 대상 | 방식 | 기본값 | 비고 |
 |---|---|---|---|
-| `cursor` | Cursor Cloud Agents API `PUT /v1/environments/{id}/secrets/{name}` | 타입 `runtime_secret`, `--repos`로 범위 제한 | API 키: `cursor-api-key`(resolver) 또는 `KC_CURSOR_API_KEY`. 환경 ID: `--env-id` 또는 `KC_CURSOR_ENVIRONMENT_ID`. [공식 문서](https://cursor.com/docs/cloud-agent/api/endpoints) — Basic `API_KEY:` 인증, JSON body `value`/`type`/`repos`. `409 secret_name_ambiguous`, 값 1–4096바이트, 환경당 1000개. **실 API 호출: NOT VERIFIED** (Linux httptest만). 팀 단위 엔드포인트: **NOT VERIFIED** |
-| `gh` | `gh secret set NAME -f -` (dotenv 한 줄을 stdin) `[--user] [--repos …] --app codespaces\|actions\|agents` | `--app codespaces` | argv에 값 없음. **실 gh 호출: NOT VERIFIED** (fake `gh` 스크립트 테스트만) |
+| `cursor` | Cursor Cloud Agents API `PUT /v1/environments/{id}/secrets/{name}` | 타입 `runtime_secret`, `--repos`로 범위 제한 | API 키: `cursor-api-key`(resolver) 또는 `KC_CURSOR_API_KEY`. 환경 ID: `--env-id` 또는 `KC_CURSOR_ENVIRONMENT_ID`. [공식 문서](https://cursor.com/docs/cloud-agent/api/endpoints) — Basic `API_KEY:` 인증, JSON body `value`/`type`/`repos`. `409 secret_name_ambiguous`, 값 1–4096바이트, 환경당 1000개. Linux httptest **PASS**; Cloud egress·401 계약 **PARTIAL** (KC-49); 성공 PUT·Mac **NOT VERIFIED**. 팀 단위 엔드포인트: **NOT VERIFIED** |
+| `gh` | `gh secret set NAME -f -` (dotenv 한 줄을 stdin) `[--user] [--repos …] --app codespaces\|actions\|agents` | `--app codespaces` | argv에 값 없음. fake `gh` 테스트 **PASS**; `--repos … --app actions` 실 호출 **PASS** (KC-49, Cloud); `--user`+`codespaces`는 토큰 권한에 따라 **BLOCKED** 가능; Mac **NOT VERIFIED** |
 
 ## export 형식
 
