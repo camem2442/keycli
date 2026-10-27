@@ -20,6 +20,7 @@ import (
 
 // Report is doctor --json output.
 type Report struct {
+	Profile        string          `json:"profile,omitempty"`
 	ConfigPath     string          `json:"config_path"`
 	StorePath      string          `json:"store_path"`
 	KCKey          string          `json:"kc_key"`
@@ -51,6 +52,7 @@ type BackendStatus struct {
 // Collect builds a diagnostic report (no secret values).
 func Collect(ctx context.Context, a *app.App) Report {
 	rep := Report{
+		Profile:    detectProfile(),
 		ConfigPath: a.ConfigPath,
 		StorePath:  a.StorePath(),
 		KCKey:      kcKeyStatus(),
@@ -253,6 +255,27 @@ func PrintHuman(w *os.File, rep Report) {
 			fmt.Fprintf(w, " — %s", b.Reason)
 		}
 		fmt.Fprintln(w)
+	}
+}
+
+// detectProfile classifies the runtime for consumer diagnostics (no secrets).
+func detectProfile() string {
+	switch runtime.GOOS {
+	case "linux":
+		if os.Getenv("GITHUB_ACTIONS") == "true" {
+			return "linux-ci"
+		}
+		if os.Getenv("CURSOR_AGENT") != "" || os.Getenv("COMPOSER_REPO_URL") != "" {
+			return "linux-cloud"
+		}
+		return "linux-headless"
+	case "darwin":
+		if os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" {
+			return "mac-ssh"
+		}
+		return "mac-gui"
+	default:
+		return "unknown"
 	}
 }
 

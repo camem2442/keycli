@@ -1,0 +1,33 @@
+schema_version: 1
+repository:
+  id: keycli
+  source: workspace-registry
+keycli:
+  release: v0.7.0
+  install: pinned-release
+  require_explicit_secrets: true
+consumers:
+  - id: cursor-local
+    rules: .cursor/rules/keycli.mdc
+  - id: codex-local
+    rules: AGENTS.md
+  - id: cloud-runtime
+    rules: docs/guides/cloud-agent.md
+credentials:
+  - name: github
+    source: local-resolver
+    delivery: child-env
+    required: true
+admission:
+  plan: readonly
+  install: explicit-grant
+  secret_write: separate-grant
+  cleanup: prohibited
+verification:
+  required:
+    - repository-identity
+    - keycli-install
+    - rules-consistency
+    - secret-presence
+    - child-exec
+    - audit-policy

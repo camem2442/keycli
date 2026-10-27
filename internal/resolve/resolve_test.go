@@ -16,6 +16,7 @@ import (
 )
 
 func TestResolveAliasEnv(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "from-env")
 	dir := t.TempDir()
 	cfg := config.Default(dir)

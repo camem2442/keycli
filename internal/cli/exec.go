@@ -13,27 +13,34 @@ import (
 
 func newExecCmd(a *app.App) *cobra.Command {
 	var only []string
+	var require bool
 	cmd := &cobra.Command{
-		Use:   "exec [--only a,b] -- CMD...",
+		Use:   "exec [--only a,b] [--require] -- CMD...",
 		Short: "Run a command with secrets injected as env vars",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return kcerrors.ErrUsage
 			}
+			filter := parseOnlyNames(only)
+			if require {
+				if len(filter) == 0 {
+					return kcerrors.ErrUsage
+				}
+				for name := range filter {
+					if _, _, err := a.Resolver.Get(readCtx(cmd, "exec"), name); err != nil {
+						if kcerrors.Code(err) == kcerrors.ExitNotFound {
+							fmt.Fprintf(os.Stderr, "kc: 필수 시크릿 '%s' 없음 (--require). 자식 프로세스를 시작하지 않습니다.\n", name)
+						}
+						if kcerrors.Code(err) == kcerrors.ExitDenied {
+							fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
+						}
+						return err
+					}
+				}
+			}
 			items, err := a.Resolver.List(cmd.Context())
 			if err != nil {
 				return err
-			}
-			filter := map[string]struct{}{}
-			if len(only) > 0 {
-				for _, part := range only {
-					for _, n := range strings.Split(part, ",") {
-						n = strings.TrimSpace(n)
-						if n != "" {
-							filter[strings.ToLower(n)] = struct{}{}
-						}
-					}
-				}
 			}
 			// Never pass kc's own identity or agent identity to the child.
 			// The child only needs the secret variables injected below.
@@ -77,7 +84,21 @@ func newExecCmd(a *app.App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringSliceVar(&only, "only", nil, "Only inject these secret names")
+	cmd.Flags().BoolVar(&require, "require", false, "With --only: fail before starting the child if any named secret is missing or denied")
 	return cmd
+}
+
+func parseOnlyNames(only []string) map[string]struct{} {
+	filter := map[string]struct{}{}
+	for _, part := range only {
+		for _, n := range strings.Split(part, ",") {
+			n = strings.TrimSpace(n)
+			if n != "" {
+				filter[strings.ToLower(n)] = struct{}{}
+			}
+		}
+	}
+	return filter
 }
 
 // stripEnvKeys removes exact KEY=... entries from an environment slice.

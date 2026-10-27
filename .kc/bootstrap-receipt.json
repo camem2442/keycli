@@ -1,0 +1,17 @@
+{
+  "goal": "KC-V07-BOOTSTRAP-PILOT-01",
+  "repository": "camem2442/keycli",
+  "commit_sha": "d9c6a71",
+  "profile": "linux-cloud",
+  "commands": [
+    {"cmd": "bash scripts/check-rules.sh", "exit": 0},
+    {"cmd": "bash verify.sh --suite docs", "exit": 0},
+    {"cmd": "bash verify.sh --suite all", "exit": 0}
+  ],
+  "status": "PARTIAL",
+  "not_verified": [
+    "kc push cursor API (Mac cursor-api-key)",
+    "Cloud Environment promotable main build + Dashboard Save",
+    "Mac mac-smoke"
+  ]
+}

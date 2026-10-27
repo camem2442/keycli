@@ -8,7 +8,7 @@
 | 외부 백엔드 플러그인 프로토콜 | [contracts/plugin-protocol.md](contracts/plugin-protocol.md) |
 | 맥 → 클라우드 전송 | [contracts/transfer.md](contracts/transfer.md) |
 | 보안 모델·한계 | [contracts/security-model.md](contracts/security-model.md) |
-| 왜 이렇게 정했나 | [decisions/0001-design-choices.md](decisions/0001-design-choices.md) |
+| 왜 이렇게 정했나 | [decisions/0001-design-choices.md](decisions/0001-design-choices.md) · [0006 OpenCode 실행 모드](decisions/0006-opencode-execution-modes.md) |
 | 단계별 계획 | [planning/roadmap.md](planning/roadmap.md) |
 | 코딩 에이전트 설정 | [guides/agents.md](guides/agents.md) |
 | 선행 구현 조사 | [reviews/2026-10-24-prior-art.md](reviews/2026-10-24-prior-art.md) |

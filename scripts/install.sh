@@ -2,7 +2,7 @@
 # Install kc to ~/.local/bin (no sudo). Public repo: curl release or go install first.
 set -euo pipefail
 
-REF="${KC_INSTALL_REF:-latest}"
+REF="${KC_INSTALL_REF:-v0.7.0}"
 PREFIX="${PREFIX:-${HOME}/.local/bin}"
 MODULE="github.com/camem2442/keycli/cmd/kc"
 GITHUB_REPO="camem2442/keycli"
@@ -153,7 +153,9 @@ EOF
 detect_platform
 
 if install_from_curl; then exit 0; fi
-if install_from_go; then exit 0; fi
 if install_from_gh; then exit 0; fi
+if [[ "${KC_INSTALL_ALLOW_GO:-}" == "1" ]]; then
+  if install_from_go; then exit 0; fi
+fi
 
 fail_help

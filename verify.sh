@@ -53,6 +53,9 @@ run_docs() {
   done
   bash -n "$ROOT/scripts/cloud-install.sh"
   bash -n "$ROOT/scripts/cloud-clone-ai-core.sh"
+  bash -n "$ROOT/scripts/install.sh"
+  bash -n "$ROOT/scripts/check-rules.sh"
+  bash "$ROOT/scripts/check-rules.sh"
 }
 
 run_policy() {

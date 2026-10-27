@@ -392,6 +392,45 @@ path = "` + filepath.Join(home, ".kc", "store.age") + `"
 	}
 }
 
+// TestExecRequireMissing covers V07-A1: --require --only must not start the child
+// when a named secret is missing.
+func TestExecRequireMissing(t *testing.T) {
+	home := t.TempDir()
+	falseBin, err := exec.LookPath("false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgDir := filepath.Join(home, ".config", "kc")
+	_ = os.MkdirAll(cfgDir, 0o755)
+	configToml := `
+allow_test_hooks = true
+order = ["env"]
+
+[backend.env]
+type = "env"
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configToml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"HOME=" + home, "KC_SECURITY=" + falseBin, "DEMO_TOKEN=hello"}
+	marker := filepath.Join(home, "exec-ran")
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runKCSplit(env, "", "exec", "--require", "--only", "missing-secret", "--", sh, "-c", `touch "$1"`, "sh", marker)
+	if code != 2 {
+		t.Fatalf("require missing: exit %d want 2 (%s)", code, stderr)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("child ran without required secret")
+	}
+	code, _, _ = runKCSplit(env, "", "exec", "--require", "--only", "demo", "--", sh, "-c", `printf ok`)
+	if code != 2 {
+		t.Fatalf("require alias missing name demo: exit %d want 2", code)
+	}
+}
+
 // TestExportDotenvAutoClear covers P0-4: `export --format dotenv` must schedule
 // clipboard clearing in a detached child that outlives the export process.
 func TestExportDotenvAutoClear(t *testing.T) {

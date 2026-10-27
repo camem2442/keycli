@@ -6,10 +6,10 @@
 When a token or API key is missing for cursor:
 
 1. Run `kc ls --json` to list available secret **names** (never values).
-2. Prefer `kc exec --only NAME -- COMMAND...` to inject env for a subprocess; otherwise `kc get NAME` (stdout only, do not log).
+2. Prefer `kc exec --require --only NAME -- COMMAND...` to inject env for a subprocess; otherwise `kc get NAME` (stdout only, do not log).
 3. Never echo, paste, or commit secret values.
 4. Exit code **3** means sandbox-blocked (keychain/clipboard); ask the user to run outside the sandbox or use env-backed secrets.
 5. Exit code **5** means policy denied — ask the user to update the agent allowlist in kc config (`kc policy check NAME`).
 
-Docs: docs/contracts/cli.md, docs/guides/agents.md
+Docs: https://github.com/camem2442/keycli/blob/main/docs/contracts/cli.md and https://github.com/camem2442/keycli/blob/main/docs/guides/agents.md
 <!-- kc-rules-end -->

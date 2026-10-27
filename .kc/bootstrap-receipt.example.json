@@ -1,0 +1,13 @@
+{
+  "goal": "KC-V07-BOOTSTRAP-PILOT-01",
+  "repository": "camem2442/keycli",
+  "commit_sha": "REPLACE_AT_RUN",
+  "profile": "linux-cloud",
+  "commands": [
+    {"cmd": "bash scripts/check-rules.sh", "exit": 0},
+    {"cmd": "bash verify.sh --suite docs", "exit": 0},
+    {"cmd": "kc doctor --json", "exit": 0}
+  ],
+  "status": "PARTIAL",
+  "notes": "No secret values. Mac cursor push and fresh env promote NOT VERIFIED until user actions."
+}
