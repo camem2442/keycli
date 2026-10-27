@@ -38,7 +38,8 @@ func newWireOpencodeVertexCmd(a *app.App, dryRun *bool, configPath *string) *cob
 			fmt.Fprintf(cmd.ErrOrStderr(), "kc: wrote %s (provider %s, apiKey {env:%s})\n",
 				path, opencode.ProviderID, opencode.EnvAPIKey)
 			fmt.Fprintf(cmd.ErrOrStderr(), "kc: kc set vertex-byok-proxy (same as config.env PROXY_API_KEY); run:\n")
-			fmt.Fprintf(cmd.ErrOrStderr(), "kc:   kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode\n")
+			fmt.Fprintf(cmd.ErrOrStderr(), "kc:   kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode run …\n")
+			fmt.Fprintf(cmd.ErrOrStderr(), "kc:   (non-standalone: exec syncs %s into `opencode service` before run)\n", opencode.EnvAPIKey)
 			fmt.Fprintf(cmd.ErrOrStderr(), "kc: ensure vertex-byok-proxy is up: cursor-vertex-status\n")
 			return nil
 		},

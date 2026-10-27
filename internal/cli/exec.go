@@ -8,6 +8,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/opencode"
 	"github.com/spf13/cobra"
 )
 
@@ -60,6 +61,13 @@ func newExecCmd(a *app.App) *cobra.Command {
 				}
 				for _, key := range a.Resolver.EnvNames(it.Name) {
 					env = append(env, fmt.Sprintf("%s=%s", key, string(val)))
+				}
+			}
+			if opencode.ShouldSyncBackgroundService(args) {
+				if key := opencode.ProxyAPIKeyFromEnv(env); key != "" {
+					if err := opencode.SyncBackgroundServiceEnv(args[0], key); err != nil {
+						return err
+					}
 				}
 			}
 			c := exec.Command(args[0], args[1:]...)

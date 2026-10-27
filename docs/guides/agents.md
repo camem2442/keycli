@@ -156,7 +156,11 @@ kc wire opencode-vertex
 kc wire opencode-vertex --dry-run
 
 # OpenCode는 PROXY_API_KEY env 필요 (별칭 vertex-byok-proxy 권장)
-kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode
+kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode run …
+
+# non-standalone(`opencode run` without `--standalone`)는 백그라운드 서비스가 env를 못 받음.
+# `kc exec`가 주입 직전 `opencode service set env PROXY_API_KEY` + restart로 동기화함.
+# `--standalone`이면 동기화 생략(자식 프로세스 env만 사용).
 ```
 
 Cursor Cloud Agent용 `kc push cursor`는 BYOK 프록시 키와 **별개** ([transfer.md](../contracts/transfer.md)).
