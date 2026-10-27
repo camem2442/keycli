@@ -63,6 +63,8 @@ go install github.com/camem2442/keycli/cmd/kc@latest
 
 **Mac (로컬 개발):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
 
+**Cursor Cloud Agent:** `bash scripts/cloud-install.sh` (릴리스 `v0.6.0` + SHA256, `kc doctor --json`). 상세: [docs/guides/cloud-agent.md](docs/guides/cloud-agent.md).
+
 **제거:** `bash scripts/lifecycle.sh uninstall`
 
 ## Linux 빠른 시작

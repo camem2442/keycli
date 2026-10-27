@@ -1,0 +1,5 @@
+{
+  "name": "keycli Cloud Agent",
+  "user": "ubuntu",
+  "install": "bash scripts/cloud-install.sh"
+}
