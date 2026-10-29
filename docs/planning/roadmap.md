@@ -101,7 +101,7 @@ status: active
 - OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-18: `kc exec`+`--standalone` OK; 백그라운드 서비스 non-standalone NOT VERIFIED)
 - clip 자동삭제 실측 — **COMPLETE** (KC-20, SJ Mac `kc cp`+delay)
 
-릴리스: **COMPLETE** — [v0.6.0](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ `881758e` (2026-10-25). v0.7 인수: 에이전트+정책·`kc push` API E2E(M4.5)·OpenCode 서비스 경로 **NOT VERIFIED** / **PARTIAL**.
+릴리스: **COMPLETE** — [v0.6.0](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ `881758e` (2026-10-25). v0.7.0: **COMPLETE** — 출시 + operational close([v07-release-gate.md](v07-release-gate.md) 범위, 근거 [v07-operational-evidence.md](v07-operational-evidence.md)). 남은 인수: 에이전트+정책·Codex/Claude 1턴·alias 경유 실 PUT·gh 다른 `--app` 범위 **NOT VERIFIED**; OpenCode 서비스 경로는 ADR 0006으로 opt-in 제외.
 
 ## 마일스톤 기록
 
@@ -111,7 +111,7 @@ status: active
 | M2 | keychain 백엔드(`security`), `link`, ai-core 읽기 어댑터 | macOS 수동 체크리스트 + 가짜 구현 테스트 |
 | M3 | 클립보드 `cp`/`set --clip`, OSC 52, 자동 삭제 | 맥·SSH 수동 확인 |
 | M4 | `setup-git`, `rules`, `doctor`, 에이전트별 설정 가이드 | Cursor/Claude Code/Codex/Antigravity 각 1회 실사용 |
-| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; `git-credential` 실 push(B-1) **COMPLETE**; `kc push` Secret API는 NOT VERIFIED |
+| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; `git-credential` 실 push(B-1) **COMPLETE**; Mac `kc push cursor` 실 PUT·`kc push gh --app actions` **COMPLETE**(KC-55); 그 밖의 push 범위 NOT VERIFIED |
 | M5 | 외부 하위 명령·백엔드 프로토콜 | `kc plugin list`, 예제 백엔드, Linux `verify.sh --suite all` |
 | M6 | 감사·정책 미들웨어, `kc audit`, `kc policy check` | Linux `verify.sh --suite all` |
 | 이후 | TTL 캐시, rate limit, 출력 가림, 1Password 백엔드 | DEFERRED |
@@ -124,7 +124,7 @@ status: active
 | M2 keychain·link | **COMPLETE** | P0-2·P1-5, mac-smoke; Mac GUI 실사용 |
 | M3 clip/cp | **COMPLETE** | P0-4·P1-4·KC-20 `cp` 실측; export dotenv clip은 integration |
 | M4 setup-git·rules·doctor | **COMPLETE** | P1-1·P1-8, B-1 git push; 소비자별 인수 차이 |
-| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5; `kc push` Secret API E2E **NOT VERIFIED** |
+| M4.5 push/export/import/status | **PARTIAL** | P1-9, P2-5; Mac `push cursor`·`push gh --app actions` 실 전송 **COMPLETE**(KC-55); 나머지 범위 **NOT VERIFIED** |
 | M5 external | **COMPLETE** | P0-5, Linux CI; 서드파티 플러그인 실연동 별개 |
 | M6 audit·policy | **COMPLETE** | P1-2·P1-7; 드릴·CI, 강한 OS 격리 아님 |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7, `881758e`, Linux unit·Mac `--dry-run` |
@@ -136,7 +136,7 @@ status: active
 
 | 항목 | 비고 |
 |---|---|
-| `kc push cursor` / `kc push gh` Secret API | M4.5; `git-credential` push(B-1)와 독립 |
+| `kc push` 나머지 범위 | M4.5; gh `--user`·`codespaces`·`agents`, Cursor 팀 엔드포인트, `cursor_api_key` alias 경유 실 PUT(KC-59는 dry-run만) |
 | `export --format dotenv` clip 자동삭제 실측 | integration만; mac-smoke 미포함 |
 | 에이전트 실사용 + 정책 운영 | Cursor/Claude Code/Codex 각 1회 |
 | OpenCode `kc exec` 경로 | `PROXY_API_KEY`를 kc store·`kc exec`로 주입 후 `opencode run`(non-standalone) |
