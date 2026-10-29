@@ -10,9 +10,18 @@
 
 ## Current Work Goal
 
-**v0.7 Phase A (V07-A1 / KC-42):** v0.6.0 출시 증거와 README·HANDOFF·roadmap 정합. tag [`v0.6.0`](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ [`881758e`](https://github.com/camem2442/keycli/commit/881758ed2cd689204bb71ade8ad72a2fa19eeb5d) on `main` (PR [#7](https://github.com/camem2442/keycli/pull/7), 2026-10-25). 다음 게이트: `kc push cursor`/`gh` **API** E2E(M4.5), Cloud Agent fresh install(KC-40), OpenCode 서비스 opt-in(KC-22) — [roadmap](docs/planning/roadmap.md).
+**v0.7.0 출시 + operational close: COMPLETE** (2026-10-29 기준). tag [`v0.7.0`](https://github.com/camem2442/keycli/releases/tag/v0.7.0), `main` @ `46d1d61`. 근거: [v07-release-gate.md](docs/planning/v07-release-gate.md).
 
-## 마일스톤 (M1–M6, 2026-10-28)
+- Mac mac-smoke·`kc push cursor` — **COMPLETE** (KC-55)
+- Cloud Agent install·Activate — **COMPLETE** (KC-40)
+- `cursor_api_key` alias — **COMPLETE** (KC-57 `c14354d`, KC-59)
+- OpenCode 서비스 경로(KC-22) — PR #11 CLOSED, [ADR 0006](docs/decisions/0006-opencode-execution-modes.md)로 `--standalone` 기본
+
+실사용 증거: Mac Cursor·git push·OpenCode standalone, Cloud Agent VM. Codex/Claude 1턴은 **NOT VERIFIED**.
+
+열린 일: KC-25(gh 401, 재현 시에만). 선택: Mac `/Users/k/bin/kc` 재설치, Codex/Claude E2E, infra Goal.
+
+## 마일스톤 (M1–M6, 2026-10-29)
 
 구현 vs 운영. `git-credential` 실 push ≠ `kc push cursor/gh` Secret API 전송.
 
@@ -22,7 +31,7 @@
 | M2 Keychain·Link | **COMPLETE** | Mac GUI 실사용 |
 | M3 Clip·CP | **COMPLETE** | `kc cp` 실측(KC-20); export dotenv clip 경로는 integration만 |
 | M4 Git·Rules·Doctor | **COMPLETE** | Git 실사용(B-1); 소비자별 인수 차이 |
-| M4.5 Push·Export·Import | **PARTIAL** | `kc push` API E2E **NOT VERIFIED** |
+| M4.5 Push·Export·Import | **PARTIAL** | `kc push cursor` Mac **COMPLETE**(KC-55); `kc push gh` Mac **NOT VERIFIED** |
 | M5 External | **COMPLETE** | 프로토콜·Linux CI; 서드파티 플러그인 실연동 별개 |
 | M6 Audit·Policy | **COMPLETE** | 드릴·CI; 강한 OS 격리 아님 |
 
@@ -34,7 +43,7 @@
 | P1 계약·보안 정합성 9건 | **COMPLETE** | P1-1~P1-9 구현·Linux CI·mac-smoke ([roadmap P1](docs/planning/roadmap.md)) |
 | P2 운영·문서 6건 | **COMPLETE** | `main` merge·Actions green·tag `v0.6.0` ([roadmap P2](docs/planning/roadmap.md)) |
 | `kc wire opencode-vertex` | **COMPLETE** | PR #7 merge; `internal/opencode`, `internal/cli/wire.go`, CLI·agents 가이드; Mac `--dry-run`·Linux unit·CI |
-| M1–M6 (요약) | 위 표 | M4.5만 **PARTIAL** (`kc push` API); 나머지 구현 **COMPLETE** |
+| M1–M6 (요약) | 위 표 | M4.5만 **PARTIAL** (`kc push gh` Mac); 나머지 구현 **COMPLETE** |
 | M6 audit + policy middleware | **COMPLETE** | Linux `./verify.sh --suite all`; 호출부 보정은 P1-2·P1-7 |
 | git credential 호스트 매핑 (`[git."HOST"]`, `setup-git --host`) | **COMPLETE** | P1-1 반영, `c4b09ea` 커밋·mac-smoke·설치본 검증 통과 |
 | `kc audit` / `kc policy check` | **COMPLETE** | 단위·integration |
@@ -47,7 +56,8 @@
 | OpenCode CLI turn (`kc wire` 후 실 `opencode`) | **PARTIAL** | KC-15/KC-18: `kc exec --only vertex-byok-proxy,PROXY_API_KEY -- opencode run --standalone` 1턴 OK; 백그라운드 `opencode run`(non-standalone)은 NOT VERIFIED |
 | `exec` 환경 키체인 항목 노출 | **COMPLETE** | B-2(SJ Mac 2026-10-25): throwaway `kc.secret.*`, `kc exec -- env`에서 시크릿·`KC_*` 누출 없음 |
 | clip 자동삭제 실측 | **COMPLETE** | KC-20: `KC_CP_CLEAR_SECONDS=4`·throwaway `kc cp` 후 delay 경과 시 클립보드에 시크릿 미유지 |
-| 설치본 `~/.local/bin/kc` | **COMPLETE** | Mac: `v0.6.0` @ `881758e`, mac-smoke·wire `--dry-run` 통과 |
+| 설치본 `~/.local/bin/kc` | **COMPLETE** | Mac: `v0.6.0` @ `881758e`, mac-smoke·wire `--dry-run` 통과. v0.7.0 기준 `/Users/k/bin/kc` 재설치는 선택 작업 |
+| v0.7.0 operational close | **COMPLETE** | KC-55(Mac)·KC-40(Cloud)·KC-57/59(alias) — [v07-release-gate.md](docs/planning/v07-release-gate.md) |
 | TTL 캐시 / rate limit / masking / 1Password | **DEFERRED** | roadmap |
 
 ## 검증
@@ -65,9 +75,9 @@ go test -tags=kc_testhooks ./...
 
 ## NEXT CONTEXT
 
-P0~P2·wire·Linux CI·실 Mac mac-smoke·`exec` 노출(B-2)·v0.6.0 [GitHub Release](https://github.com/camem2442/keycli/releases/tag/v0.6.0)까지 완료.
+v0.7.0 [GitHub Release](https://github.com/camem2442/keycli/releases/tag/v0.7.0)과 operational close(KC-55·KC-40·KC-57/59)까지 완료.
 
-1. v0.6.0 릴리스 게이트( git-credential push·clip `cp`·OpenCode `kc exec --standalone`) **COMPLETE**. v0.7 인수 남음: `kc push` Secret API E2E, 에이전트+정책 1회, OpenCode 백그라운드 서비스(opt-in/KC-22).
+1. v0.7 이후 남은 일: KC-25(gh 401, 재현 시), Codex/Claude 1턴 E2E(**NOT VERIFIED**), `kc push gh` Mac, 에이전트+정책 1회. 선택: Mac `/Users/k/bin/kc` 재설치, infra Goal. OpenCode 백그라운드 서비스는 ADR 0006으로 기본 경로에서 제외.
 2. 실 Mac mac-smoke는 2026-10-25 통과했다(keychain 쓰기/읽기·rebuild 읽기·`ls --json`의 `kc.secret.*`·ai-core keychain 읽기·`kc.age` 왕복·link·setup-git·샌드박스 종료 3). 재실행 시에도 **SSH 세션에서는 불가**: `launchctl managername=Background` + 잠긴 login keychain 때문에 `security -i`가 `-25308 User interaction is not allowed`로 실패한다. Mac의 GUI 로그인 세션에서 keychain을 해제한 뒤 `KC="$PWD/dist/kc" bash scripts/mac-smoke.sh`로 실행한다.
 3. P2-6: **COMPLETE** — `c4b09ea`(코드)·`39a19c3`(문서), 설치본 `~/.local/bin/kc` 재빌드·mac-smoke 통과. `main` @ `v0.6.0` 설치본은 `bash scripts/lifecycle.sh build-dev --install` 또는 release 바이너리로 맞춘다.
 P1/P2에서 바뀐 동작(스크립트 주의):

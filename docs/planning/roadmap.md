@@ -101,7 +101,7 @@ status: active
 - OpenCode CLI turn (`wire` 후 실 `opencode`) — **PARTIAL** (KC-18: `kc exec`+`--standalone` OK; 백그라운드 서비스 non-standalone NOT VERIFIED)
 - clip 자동삭제 실측 — **COMPLETE** (KC-20, SJ Mac `kc cp`+delay)
 
-릴리스: **COMPLETE** — [v0.6.0](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ `881758e` (2026-10-25). v0.7 인수: 에이전트+정책·`kc push` API E2E(M4.5)·OpenCode 서비스 경로 **NOT VERIFIED** / **PARTIAL**.
+릴리스: **COMPLETE** — [v0.6.0](https://github.com/camem2442/keycli/releases/tag/v0.6.0) @ `881758e` (2026-10-25). v0.7.0: **COMPLETE** — 출시 + operational close([v07-release-gate.md](v07-release-gate.md)). 남은 인수: 에이전트+정책·Codex/Claude 1턴·`kc push gh` Mac **NOT VERIFIED**; OpenCode 서비스 경로는 ADR 0006으로 opt-in 제외.
 
 ## 마일스톤 기록
 
@@ -111,7 +111,7 @@ status: active
 | M2 | keychain 백엔드(`security`), `link`, ai-core 읽기 어댑터 | macOS 수동 체크리스트 + 가짜 구현 테스트 |
 | M3 | 클립보드 `cp`/`set --clip`, OSC 52, 자동 삭제 | 맥·SSH 수동 확인 |
 | M4 | `setup-git`, `rules`, `doctor`, 에이전트별 설정 가이드 | Cursor/Claude Code/Codex/Antigravity 각 1회 실사용 |
-| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; `git-credential` 실 push(B-1) **COMPLETE**; `kc push` Secret API는 NOT VERIFIED |
+| M4.5 | `push cursor`, `push gh`, `export --format dotenv`, age `export/import`, 원장·`status` | Linux `verify.sh --suite all`; `git-credential` 실 push(B-1) **COMPLETE**; `kc push cursor` Mac **COMPLETE**(KC-55); `kc push gh` Mac NOT VERIFIED |
 | M5 | 외부 하위 명령·백엔드 프로토콜 | `kc plugin list`, 예제 백엔드, Linux `verify.sh --suite all` |
 | M6 | 감사·정책 미들웨어, `kc audit`, `kc policy check` | Linux `verify.sh --suite all` |
 | 이후 | TTL 캐시, rate limit, 출력 가림, 1Password 백엔드 | DEFERRED |
