@@ -10,6 +10,8 @@ import (
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/clip"
+	"github.com/camem2442/keycli/internal/interactive"
+	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -19,10 +21,31 @@ func newSetCmd(a *app.App) *cobra.Command {
 	var note string
 	var expiresStr string
 	cmd := &cobra.Command{
-		Use:   "set NAME",
-		Short: "Store a secret (stdin, prompt, or --clip)",
-		Args:  cobra.ExactArgs(1),
+		Use:   "set [NAME]",
+		Short: "Store a secret (stdin, prompt, --clip, or interactive wizard)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) == 0 {
+				if !term.IsTerminal(int(os.Stdin.Fd())) && !fromClip {
+					return kcerrors.ErrUsage
+				}
+				if !fromClip && note == "" && expiresStr == "" {
+					_, err := interactive.RunSetWizard(cmd.Context(), a, "")
+					return err
+				}
+				promptedName, err := interactive.PromptLine("시크릿 이름", "")
+				if err != nil {
+					return err
+				}
+				name = strings.TrimSpace(promptedName)
+				if name == "" {
+					return fmt.Errorf("시크릿 이름을 입력해주세요")
+				}
+			} else {
+				name = args[0]
+			}
+
 			var value []byte
 			var err error
 			var cp clip.Provider
@@ -56,7 +79,7 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				exp = &t
 			}
-			if err := a.Resolver.Set(cmd.Context(), args[0], value, backend.Meta{
+			if err := a.Resolver.Set(cmd.Context(), name, value, backend.Meta{
 				Note:    note,
 				Expires: exp,
 			}); err != nil {

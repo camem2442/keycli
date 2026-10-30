@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/camem2442/keycli/internal/app"
+	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/camem2442/keycli/internal/version"
 	"github.com/spf13/cobra"
@@ -25,6 +26,12 @@ func Execute() int {
 		Short:        "keycli — personal secrets CLI",
 		Version:      version.String(),
 		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if interactive.IsTerminal(os.Stdin) && interactive.IsTerminal(os.Stdout) {
+				return interactive.RunManager(cmd.Context(), a, clipboardCopyWithAutoClear)
+			}
+			return cmd.Help()
+		},
 	}
 	root.AddCommand(newLSCmd(a))
 	root.AddCommand(newGetCmd(a))
@@ -48,6 +55,7 @@ func Execute() int {
 	root.AddCommand(newAuditCmd(a))
 	root.AddCommand(newPolicyCmd(a))
 	root.AddCommand(newWireCmd(a))
+	root.AddCommand(newInteractiveCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {

@@ -1,13 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/clip"
+	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/spf13/cobra"
 )
@@ -22,11 +21,24 @@ func newCpCmd(a *app.App) *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			} else {
-				var err error
-				name, err = fuzzyPickName(a, cmd)
+				if !interactive.IsTerminal(os.Stdin) {
+					return kcerrors.ErrUsage
+				}
+				items, err := a.Resolver.List(cmd.Context())
 				if err != nil {
 					return err
 				}
+				if len(items) == 0 {
+					return kcerrors.ErrNotFound
+				}
+				selected, err := interactive.PickSecret(cmd.Context(), items, "클립보드로 복사할 시크릿 선택")
+				if err != nil {
+					if err == interactive.ErrCanceled {
+						return nil
+					}
+					return err
+				}
+				name = selected.Name
 			}
 			val, _, err := a.Resolver.Get(readCtx(cmd, "cp"), name)
 			if err != nil {
@@ -44,41 +56,4 @@ func newCpCmd(a *app.App) *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-func fuzzyPickName(a *app.App, cmd *cobra.Command) (string, error) {
-	items, err := a.Resolver.List(cmd.Context())
-	if err != nil {
-		return "", err
-	}
-	if len(items) == 0 {
-		return "", kcerrors.ErrNotFound
-	}
-	if !isTerminal(os.Stdin) {
-		return "", kcerrors.ErrUsage
-	}
-	fmt.Fprintln(os.Stderr, "이름:")
-	for _, it := range items {
-		fmt.Fprintf(os.Stderr, "  %s\n", it.Name)
-	}
-	fmt.Fprint(os.Stderr, "> ")
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	q := strings.TrimSpace(strings.ToLower(line))
-	for _, it := range items {
-		if strings.ToLower(it.Name) == q || strings.Contains(strings.ToLower(it.Name), q) {
-			return it.Name, nil
-		}
-	}
-	return "", kcerrors.ErrNotFound
-}
-
-func isTerminal(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
 }
