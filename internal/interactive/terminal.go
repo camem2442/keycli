@@ -139,11 +139,11 @@ const (
 	Cyan    = "\033[36m"
 	Gray    = "\033[90m"
 
-	BgCyan  = "\033[46m"
-	BgBlue  = "\033[44m"
-	BgGray  = "\033[100m"
+	BgCyan = "\033[46m"
+	BgBlue = "\033[44m"
+	BgGray = "\033[100m"
 
-	ClearLine = "\033[2K\r"
+	ClearLine  = "\033[2K\r"
 	HideCursor = "\033[?25l"
 	ShowCursor = "\033[?25h"
 )
