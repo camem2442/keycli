@@ -40,6 +40,27 @@ kc rules --target cursor --write .cursor/rules/keycli.mdc
 kc rules --target claude --write CLAUDE.md
 ```
 
+## MCP (Model Context Protocol) 연동
+
+Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등록하여 네이티브 도구로 시크릿을 조회할 수 있습니다:
+
+```json
+{
+  "mcpServers": {
+    "keycli": {
+      "command": "kc",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+제공되는 MCP 도구:
+- `list_secrets`: 시크릿 이름 및 메타데이터 목록 (값 미포함)
+- `get_secret`: 시크릿 값 조회 (감사 로그 및 정책 allowlist 적용)
+- `policy_check`: 에이전트의 시크릿 읽기 권한 사전 확인
+- `doctor`: keycli 상태 및 백엔드 연결성 진단
+
 ## Cursor
 
 - 프로젝트 규칙: [`.cursor/rules`](https://docs.cursor.com/context/rules) 또는 루트 `AGENTS.md`.

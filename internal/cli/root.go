@@ -56,6 +56,7 @@ func Execute() int {
 	root.AddCommand(newPolicyCmd(a))
 	root.AddCommand(newWireCmd(a))
 	root.AddCommand(newInteractiveCmd(a))
+	root.AddCommand(newMCPCmd(a))
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {
