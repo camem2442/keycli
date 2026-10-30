@@ -78,3 +78,22 @@ func TestFailureScrubsSecret(t *testing.T) {
 		t.Fatalf("secret leaked in error: %v", err)
 	}
 }
+
+func TestFailureScrubsSecretWithWhitespaceBoundary(t *testing.T) {
+	for _, val := range []string{"fixture-value ", " fixture-value", "fixture-value\n", "\nfixture-value\n"} {
+		// echo stdin back to stderr verbatim, then fail
+		script, _, _ := fakeWrangler(t, "")
+		body := "#!/bin/sh\ncat >&2\nprintf '\\n' >&2\nexit 1\n"
+		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := cloudflare.Push(context.Background(), cloudflare.Options{WranglerBin: script, Worker: "w"},
+			config.Config{}, []target.Secret{{Name: "X", Value: []byte(val)}})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if strings.Contains(err.Error(), "fixture-value") {
+			t.Fatalf("secret leaked for value %q: %v", val, err)
+		}
+	}
+}

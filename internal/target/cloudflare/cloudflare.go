@@ -85,7 +85,7 @@ func putOne(ctx context.Context, bin string, opts Options, sec target.Secret) er
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		msg := scrub(strings.TrimSpace(errBuf.String()), sec.Value)
+		msg := strings.TrimSpace(scrub(errBuf.String(), sec.Value))
 		return fmt.Errorf("wrangler: %v: %s", err, msg)
 	}
 	return nil
@@ -96,5 +96,9 @@ func scrub(s string, val []byte) string {
 	if len(val) == 0 {
 		return s
 	}
-	return strings.ReplaceAll(s, string(val), "***")
+	s = strings.ReplaceAll(s, string(val), "***")
+	if trimmed := strings.TrimSpace(string(val)); trimmed != "" && trimmed != string(val) {
+		s = strings.ReplaceAll(s, trimmed, "***")
+	}
+	return s
 }
