@@ -7,6 +7,7 @@ import (
 	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/camem2442/keycli/internal/ledger"
 	"github.com/camem2442/keycli/internal/target"
+	"github.com/camem2442/keycli/internal/target/cloudflare"
 	"github.com/camem2442/keycli/internal/target/cursor"
 	"github.com/camem2442/keycli/internal/target/gh"
 	"github.com/spf13/cobra"
@@ -19,9 +20,10 @@ func newPushCmd(a *app.App) *cobra.Command {
 	var dryRun bool
 	var ghUser bool
 	var ghApp string
+	var cfWorker, cfEnv, cfConfig string
 
 	cmd := &cobra.Command{
-		Use:   "push <cursor|gh> NAME...",
+		Use:   "push <cursor|gh|cloudflare> NAME...",
 		Short: "Push secrets to a remote platform",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -54,6 +56,12 @@ func newPushCmd(a *app.App) *cobra.Command {
 				App:    ghApp,
 				DryRun: dryRun,
 			}
+			cfOpts := cloudflare.Options{
+				Worker: cfWorker,
+				Env:    cfEnv,
+				Config: cfConfig,
+				DryRun: dryRun,
+			}
 			switch targetName {
 			case "cursor":
 				if err := cursor.Push(cmd.Context(), cursorOpts, a.Resolver, a.Config, secrets); err != nil {
@@ -63,8 +71,12 @@ func newPushCmd(a *app.App) *cobra.Command {
 				if err := gh.Push(cmd.Context(), ghOpts, a.Config, secrets); err != nil {
 					return err
 				}
+			case "cloudflare":
+				if err := cloudflare.Push(cmd.Context(), cfOpts, a.Config, secrets); err != nil {
+					return err
+				}
 			default:
-				return fmt.Errorf("unknown push target %q (available: cursor, gh)", targetName)
+				return fmt.Errorf("unknown push target %q (available: cursor, gh, cloudflare)", targetName)
 			}
 			if dryRun {
 				return nil
@@ -91,5 +103,8 @@ func newPushCmd(a *app.App) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print actions without calling remote APIs")
 	cmd.Flags().BoolVar(&ghUser, "user", false, "gh: set user secret")
 	cmd.Flags().StringVar(&ghApp, "app", "codespaces", "gh: codespaces|actions|agents")
+	cmd.Flags().StringVar(&cfWorker, "worker", "", "cloudflare: Worker name (wrangler --name)")
+	cmd.Flags().StringVar(&cfEnv, "worker-env", "", "cloudflare: wrangler environment (--env)")
+	cmd.Flags().StringVar(&cfConfig, "wrangler-config", "", "cloudflare: wrangler config path (--config)")
 	return cmd
 }
