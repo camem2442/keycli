@@ -24,6 +24,7 @@ kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭
 # 맥 → 클라우드
 kc push cursor --env-id … TOKEN   # Cursor 환경 시크릿
 kc push gh --user MY_TOKEN        # gh secret (stdin)
+kc push cloudflare --worker NAME TOKEN  # Worker secret (wrangler, stdin)
 kc export --format dotenv A B       # 클립보드 dotenv
 kc export A --to age1… | ssh vm kc import
 ```

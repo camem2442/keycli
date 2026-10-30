@@ -18,6 +18,7 @@ status: implemented
 |---|---|---|---|
 | `cursor` | Cursor Cloud Agents API `PUT /v1/environments/{id}/secrets/{name}` | 타입 `runtime_secret`, `--repos`로 범위 제한 | API 키: resolver 이름 `cursor-api-key`(기본 alias: `cursor_api_key`, git `[git."origin.cursor.com"]`와 동일) 또는 `KC_CURSOR_API_KEY`. 환경 ID: `--env-id` 또는 `KC_CURSOR_ENVIRONMENT_ID`. [공식 문서](https://cursor.com/docs/cloud-agent/api/endpoints) — Basic `API_KEY:` 인증, JSON body `value`/`type`/`repos`. `409 secret_name_ambiguous`, 값 1–4096바이트, 환경당 1000개. Linux httptest **PASS**; Cloud egress·401 계약 **PARTIAL** (KC-49); 성공 PUT·목록·DELETE Mac **COMPLETE** (KC-55, [증거](../planning/v07-operational-evidence.md)); `cursor_api_key` alias 경유는 dry-run만(KC-59). 팀 단위 엔드포인트: **NOT VERIFIED** |
 | `gh` | `gh secret set NAME -f -` (dotenv 한 줄을 stdin) `[--user] [--repos …] --app codespaces\|actions\|agents` | `--app codespaces` | argv에 값 없음. fake `gh` 테스트 **PASS**; `--repos … --app actions` 실 호출 **PASS** (KC-49, Cloud); Mac `--repos camem2442/keycli --app actions` set/delete **COMPLETE** (KC-55, [증거](../planning/v07-operational-evidence.md)); `--user`+`codespaces`는 토큰 권한에 따라 **BLOCKED** 가능; Mac 다른 `--app`·`--user` **NOT VERIFIED** |
+| `cloudflare` | `wrangler secret put NAME --name WORKER [--env E] [--config PATH]` (값 원문을 stdin) | `--worker` 또는 `--wrangler-config` 필수 | argv·로그에 값 없음, 실패 시 stderr에서 값 마스킹. 바이너리: `wrangler` 또는 테스트 훅 `KC_WRANGLER_BIN`. fake wrangler 테스트 **PASS**; 실 `wrangler` 호출·Cloud/Mac 실연동 **NOT VERIFIED** |
 
 ## export 형식
 

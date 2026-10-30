@@ -30,7 +30,7 @@ status: implemented
 | `kc git-credential get\|store\|erase` | git credential helper. `get`은 config `[git."HOST"]` 매핑을 조회해 username/password 출력, 매핑 없는 호스트는 무응답. `[git."github.com"]`이 없을 때만 내장 기본값을 쓰되 시크릿이 없으면 무응답. 명시 매핑의 시크릿이 없으면 종료 2. `command`가 있으면 secret을 env로 주입해 실행한 stdout을 password로 사용(네트워크는 그 명령에서만). store/erase는 no-op |
 | `kc rules [--target cursor\|claude\|codex\|agents] [--write PATH]` | 에이전트용 규칙 블록 출력·삽입 (`<!-- kc-rules-begin/end -->`) |
 | `kc doctor [--json]` | 백엔드·config·identity 출처(`KC_KEY`/`receiver.key`/`kc.age`)·PATH `kc` 충돌·키체인·클립보드·git helper (값 미출력). JSON `kc_age`는 `env`/`file`/`keychain`/`missing`/`locked`/`blocked`, `identity_path`는 file일 때만 |
-| `kc push cursor\|gh [NAME...] [--repos …]` | 플랫폼 시크릿에 직접 등록 ([전송 계약](transfer.md)) |
+| `kc push cursor\|gh\|cloudflare [NAME...] [--repos …] [--worker W --worker-env E --wrangler-config PATH]` | 플랫폼 시크릿에 직접 등록 ([전송 계약](transfer.md)) |
 | `kc export NAME... --to KEY\|--to-github USER\|--format dotenv` | 암호화 번들 또는 클립보드용 dotenv |
 | `kc import` | stdin의 age 번들을 저장소에 추가 |
 | `kc status` | 내보낸 뒤 바뀐 항목 표시. 읽을 수 없는 이름은 값 없이 stderr에 이름·사유를 보고 |
