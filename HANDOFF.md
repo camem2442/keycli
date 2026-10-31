@@ -94,3 +94,9 @@ P1/P2에서 바뀐 동작(스크립트 주의):
 - `push`는 원장을 한 번에 기록한다(`ledger.RecordAll`).
 
 주의: `kc init`은 이제 기존 identity(`KC_KEY` → `~/.kc/receiver.key` → `kc.age`)의 recipient만 출력한다. 스크립트에서 identity 자체가 필요하면 `kc init --print-identity`를 쓰고 출력을 로그에 남기지 않는다.
+
+## Cursor wire safety repair candidate — 2026-10-31
+
+Base main 1f0224e contains the original PR #14 Cursor wire bytes. This separate repair propagates process-observation errors (only pgrep exit 1 is normal no-match), DB read failures and failed quit requests; SQL INSERT uses JSON encoding and reads open SQLite read-only. Invalid URL structures are rejected and Updated is set only after a successful write. Regression cases cover missing-row JSON escaping, corrupt DB preservation, process observation errors/timeouts and URL validation. No operating Cursor DB, process, installed binary or credentials were modified.
+
+Local Go compilation/gofmt/owning verifier are NOT RUN: this review executor has no functioning Go toolchain or sqlite3 CLI. Earlier protected Python SQLite reproduction demonstrated the original JSON defect but is not Go test evidence. The existing PR workflow is the next verification path; its exact-head result and SQLite-dependent skips must be checked before merge. Original PR #14 and local evidence remain preserved.

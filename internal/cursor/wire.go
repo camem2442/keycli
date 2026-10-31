@@ -3,12 +3,16 @@ package cursor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -67,7 +71,7 @@ func ActiveTunnelBaseURL(home string) (string, error) {
 
 	cleaned := CleanAndValidateBaseURL(rawURL)
 	if cleaned == "" {
-		return "", fmt.Errorf("invalid tunnel base URL '%s' in vertex-byok proxy config", rawURL)
+		return "", fmt.Errorf("invalid tunnel base URL in vertex-byok proxy config")
 	}
 	return cleaned, nil
 }
@@ -85,6 +89,10 @@ func CleanAndValidateBaseURL(raw string) string {
 		return ""
 	}
 	if !strings.HasPrefix(val, "http://") && !strings.HasPrefix(val, "https://") {
+		return ""
+	}
+	parsed, err := url.Parse(val)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || strings.ContainsAny(val, "\"\\") {
 		return ""
 	}
 	val = strings.TrimRight(val, "/")
@@ -107,7 +115,7 @@ func ReadCursorBaseURL(dbPath string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, sqliteBin, dbPath, sql)
+	cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", dbPath, sql)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("reading openAIBaseUrl from %s: %w", dbPath, err)
@@ -117,22 +125,32 @@ func ReadCursorBaseURL(dbPath string) (string, error) {
 }
 
 // IsCursorRunning detects if Cursor desktop is currently executing.
-func IsCursorRunning() (bool, int) {
+func IsCursorRunning() (bool, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
 	out, err := exec.CommandContext(ctx, "pgrep", "-x", "Cursor").Output()
-	if err != nil {
-		return false, 0
+	return parseCursorProcess(out, err, ctx.Err())
+}
+
+func parseCursorProcess(out []byte, err, contextErr error) (bool, int, error) {
+	if contextErr != nil {
+		return false, 0, fmt.Errorf("observing Cursor: %w", contextErr)
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) > 0 && lines[0] != "" {
-		var pid int
-		if _, err := fmt.Sscanf(lines[0], "%d", &pid); err == nil && pid > 0 {
-			return true, pid
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(bytes.TrimSpace(out)) == 0 {
+			return false, 0, nil
+		}
+		return false, 0, fmt.Errorf("observing Cursor: %w", err)
+	}
+	lines := strings.Fields(string(out))
+	if len(lines) > 0 {
+		pid, err := strconv.Atoi(lines[0])
+		if err == nil && pid > 0 {
+			return true, pid, nil
 		}
 	}
-	return false, 0
+	return false, 0, fmt.Errorf("observing Cursor: invalid pgrep output")
 }
 
 // QuitCursor gracefully asks Cursor desktop to quit.
@@ -140,16 +158,23 @@ func QuitCursor(ctx context.Context) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	running, pid := IsCursorRunning()
+	running, pid, err := IsCursorRunning()
+	if err != nil {
+		return err
+	}
 	if !running {
 		return nil
 	}
 
 	// 1. Try graceful quit via AppleScript
-	_ = exec.CommandContext(ctx, "osascript", "-e", `tell application "Cursor" to quit`).Run()
+	if err := exec.CommandContext(ctx, "osascript", "-e", `tell application "Cursor" to quit`).Run(); err != nil {
+		return fmt.Errorf("requesting Cursor quit: %w", err)
+	}
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
-		if r, _ := IsCursorRunning(); !r {
+		if r, _, err := IsCursorRunning(); err != nil {
+			return err
+		} else if !r {
 			return nil
 		}
 		select {
@@ -160,11 +185,17 @@ func QuitCursor(ctx context.Context) error {
 	}
 
 	// 2. If still alive, send SIGTERM to allow graceful flush
-	if r, p := IsCursorRunning(); r && p > 0 {
-		_ = syscall.Kill(p, syscall.SIGTERM)
+	if r, p, err := IsCursorRunning(); err != nil {
+		return err
+	} else if r && p > 0 {
+		if err := syscall.Kill(p, syscall.SIGTERM); err != nil {
+			return fmt.Errorf("stopping Cursor: %w", err)
+		}
 		deadline = time.Now().Add(4 * time.Second)
 		for time.Now().Before(deadline) {
-			if r, _ := IsCursorRunning(); !r {
+			if r, _, err := IsCursorRunning(); err != nil {
+				return err
+			} else if !r {
 				return nil
 			}
 			select {
@@ -175,7 +206,9 @@ func QuitCursor(ctx context.Context) error {
 		}
 	}
 
-	if r, _ := IsCursorRunning(); r {
+	if r, _, err := IsCursorRunning(); err != nil {
+		return err
+	} else if r {
 		return fmt.Errorf("timed out waiting for Cursor to quit (PID %d still alive)", pid)
 	}
 	return nil
@@ -217,14 +250,20 @@ func WireCursorVertex(home, overrideDB, overrideBaseURL string, dryRun, restart 
 		return WireResult{}, fmt.Errorf("accessing cursor database %s: %w", dbPath, err)
 	}
 
-	prevURL, _ := ReadCursorBaseURL(dbPath)
-	isRunning, runningPID := IsCursorRunning()
+	prevURL, err := ReadCursorBaseURL(dbPath)
+	if err != nil {
+		return WireResult{}, err
+	}
+	isRunning, runningPID, err := IsCursorRunning()
+	if err != nil {
+		return WireResult{}, err
+	}
 
 	res := WireResult{
 		DBPath:      dbPath,
 		PreviousURL: prevURL,
 		NewURL:      baseURL,
-		Updated:     !dryRun,
+		Updated:     false,
 		IsRunning:   isRunning,
 		RunningPID:  runningPID,
 		Restarted:   false,
@@ -246,6 +285,7 @@ func WireCursorVertex(home, overrideDB, overrideBaseURL string, dryRun, restart 
 	if err := UpdateCursorDB(dbPath, baseURL); err != nil {
 		return res, err
 	}
+	res.Updated = true
 
 	// If restart requested and was running, relaunch Cursor
 	if restart && isRunning {
@@ -269,7 +309,11 @@ func UpdateCursorDB(dbPath, baseURL string) error {
 
 	escapedURL := strings.ReplaceAll(baseURL, "'", "''")
 	escapedKey := strings.ReplaceAll(ApplicationUserKey, "'", "''")
-	initialJSON := fmt.Sprintf(`{"openAIBaseUrl":"%s","useOpenAIKey":true}`, escapedURL)
+	initialBytes, err := json.Marshal(map[string]any{"openAIBaseUrl": baseURL, "useOpenAIKey": true})
+	if err != nil {
+		return err
+	}
+	initialJSON := strings.ReplaceAll(string(initialBytes), "'", "''")
 
 	sql := fmt.Sprintf(`INSERT INTO ItemTable (key, value) VALUES ('%s', '%s')
 ON CONFLICT(key) DO UPDATE SET value = json_set(ItemTable.value, '$.openAIBaseUrl', '%s', '$.useOpenAIKey', json('true'));
