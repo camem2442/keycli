@@ -1,7 +1,9 @@
 package cursor
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,5 +168,81 @@ func TestWireCursorVertex(t *testing.T) {
 	}
 	if updatedDoc["useOpenAIKey"] != true {
 		t.Fatalf("useOpenAIKey is not true: %v", updatedDoc["useOpenAIKey"])
+	}
+}
+
+func TestBaseURLRejectsInvalidStructure(t *testing.T) {
+	for _, value := range []string{"https://", "https://fixture.invalid/a\"b", "https://user:password@fixture.invalid", "https://fixture.invalid?token=fixture", "https://fixture.invalid/a\\b"} {
+		if got := CleanAndValidateBaseURL(value); got != "" {
+			t.Errorf("accepted invalid URL %q", value)
+		}
+	}
+}
+
+func TestCursorProcessObservationErrorsFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		out string
+		err error
+		ctx error
+	}{
+		{"", errors.New("not executable"), nil},
+		{"", nil, context.DeadlineExceeded},
+		{"not-a-pid", nil, nil},
+		{"123garbage", nil, nil},
+		{"", nil, nil},
+	} {
+		if _, _, err := parseCursorProcess([]byte(tc.out), tc.err, tc.ctx); err == nil {
+			t.Errorf("observation uncertainty accepted: %#v", tc)
+		}
+	}
+	if running, pid, err := parseCursorProcess([]byte("123\n"), nil, nil); err != nil || !running || pid != 123 {
+		t.Fatalf("valid process rejected: %v %d %v", running, pid, err)
+	}
+	cmd := exec.Command("sh", "-c", "exit 1")
+	err := cmd.Run()
+	if running, _, err := parseCursorProcess(nil, err, nil); err != nil || running {
+		t.Fatalf("normal no-match rejected: %v", err)
+	}
+	cmd = exec.Command("sh", "-c", "exit 2")
+	if _, _, err := parseCursorProcess(nil, cmd.Run(), nil); err == nil {
+		t.Fatal("pgrep error exit accepted")
+	}
+}
+
+func TestUpdateMissingRowEncodesJSON(t *testing.T) {
+	bin, err := findSQLiteBin()
+	if err != nil {
+		t.Fatal("sqlite3 CLI is required for the database safety regression")
+	}
+	db := filepath.Join(t.TempDir(), "fixture.db")
+	if err := exec.Command(bin, db, "CREATE TABLE ItemTable(key TEXT PRIMARY KEY,value TEXT);").Run(); err != nil {
+		t.Fatal(err)
+	}
+	value := "https://fixture.invalid/a\"b'c\\d/v1"
+	if err := UpdateCursorDB(db, value); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadCursorBaseURL(db)
+	if err != nil || got != value {
+		t.Fatalf("JSON roundtrip: %q %v", got, err)
+	}
+}
+
+func TestWireRejectsUnreadableDatabaseOnDryRun(t *testing.T) {
+	if _, err := findSQLiteBin(); err != nil {
+		t.Fatal("sqlite3 CLI is required for the database safety regression")
+	}
+	dir := t.TempDir()
+	db := filepath.Join(dir, "invalid.db")
+	before := []byte("not a SQLite database")
+	if err := os.WriteFile(db, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WireCursorVertex(dir, db, "https://fixture.invalid", true, false); err == nil {
+		t.Fatal("invalid DB accepted")
+	}
+	after, err := os.ReadFile(db)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("invalid DB changed")
 	}
 }
