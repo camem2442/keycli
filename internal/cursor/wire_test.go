@@ -212,7 +212,7 @@ func TestCursorProcessObservationErrorsFailClosed(t *testing.T) {
 func TestUpdateMissingRowEncodesJSON(t *testing.T) {
 	bin, err := findSQLiteBin()
 	if err != nil {
-		t.Skip("sqlite3 CLI unavailable")
+		t.Fatal("sqlite3 CLI is required for the database safety regression")
 	}
 	db := filepath.Join(t.TempDir(), "fixture.db")
 	if err := exec.Command(bin, db, "CREATE TABLE ItemTable(key TEXT PRIMARY KEY,value TEXT);").Run(); err != nil {
@@ -230,7 +230,7 @@ func TestUpdateMissingRowEncodesJSON(t *testing.T) {
 
 func TestWireRejectsUnreadableDatabaseOnDryRun(t *testing.T) {
 	if _, err := findSQLiteBin(); err != nil {
-		t.Skip("sqlite3 CLI unavailable")
+		t.Fatal("sqlite3 CLI is required for the database safety regression")
 	}
 	dir := t.TempDir()
 	db := filepath.Join(dir, "invalid.db")
