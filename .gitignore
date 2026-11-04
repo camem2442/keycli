@@ -1,2 +1,6 @@
 /dist/
 *.tmp
+.DS_Store
+*.bak
+*.local.json
+*.local
