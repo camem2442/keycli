@@ -16,6 +16,7 @@ status: proposed
 - `KC_KEY`나 키체인 허용을 가진 에이전트는 모든 값을 꺼낼 수 있다.
 - kc를 거치지 않는 접근, `exec -- sh -c 'echo $X'` 류 우회.
 - 프롬프트 인젝션으로 인한 유출.
+- MCP `get_secret`을 명시적으로 활성화한 클라이언트의 모델 문맥·로그로 값이 전달되는 것. 기본 `kc mcp`는 메타데이터만 노출하며, `--allow-secret-values`는 서버 소유자의 opt-in이다. 이는 같은 UID의 프로세스 격리가 아니다.
 - `/usr/bin/security`에 허용한 항목은 같은 사용자의 모든 프로세스가 읽을 수 있다.
 
 ## 그래서 지킬 것
