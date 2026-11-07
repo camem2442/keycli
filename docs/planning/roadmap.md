@@ -155,7 +155,7 @@ TTL 캐시, rate limit, 출력 가림, 1Password 백엔드, 외부 `kc-target-*`
 
 | 단계 | 요구 | 현재 |
 |---|---|---|
-| A | MCP 기본 metadata-only, 값 조회는 명시적 opt-in | COMPLETE — PR #16의 미출시 `main` 소스 및 Linux CI만. v0.7.1 릴리스는 `get_secret` 기본 노출; 패치 릴리스·실제 MCP 클라이언트 인수 NOT VERIFIED |
+| A | MCP 기본 metadata-only, 값 조회는 명시적 opt-in | COMPLETE — PR #16 소스, v0.7.2 게시 및 Linux 배포 바이너리 검증. 실제 MCP 클라이언트 인수는 NOT VERIFIED |
 | B | TUI 자동삭제 보호, Cursor live DB 변경 보호, Mac native matrix | PARTIAL — PR #17 소스/Linux CI COMPLETE, Mac native NOT VERIFIED |
 | C | Cursor·Claude·Codex 개별 환경에 kc exec + policy + audit 인수 | NOT VERIFIED |
 | D | Cursor alias 실제 PUT, Cloudflare test Worker push/cleanup 및 시크릿 수명 | NOT VERIFIED |
