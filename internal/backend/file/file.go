@@ -142,6 +142,36 @@ func (s *Store) Set(ctx context.Context, name string, value []byte, meta backend
 	return s.writeStoreLocked(data)
 }
 
+// SetIfAbsent writes only when the canonical name is absent. The check and
+// write share the same cross-process lock to avoid overwriting a concurrent set.
+func (s *Store) SetIfAbsent(ctx context.Context, name string, value []byte, meta backend.Meta) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockExclusive()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	data, err := s.readStoreLocked()
+	if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, kcerrors.ErrNotFound) {
+		return err
+	}
+	if data.Secrets == nil {
+		data.Secrets = map[string]secretRecord{}
+	}
+	key := strings.ToLower(name)
+	if key == "" {
+		return fmt.Errorf("empty secret name")
+	}
+	for existing := range data.Secrets {
+		if strings.EqualFold(existing, key) {
+			return fmt.Errorf("secret already exists")
+		}
+	}
+	data.Secrets[key] = secretRecord{Value: string(value), Note: meta.Note, Expires: meta.Expires}
+	return s.writeStoreLocked(data)
+}
+
 func (s *Store) Delete(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
