@@ -12,6 +12,7 @@ import (
 	"github.com/camem2442/keycli/internal/clip"
 	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/secret"
 	"github.com/camem2442/keycli/internal/verify"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -23,6 +24,7 @@ func newSetCmd(a *app.App) *cobra.Command {
 	var expiresStr string
 	var noVerify bool
 	var force bool
+	var normalize bool
 	cmd := &cobra.Command{
 		Use:   "set [NAME]",
 		Short: "Store a secret (stdin, prompt, --clip, or interactive wizard)",
@@ -74,6 +76,12 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				value = b
 			}
+			if normalize {
+				value = secret.NormalizeSecret(value)
+				if len(value) == 0 {
+					return kcerrors.ErrUsage
+				}
+			}
 			var exp *time.Time
 			if expiresStr != "" {
 				t, err := time.Parse("2006-01-02", expiresStr)
@@ -116,6 +124,7 @@ func newSetCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&expiresStr, "expires", "", "Expiry date YYYY-MM-DD")
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "Skip set-time provider verification")
 	cmd.Flags().BoolVar(&force, "force", false, "Store even when set-time verify fails")
+	cmd.Flags().BoolVar(&normalize, "normalize", false, "Trim surrounding spaces and remove all CR/LF (for pasted single-line PATs)")
 	return cmd
 }
 
