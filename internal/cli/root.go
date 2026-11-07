@@ -16,7 +16,7 @@ import (
 
 // Execute runs the kc command tree.
 func Execute() int {
-	a, err := app.New(contextBackground())
+	a, err := app.NewUnopened()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kc: %v\n", err)
 		return kcerrors.ExitError
@@ -26,6 +26,12 @@ func Execute() int {
 		Short:        "keycli — personal secrets CLI",
 		Version:      version.String(),
 		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Name() == "recipient-challenge" || cmd.Name() == "export" {
+				return nil
+			}
+			return a.Reload(cmd.Context())
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interactive.IsTerminal(os.Stdin) && interactive.IsTerminal(os.Stdout) {
 				return interactive.RunManager(cmd.Context(), a, clipboardCopyWithAutoClear)
@@ -42,6 +48,7 @@ func Execute() int {
 	root.AddCommand(newInitCmd(a))
 	root.AddCommand(newPushCmd(a))
 	root.AddCommand(newExportCmd(a))
+	root.AddCommand(newRecipientChallengeCmd(a))
 	root.AddCommand(newImportCmd(a))
 	root.AddCommand(newStatusCmd(a))
 	root.AddCommand(newClipWaitClearCmd(a))

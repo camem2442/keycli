@@ -1,3 +1,9 @@
+## 2026-11-07 — Issuer-attested recipient isolated candidate
+
+**PARTIAL**. An isolated candidate adds sender-owned five-minute one-use challenges and an opt-in Ed25519 issuer attestation gate before backend startup/secret access. Starting baseline: `e89fee85368e886410a9fd0688b3c20c65d6ff10`; latest-main baseline: `167814a5f35567888240a347a19637c92dc3e933`. The original candidate is preserved at local commit `efd7981`. Latest-main changes do not overlap the task files; the new default policy remains enforced after attestation. Existing work was preserved. See [recipient attestation contract](docs/contracts/recipient-attestation.md) for format, trust prerequisite and failure/operational limits.
+
+Synthetic verification is not evidence of actual provider or dot environment identity. Live trust anchor, issuer integration, real-token transfer and Mac acceptance are **NOT VERIFIED**. Review publication is authorized on a separate branch and Draft PR; merge, release and real-credential transfer remain outside scope. The ten locked Go modules were obtained from the official Go proxy and matched against the original go.sum; `go mod verify` succeeded. Local docs/policy/unit suites, complete CLI integration and Linux/Darwin arm64/amd64 vet were exercised with synthetic data in an isolated filesystem. Release/CI and real Mac checks remain separate; the test runner permits synthetic loopback fixtures, not an OS-enforced egress sandbox. NEXT CONTEXT: continue in this task for provider trust provisioning or separately approved publication, preserving the candidate and test evidence.
+
 # HANDOFF — keycli (`kc`)
 
 ## 2026-10-26 — 공통 정책 채택

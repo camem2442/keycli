@@ -74,3 +74,7 @@ env에 값이 없으면 종료 코드 2와 함께 phase hint(설정·빌드 단�
 `kc import --verified-recipient <확인된 공개 수신자> --expected-sha256 <확인된 번들 해시> --expected-name <예상 단일 항목> < bundle.age`는 세 값을 모두 요구한다. 현재 X25519 identity의 공개 수신자를 대조하고, 크기가 제한된 번들의 해시를 확인한 뒤 복호화한다. 기대한 항목이 정확히 하나일 때만 로컬 file store에 저장하며, 이미 같은 이름이 있으면 덮어쓰지 않는다. 이 세 값 중 일부만 설정하면 실패한다. 플래그가 없는 기존 import는 이전 동작을 유지하므로 이 검증과 덮어쓰기 방지가 적용되지 않는다.
 
 이 기능은 전송, 송신자 인증, 수신 호스트 신원 보증, 토큰 만료·회수를 자동으로 구현하지 않는다. 환경과 저장소에 접근할 수 있는 프로세스, 노출 위험, 설정 수명과 폐기를 별도로 관리해야 한다.
+
+## 발급자 서명 기반 수신자 확인 (로컬 후보)
+
+`recipient-challenge`와 export의 `--recipient-attestation`, `--attestation-trust`, `--attestation-challenge`는 독립적으로 신뢰한 Ed25519 발급자의 환경·age 공개키·용도·항목·단기 nonce 증명을 확인하고 일회용 상태를 소비한 뒤에만 backend와 비밀을 읽는 선택 경로다. 신뢰 키를 수신자에게서 그대로 받거나 자체 서명을 만드는 것은 환경 신원 확인이 아니다. 실제 제공자의 trust anchor와 증명은 **NOT VERIFIED**이며 자동 확보·전송하지 않는다. 기존 수동 비교/기본 export에는 이 증명 검사가 적용되지 않는다. 정확한 절차, 서명 형식, 실패·재사용·운영 한계는 [recipient-attestation 계약](recipient-attestation.md)을 따른다.
