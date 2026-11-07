@@ -50,6 +50,57 @@ token) should remain distinct if their access scopes differ. `GH_TOKEN`
 and `GITHUB_TOKEN` are recognized by GitHub CLI; do **not** silently alias
 a high-privilege token to all environments.
 
+## 1a. Mac mac-gui diagnostic observed 2026-11-07 (not yet accepted)
+
+An owner-supplied `kc doctor --json` showed `store.available=true`,
+`kc_age=file`, `keychain=unavailable`, two executable paths
+(`~/bin/kc`, `~/.local/bin/kc`), and Git credential-helper pinned to the
+latter. The `kc ls --json` metadata showed BOTH
+`cloudflare_billing_read` and `github_agent` present in the file store, but
+both had `aliases: []`; policy check printed `no policy configured (all
+reads allowed)`. An installed build `v0.7.2-4-g03d61c6` predates merged
+main `400ceec`. These are actual owner-reported observations, not a
+Mac native test performed by CI.
+
+**Cause of the two reported `Error: exit status` lines:** the original
+`kc exec` uses the canonical upper-case names
+`CLOUDFLARE_BILLING_READ` and `GITHUB_AGENT`. Without aliases it does
+**not** inject `CF_BILLING_READ_TOKEN` or `GH_AGENT_TOKEN` as expected by
+the shell probes. A failing child `test -n` therefore need not mean the
+token was missing. `kc exec --require` success and real provider authority
+are different facts.
+
+Before making any config edits, check the original variable names without
+printing contents (only owner/host local run, **not** GitHub CI):
+
+```sh
+type -a kc
+"$HOME/bin/kc" --version
+"$HOME/.local/bin/kc" --version
+KC_AGENT=codex kc exec --require --only cloudflare_billing_read -- \
+  sh -c 'test -n "${CLOUDFLARE_BILLING_READ:-}" && printf "KC_BILLING_PRESENT\\n"'
+KC_AGENT=codex kc exec --require --only github_agent -- \
+  sh -c 'test -n "${GITHUB_AGENT:-}" && printf "KC_GITHUB_PRESENT\\n"'
+```
+
+The two `PRESENT` results only indicate local named environment injection;
+the tests do not exercise any provider endpoint or assert permissions. Because
+no policy is configured yet, **do not treat them as allowlist enforcement**.
+Use a backed-up, mode-`0600` copy of the existing config and merge each
+`[alias]` entry within the existing section (avoid duplicate TOML tables).
+Enable `middleware=["audit","policy"]` outside all TOML sections and
+include a `[policy.agent.default]` empty allowlist plus explicit owner-approved
+agent scopes. Do not grant the all-accounts `cloudflare_agent` key to a
+general development agent. Afterwards verify the actual installed binaries,
+`kc doctor`, alias names, policy allow AND deny, and `kc exec` with only
+named metadata output. The git helper may still run a different older binary
+until its explicit path is separately inspected.
+
+The Keychain unavailability in mac-gui does **not** by itself mean the
+available encrypted file store is locked or inaccessible. Do not export the
+store, print identity/secret values, copy a full `kc ls` output into public
+CI artifacts, or assume the host test authenticates an issuer.
+
 ## 2. Metadata-only local checks, with no raw values
 
 ```bash
