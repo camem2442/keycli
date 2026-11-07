@@ -76,7 +76,6 @@ func TestPolicyEnabledRequiresMiddleware(t *testing.T) {
 	}
 }
 
-
 func TestPolicyConfiguredDefaultAppliesToEveryUnregisteredAgent(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	cfg.Middleware = []string{"audit", "policy"}
