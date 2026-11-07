@@ -96,6 +96,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 - Preserve actual executing host ownership, exact HEAD and env/profile lock, supported host queue/guard, nonzero failures, and durable originals. A public file or client claim never yields authoritative PASS.
 - Keep provider auth/write capability separate from Goal/Delivery permission: successful token lookup does **not** authorize push, deployment, approval or merge.
 - If Cloudflare coordination metadata is later integrated, add bounded request budget, idempotency and explicit free-limit checks; R2/DO/Worker must not store raw credentials.
+- **First live cross-repo synthetic pilot:** [workspace-infra PR #101](https://github.com/camem2442/workspace-infra/pull/101) ran the released keycli v0.7.2 Linux AMD64 binary on GitHub-hosted Ubuntu, with allowed/denied/missing `kc exec --require` cases and metadata-only [CI evidence](https://github.com/camem2442/workspace-infra/actions/runs/42319463989). Scoped synthetic host execution **COMPLETE**; canonical Goal authority, real Codex/Claude one-turn, and Cloudflare deployed transport **NOT VERIFIED**. Cloudflare remains offline shadow metadata only.
 
 ### E. Release + adoption
 
