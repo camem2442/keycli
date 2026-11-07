@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 )
 
 const (
@@ -25,14 +24,7 @@ type ghHTTP struct {
 }
 
 func newGHHTTP(client *http.Client) *ghHTTP {
-	base := strings.TrimRight(os.Getenv("GH_API_BASE"), "/")
-	if base == "" {
-		base = defaultGHAPIBase
-	}
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-	return &ghHTTP{base: base, client: client}
+	return &ghHTTP{base: defaultGHAPIBase, client: verificationClient(client)}
 }
 
 func probeRepoBranch() (repo, branch string) {
@@ -111,6 +103,9 @@ func runGitHubAgent(ctx context.Context, token []byte, client *http.Client) (*Ou
 	repo, branch := probeRepoBranch()
 	probes, block := runGitHubProbes(ctx, g, token, repo, branch)
 	for _, pr := range probes {
+		if pr.Probe == "protection" && (pr.Result == "not_verified" || pr.Result == "not_found") {
+			out.Warn = true
+		}
 		b, _ := json.Marshal(pr)
 		out.ProbeLines = append(out.ProbeLines, string(b))
 	}
@@ -153,16 +148,20 @@ func runGitHubProbes(ctx context.Context, g *ghHTTP, token []byte, repo, branch 
 		return out, true
 	}
 	var branchMeta struct {
-		Protected bool `json:"protected"`
+		Protected *bool `json:"protected"`
 	}
-	_ = json.Unmarshal(body, &branchMeta)
-	protected := branchMeta.Protected
+	if err := json.Unmarshal(body, &branchMeta); err != nil || branchMeta.Protected == nil {
+		pr.Result = "error"
+		out = append(out, pr)
+		return out, true
+	}
+	protected := *branchMeta.Protected
 	pr.Protected = &protected
 	pr.Result = "ok"
 	out = append(out, pr)
 
 	rulesPath := fmt.Sprintf("/repos/%s/rulesets", repo)
-	resp, _, err = g.bearerRequest(ctx, http.MethodGet, rulesPath, token)
+	resp, body, err = g.bearerRequest(ctx, http.MethodGet, rulesPath, token)
 	if err != nil {
 		out = append(out, ghProbeLine{Probe: "rulesets", Result: "error"})
 		return out, true
@@ -170,7 +169,13 @@ func runGitHubProbes(ctx context.Context, g *ghHTTP, token []byte, repo, branch 
 	rs := ghProbeLine{Probe: "rulesets", Status: resp.StatusCode}
 	switch resp.StatusCode {
 	case http.StatusOK:
-		rs.Result = "ok"
+		var rules []json.RawMessage
+		if err := json.Unmarshal(body, &rules); err != nil || rules == nil {
+			rs.Result = "error"
+			block = true
+		} else {
+			rs.Result = "ok"
+		}
 	case http.StatusForbidden:
 		rs.Result = "auth_fail"
 		block = true
@@ -184,6 +189,7 @@ func runGitHubProbes(ctx context.Context, g *ghHTTP, token []byte, repo, branch 
 	}
 
 	if !protected {
+		out = append(out, ghProbeLine{Probe: "protection", Result: "not_verified"})
 		return out, false
 	}
 
@@ -191,38 +197,85 @@ func runGitHubProbes(ctx context.Context, g *ghHTTP, token []byte, repo, branch 
 	resp, body, err = g.bearerRequest(ctx, http.MethodGet, protPath, token)
 	if err != nil {
 		out = append(out, ghProbeLine{Probe: "protection", Result: "error"})
-		return out, false
+		return out, true
 	}
 	pp := ghProbeLine{Probe: "protection", Status: resp.StatusCode}
 	switch resp.StatusCode {
 	case http.StatusOK:
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(body, &object); err != nil || object == nil {
+			pp.Result = "error"
+			block = true
+			break
+		}
+		contexts, parseErr := protectionContexts(body)
+		if parseErr != nil {
+			pp.Result = "error"
+			block = true
+			break
+		}
 		pp.Result = "ok"
-		contexts := protectionContexts(body)
 		if len(contexts) > maxStatusContexts {
 			contexts = contexts[:maxStatusContexts]
 		}
 		pp.Contexts = contexts
 		pp.Count = len(contexts)
 	case http.StatusNotFound:
+		// A ruleset can protect a branch without a classic protection rule.
 		pp.Result = "not_found"
+	case http.StatusForbidden, http.StatusUnauthorized:
+		pp.Result = "auth_fail"
+		block = true
 	default:
 		pp.Result = "error"
+		block = true
 	}
 	out = append(out, pp)
 	return out, block
 }
 
-func protectionContexts(body []byte) []string {
+func protectionContexts(body []byte) ([]string, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil || object == nil {
+		return nil, fmt.Errorf("invalid protection response")
+	}
+	raw, ok := object["required_status_checks"]
+	if !ok {
+		return nil, fmt.Errorf("required status checks missing")
+	}
+	if string(raw) == "null" {
+		return nil, nil
+	}
 	var parsed struct {
-		RequiredStatusChecks *struct {
-			Contexts []string `json:"contexts"`
-		} `json:"required_status_checks"`
+		Contexts []string `json:"contexts"`
+		Checks   []struct {
+			Context string `json:"context"`
+		} `json:"checks"`
 	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(parsed.Contexts)+len(parsed.Checks))
+	seen := make(map[string]bool)
+	add := func(name string) error {
+		if name == "" {
+			return fmt.Errorf("empty check context")
+		}
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
 		return nil
 	}
-	if parsed.RequiredStatusChecks == nil {
-		return nil
+	for _, name := range parsed.Contexts {
+		if err := add(name); err != nil {
+			return nil, err
+		}
 	}
-	return append([]string(nil), parsed.RequiredStatusChecks.Contexts...)
+	for _, check := range parsed.Checks {
+		if err := add(check.Context); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
