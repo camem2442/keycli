@@ -42,7 +42,7 @@ kc rules --target claude --write CLAUDE.md
 
 ## MCP (Model Context Protocol) 연동
 
-Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등록할 수 있습니다. **기본은 메타데이터·진단 전용이며 비밀 값은 반환하지 않습니다.**
+Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등록할 수 있습니다. **아래 metadata-only 기본 동작은 PR #16 이후의 `main` 소스 기준**입니다. **v0.7.1 릴리스 바이너리는 여전히 `get_secret`을 기본 노출하고 `--allow-secret-values` 옵션이 없습니다.** 따라서 v0.7.1 MCP를 신뢰하지 않는 클라이언트에 연결하지 마세요. 다음 릴리스에 변경이 반영되기 전에는 설치 경로와 실제 바이너리 SHA를 확인해야 합니다.
 
 ```json
 {
