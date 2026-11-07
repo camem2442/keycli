@@ -97,3 +97,21 @@ func TestPolicyConfiguredDefaultAppliesToEveryUnregisteredAgent(t *testing.T) {
 		t.Fatal("registered codex allowlist must override default")
 	}
 }
+
+func TestPolicyExplicitHumanOverridesDefaultDeny(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Middleware = []string{"audit", "policy"}
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"default": {Allow: []string{}},
+		"human":   {Allow: []string{"*"}},
+	}
+	owner := middleware.NewPolicy(cfg, "human")
+	if !owner.Allowed("github_agent") || !owner.Allowed("cloudflare_billing_read") {
+		t.Fatal("explicit interactive owner profile must retain configured access")
+	}
+	for _, agent := range []string{"unknown", "cursor", "antigravity"} {
+		if middleware.NewPolicy(cfg, agent).Allowed("github_agent") {
+			t.Fatalf("%s unexpectedly bypasses configured default-deny rule", agent)
+		}
+	}
+}
