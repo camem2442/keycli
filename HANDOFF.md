@@ -10,7 +10,7 @@
 
 ## Current Work Goal
 
-**v0.8.0 다중 에이전트 공통 인증 인수: PARTIAL** (2026-11-07). 구현 정본과 운영 인수를 분리하고, [v08 로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)에 따라 MCP 안전 기본값·Mac TUI/DB 보호·Cursor/Claude/Codex 1턴·Cloudflare 실전 검증을 개별 Goal로 관리합니다. 릴리스 설치 기본값은 **v0.7.1**이며, v0.8.0 배포와 다중 에이전트 실운영은 **NOT VERIFIED**입니다.
+**v0.8.0 다중 에이전트 공통 인증 인수: PARTIAL** (2026-11-07). 구현 정본과 운영 인수를 분리하고, [v08 로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)에 따라 MCP 안전 기본값·Mac TUI/DB 보호·Cursor/Claude/Codex 1턴·Cloudflare 실전 검증을 개별 Goal로 관리합니다. 릴리스 설치 기본값은 **v0.7.1**이며, v0.8.0 배포와 다중 에이전트 실운영은 **NOT VERIFIED**입니다. **중요:** v0.7.1 바이너리의 `kc mcp`는 여전히 `get_secret`을 기본 노출합니다. PR #16의 메타데이터 전용 기본값은 미출시 `main` 소스에만 존재하므로 새 릴리스 인수 전에 공유 MCP 클라이언트에 배포하지 않습니다.
 
 ### 이전 Goal — v0.7.0 운영 종결
 
