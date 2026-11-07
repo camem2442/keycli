@@ -269,6 +269,9 @@ func WireCursorVertex(home, overrideDB, overrideBaseURL string, dryRun, restart 
 		Restarted:   false,
 	}
 
+	if err := cursorDBWriteAdmission(isRunning, restart, dryRun); err != nil {
+		return res, err
+	}
 	if dryRun {
 		return res, nil
 	}
@@ -298,6 +301,15 @@ func WireCursorVertex(home, overrideDB, overrideBaseURL string, dryRun, restart 
 	}
 
 	return res, nil
+}
+
+// cursorDBWriteAdmission forbids live SQLite writes without first stopping Cursor.
+// The caller can use --dry-run while Cursor is running.
+func cursorDBWriteAdmission(isRunning, restart, dryRun bool) error {
+	if !dryRun && isRunning && !restart {
+		return fmt.Errorf("Cursor is running: refusing to modify its state database while active; close Cursor or use --restart")
+	}
+	return nil
 }
 
 // UpdateCursorDB executes an upsert on ItemTable in state.vscdb using sqlite3.
