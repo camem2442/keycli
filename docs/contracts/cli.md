@@ -19,7 +19,7 @@ status: implemented
 | 명령 | 동작 |
 |---|---|
 | `kc [interactive]` (별칭 `kc i`, `kc ui`) | 대화형 TUI 시크릿 관리자(목록 검색, 상세 조회, 복사, 생성, 삭제) |
-| `kc set [NAME] [--clip] [--note TEXT] [--expires DATE]` | 숨김 입력 또는 클립보드에서 저장. 이름 생략 시 대화형 마법사 실행. 파이프 입력의 끝 개행 1개는 제거. `--clip`은 저장에 성공한 뒤에만 클립보드 비움 |
+| `kc set [NAME] [--clip] [--note TEXT] [--expires DATE] [--no-verify] [--force]` | 숨김 입력 또는 클립보드에서 저장. 이름 생략 시 대화형 마법사 실행. 파이프 입력의 끝 개행 1개는 제거. `--clip`은 저장에 성공한 뒤에만 클립보드 비움. Cloudflare 등 provider 이름이면 저장 전 [set-time verify](set-time-verify-v1.md)(기본 on; `--no-verify` 생략, 실패 시 중단·`--force`로 무시) |
 | `kc cp [NAME]` | 클립보드 복사, 30초 뒤 삭제(그새 다른 걸 복사했으면 유지). 이름 생략 시 실시간 대화형 검색 및 선택 |
 | `kc get [NAME]` | 값만 stdout. 이름 생략 시 대화형 선택 |
 | `kc rm [NAME]` | 삭제. 이름 생략 시 대화형 선택 및 확인 |

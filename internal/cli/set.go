@@ -12,6 +12,7 @@ import (
 	"github.com/camem2442/keycli/internal/clip"
 	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/verify"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -20,6 +21,8 @@ func newSetCmd(a *app.App) *cobra.Command {
 	var fromClip bool
 	var note string
 	var expiresStr string
+	var noVerify bool
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "set [NAME]",
 		Short: "Store a secret (stdin, prompt, --clip, or interactive wizard)",
@@ -79,6 +82,21 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				exp = &t
 			}
+			if !noVerify {
+				vout, err := verify.Run(cmd.Context(), name, note, value, nil)
+				if err != nil {
+					return err
+				}
+				if vout != nil {
+					vout.Print(os.Stdout)
+					if vout.Block && !force {
+						return verify.ErrVerifyFailed
+					}
+					if vout.Warn {
+						fmt.Fprintln(os.Stderr, "kc: set-time verify: 일부 프로브 경고(저장은 계속됩니다)")
+					}
+				}
+			}
 			if err := a.Resolver.Set(cmd.Context(), name, value, backend.Meta{
 				Note:    note,
 				Expires: exp,
@@ -96,6 +114,8 @@ func newSetCmd(a *app.App) *cobra.Command {
 	cmd.Flags().BoolVar(&fromClip, "clip", false, "Read from clipboard, then clear clipboard")
 	cmd.Flags().StringVar(&note, "note", "", "Note metadata")
 	cmd.Flags().StringVar(&expiresStr, "expires", "", "Expiry date YYYY-MM-DD")
+	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "Skip set-time provider verification")
+	cmd.Flags().BoolVar(&force, "force", false, "Store even when set-time verify fails")
 	return cmd
 }
 
