@@ -13,7 +13,7 @@ date: 2026-11-07
 
 - v0.7.1 tagged release and Linux CI: **COMPLETE** for their declared scope (2026-11-05). Earlier v0.7.0 operational close is historical and stays closed.
 - Native `kc mcp`, TUI and `kc push cloudflare`: source and Linux unit tests present; actual provider/GUI/Worker acceptance **NOT VERIFIED**.
-- **Release gap:** the published **v0.7.1 binary advertises `get_secret` by default**, with no `--allow-secret-values` option. The metadata-only default is **unreleased main source** from merged [PR #16](https://github.com/camem2442/keycli/pull/16). Do not claim the installed v0.7.1 release has this protection; real-client acceptance and a separately gated patched release are **NOT VERIFIED**.
+- **v0.7.2 release closure:** published [v0.7.2](https://github.com/camem2442/keycli/releases/tag/v0.7.2) includes merged PR #16 metadata-only MCP default and opt-in secret values. The released Linux binary was downloaded, checksum-verified, reinstalled to an isolated prefix and exercised ([evidence](v072-release-evidence.md)); real Mac/client acceptance remains **NOT VERIFIED**. The earlier v0.7.1 binary still advertises `get_secret` by default.
 - Mac TUI/Cursor DB protective gate: source fix [PR #17](https://github.com/camem2442/keycli/pull/17) merged, Linux CI **COMPLETE**. Real Mac native acceptance **NOT VERIFIED** ([matrix](v08-mac-tui-cursor-acceptance.md)).
 - Cursor Cloud install/activate, Mac `kc push cursor` real PUT and GitHub `--app actions` paths were recorded in [v0.7 operational evidence](v07-operational-evidence.md), **COMPLETE only for those tested scopes**.
 - Cursor alias-through-real-PUT, GitHub other `--app`/`--user` combinations, Cloudflare real Wrangler, Claude/Codex 1-turn `kc` E2E, and live multi-agent policy enforcement: **NOT VERIFIED**. KC-25 (gh 401) stays conditional on reproduction.
@@ -70,7 +70,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 
 ### A. Local safe default (first)
 
-- MCP default metadata-only, unauthorized direct `tools/call` denial, opt-in-only `get_secret`. **Source COMPLETE** after PR #16 and Linux CI. **Release deployment NOT VERIFIED**: v0.7.1 still defaults to exposing `get_secret`. Require a reviewed patch/release gate before enrolling shared clients.
+- MCP default metadata-only, unauthorized direct `tools/call` denial, opt-in-only `get_secret`. **Source + v0.7.2 Linux release smoke COMPLETE**; real per-client deployment/admission still **NOT VERIFIED**.
 - TUI fails closed without auto-clear; Cursor refuses live DB writes without a valid macOS restart path; isolated SQLite fixtures and real Mac receipt separate. **PR #17 source COMPLETE; Mac native NOT VERIFIED**.
 - Run CLI status/exit regression, no values in stdout/stderr, no actual user vault touched by automated tests.
 
@@ -96,11 +96,12 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 - Preserve actual executing host ownership, exact HEAD and env/profile lock, supported host queue/guard, nonzero failures, and durable originals. A public file or client claim never yields authoritative PASS.
 - Keep provider auth/write capability separate from Goal/Delivery permission: successful token lookup does **not** authorize push, deployment, approval or merge.
 - If Cloudflare coordination metadata is later integrated, add bounded request budget, idempotency and explicit free-limit checks; R2/DO/Worker must not store raw credentials.
+- **First live cross-repo synthetic pilot:** [workspace-infra PR #101](https://github.com/camem2442/workspace-infra/pull/101) ran the released keycli v0.7.2 Linux AMD64 binary on GitHub-hosted Ubuntu, with allowed/denied/missing `kc exec --require` cases and metadata-only [CI evidence](https://github.com/camem2442/workspace-infra/actions/runs/42319463989). Scoped synthetic host execution **COMPLETE**; canonical Goal authority, real Codex/Claude one-turn, and Cloudflare deployed transport **NOT VERIFIED**. Cloudflare remains offline shadow metadata only.
 
 ### E. Release + adoption
 
 - Only propose v0.8.0 after Linux CI, Mac scoped acceptance, 1-turn Cursor/Claude/Codex owner receipts and a documented rollback path.
-- Until then, preserve v0.7.1 as the pinned release for its **already accepted CLI scopes, not for safe-default MCP**. Keep new work on reviewed PRs; issue a separately gated patch containing PR #16 before enabling shared MCP clients. Update consumer profile pins only after separately accepted host evidence.
+- Use v0.7.2 as the **new default install pin** after the verified patch release and this follow-up PR. Keep prior v0.7.1 available only for explicit rollback; do not claim safe-default MCP there. Real shared MCP client deployment and per-consumer pin changes still need their own host evidence; update consumer profiles only after separately accepted host evidence.
 - Finish with a limited rollout to a single selected repository, then expand to other Develop Project repositories. Avoid "all projects enabled" claims based on one pilot.
 
 ## 5. Non-goals for v0.8 initial admission
