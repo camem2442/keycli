@@ -12,6 +12,7 @@ import (
 	"github.com/camem2442/keycli/internal/clip"
 	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/secret"
 	"github.com/camem2442/keycli/internal/verify"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -58,13 +59,12 @@ func newSetCmd(a *app.App) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				value = []byte(strings.TrimRight(text, "\n"))
+				value = []byte(text)
 			} else if !term.IsTerminal(int(os.Stdin.Fd())) {
 				value, err = readAllStdin()
 				if err != nil {
 					return err
 				}
-				value = trimTrailingNewline(value)
 			} else {
 				fmt.Fprintf(os.Stderr, "값 입력: ")
 				b, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -73,6 +73,10 @@ func newSetCmd(a *app.App) *cobra.Command {
 					return err
 				}
 				value = b
+			}
+			value = secret.NormalizeSecret(value)
+			if len(value) == 0 {
+				return kcerrors.ErrUsage
 			}
 			var exp *time.Time
 			if expiresStr != "" {
@@ -121,16 +125,4 @@ func newSetCmd(a *app.App) *cobra.Command {
 
 func readAllStdin() ([]byte, error) {
 	return io.ReadAll(os.Stdin)
-}
-
-// trimTrailingNewline removes exactly one line ending (LF or CRLF). Piped
-// input almost always ends with a newline that is not part of the secret.
-func trimTrailingNewline(b []byte) []byte {
-	if len(b) > 0 && b[len(b)-1] == '\n' {
-		b = b[:len(b)-1]
-		if len(b) > 0 && b[len(b)-1] == '\r' {
-			b = b[:len(b)-1]
-		}
-	}
-	return b
 }

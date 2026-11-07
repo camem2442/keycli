@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/camem2442/keycli/internal/secret"
 )
 
 // Outcome is the set-time verification result for stdout and set abort logic.
@@ -21,6 +23,10 @@ type Outcome struct {
 
 // Run executes provider verification for kc set. token must stay in memory only.
 func Run(ctx context.Context, name, note string, token []byte, client *http.Client) (*Outcome, error) {
+	token = secret.NormalizeSecret(token)
+	if len(token) == 0 {
+		return nil, fmt.Errorf("empty secret after normalization")
+	}
 	p, ok := DetectProvider(name, note)
 	if !ok {
 		return nil, nil
