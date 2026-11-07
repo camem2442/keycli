@@ -56,6 +56,7 @@ run_docs() {
   bash -n "$ROOT/scripts/install.sh"
   bash -n "$ROOT/scripts/check-rules.sh"
   bash "$ROOT/scripts/check-rules.sh"
+  bash -n "$ROOT/scripts/verify-mcp-binary.sh"
 }
 
 run_policy() {
@@ -67,6 +68,8 @@ run_policy() {
 
 run_release() {
   bash "$ROOT/scripts/lifecycle.sh" release
+  # Exercise the built Linux release binary, not just its Go unit-test source.
+  bash "$ROOT/scripts/verify-mcp-binary.sh" "$ROOT/dist/kc-linux-amd64"
 }
 
 run_mac_smoke() {
