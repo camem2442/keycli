@@ -3,8 +3,9 @@ package verify_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -12,263 +13,296 @@ import (
 	"github.com/camem2442/keycli/internal/verify"
 )
 
-func TestCloudflareAgentVerifyOK(t *testing.T) {
-	srv := newCFServer(t, map[string]int{
-		"/client/v4/user/tokens/verify": 200,
-		"/client/v4/accounts":           200,
-	})
-	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
+type roundTripFunc func(*http.Request) (*http.Response, error)
 
-	out, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("test-token"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func reply(r *http.Request, status int, body string) *http.Response {
+	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}
+}
+func mockClient(routes map[string]any) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Authorization") == "" {
+			return reply(r, http.StatusUnauthorized, ""), nil
+		}
+		value, ok := routes[r.URL.EscapedPath()]
+		if !ok {
+			value, ok = routes[r.URL.Path]
+		}
+		if !ok {
+			return reply(r, http.StatusNotFound, `{"success":false,"errors":[{"code":1003}]}`), nil
+		}
+		switch x := value.(type) {
+		case int:
+			return reply(r, x, `{"success":false,"errors":[{"code":10000}]}`), nil
+		case string:
+			return reply(r, http.StatusOK, x), nil
+		default:
+			return nil, errors.New("invalid fixture")
+		}
+	})}
+}
+func cfRoutes(verifyStatus int) map[string]any {
+	v := any(`{"success":true,"errors":[]}`)
+	if verifyStatus != http.StatusOK {
+		v = verifyStatus
 	}
-	if out == nil || out.Block || out.VerifyStatus != 200 {
-		t.Fatalf("out %+v", out)
+	return map[string]any{"/client/v4/user/tokens/verify": v, "/client/v4/accounts": `{"success":true,"result":[{},{}]}`}
+}
+func githubRoutes(protected bool, protection any) map[string]any {
+	branch := `{"protected":false}`
+	if protected {
+		branch = `{"protected":true}`
+	}
+	return map[string]any{"/user": `{"login":"fixture"}`, "/repos/org/repo/branches/main": branch, "/repos/org/repo/rulesets": `[]`, "/repos/org/repo/branches/main/protection": protection}
+}
+func githubEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("GH_PROBE_REPO", "org/repo")
+	t.Setenv("GH_PROBE_BRANCH", "main")
+}
+func TestCloudflareAgentVerifyOK(t *testing.T) {
+	out, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("fixture-token"), mockClient(cfRoutes(200)))
+	if err != nil || out == nil || out.Block || out.VerifyStatus != 200 {
+		t.Fatalf("unexpected result: %+v %v", out, err)
 	}
 	if len(out.ProbeLines) != 1 || !strings.Contains(out.ProbeLines[0], `"count":2`) {
-		t.Fatalf("probes %v", out.ProbeLines)
+		t.Fatalf("unexpected probe: %v", out.ProbeLines)
 	}
 }
-
 func TestCloudflareAgentVerifyFail(t *testing.T) {
-	srv := newCFServer(t, map[string]int{
-		"/client/v4/user/tokens/verify": 401,
-	})
-	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
-
-	out, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("bad"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || !out.Block {
-		t.Fatalf("expected block %+v", out)
+	out, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("fixture"), mockClient(cfRoutes(401)))
+	if err != nil || out == nil || !out.Block {
+		t.Fatalf("expected block: %+v %v", out, err)
 	}
 }
-
-func TestCloudflareBillingNarrowPass(t *testing.T) {
-	srv := newCFServer(t, map[string]int{
-		"/client/v4/user/tokens/verify":                                                  200,
-		"/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/subscriptions":     200,
-		"/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/v1/billable-usage": 200,
-		"/client/v4/user/billing/profile":                                                403,
-		"/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/spend-policies":    404,
-	})
-	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
-
-	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("tok"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || out.Block {
-		t.Fatalf("narrow pass expected %+v", out)
-	}
-	if !out.Warn {
-		t.Fatalf("expected warn on profile auth_fail")
-	}
-}
-
-func TestGitHubAgentVerifyOK(t *testing.T) {
-	repo := "camem2442/mock-exam-timer"
-	branch := "main"
-	srv := newGHServer(t, ghRoutes{
-		"/user":                                        userJSON(`{"login":"camem2442"}`),
-		"/repos/" + repo + "/branches/main":            branchJSON(true),
-		"/repos/" + repo + "/rulesets":                 `[]`,
-		"/repos/" + repo + "/branches/main/protection": protectionJSON([]string{"ci/lint", "ci/test"}),
-	})
-	t.Setenv("GH_API_BASE", srv.URL)
-	t.Setenv("GH_PROBE_REPO", repo)
-	t.Setenv("GH_PROBE_BRANCH", branch)
-
-	out, err := verify.Run(context.Background(), "github_agent", "", []byte("gh-test-token"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || out.Block || out.VerifyStatus != 200 {
-		t.Fatalf("out %+v", out)
-	}
-	if !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"login":"camem2442"`) {
-		t.Fatalf("probes %v", out.ProbeLines)
-	}
-	if !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"ci/lint"`) {
-		t.Fatalf("protection contexts missing %v", out.ProbeLines)
-	}
-}
-
-func TestGitHubAgentUserFail(t *testing.T) {
-	srv := newGHServer(t, ghRoutes{
-		"/user": http.StatusUnauthorized,
-	})
-	t.Setenv("GH_API_BASE", srv.URL)
-
-	out, err := verify.Run(context.Background(), "github_agent", "", []byte("bad"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || !out.Block {
-		t.Fatalf("expected block %+v", out)
-	}
-}
-
-func TestGitHubAgentRulesets403Blocks(t *testing.T) {
-	repo := "camem2442/mock-exam-timer"
-	srv := newGHServer(t, ghRoutes{
-		"/user":                             userJSON(`{"login":"camem2442"}`),
-		"/repos/" + repo + "/branches/main": branchJSON(false),
-		"/repos/" + repo + "/rulesets":      http.StatusForbidden,
-	})
-	t.Setenv("GH_PROBE_BRANCH", "main")
-	t.Setenv("GH_API_BASE", srv.URL)
-	t.Setenv("GH_PROBE_REPO", repo)
-
-	out, err := verify.Run(context.Background(), "github_agent", "", []byte("tok"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || !out.Block {
-		t.Fatalf("rulesets 403 should block %+v", out)
-	}
-}
-
-func TestGitHubAgentUnprotectedSkipsProtection(t *testing.T) {
-	repo := "org/repo"
-	srv := newGHServer(t, ghRoutes{
-		"/user":                             userJSON(`{"login":"u"}`),
-		"/repos/" + repo + "/branches/main": branchJSON(false),
-		"/repos/" + repo + "/rulesets":      `[]`,
-	})
-	t.Setenv("GH_API_BASE", srv.URL)
-	t.Setenv("GH_PROBE_REPO", repo)
-	t.Setenv("GH_PROBE_BRANCH", "main")
-
-	out, err := verify.Run(context.Background(), "github_agent", "", []byte("tok"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || out.Block {
-		t.Fatalf("expected pass %+v", out)
-	}
-	for _, line := range out.ProbeLines {
-		if strings.Contains(line, `"probe":"protection"`) {
-			t.Fatalf("protection should be skipped %v", out.ProbeLines)
-		}
-	}
-}
-
-func TestCloudflareBillingNarrowFail(t *testing.T) {
-	srv := newCFServer(t, map[string]int{
-		"/client/v4/user/tokens/verify":                                                  200,
-		"/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/subscriptions":     403,
-		"/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/v1/billable-usage": 200,
-	})
-	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
-
-	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("tok"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil || !out.Block {
-		t.Fatalf("expected block %+v", out)
-	}
-}
-
-type ghRoutes map[string]interface{}
-
-func newGHServer(t *testing.T, routes ghRoutes) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		path := r.URL.EscapedPath()
-		if path == "" {
-			path = r.URL.Path
-		}
-		v, ok := routes[path]
-		if !ok {
-			v, ok = routes[r.URL.Path]
-		}
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		switch x := v.(type) {
-		case int:
-			w.WriteHeader(x)
-		case string:
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(x))
-		default:
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	}))
-}
-
-func userJSON(inner string) string { return inner }
-func branchJSON(protected bool) string {
-	if protected {
-		return `{"name":"b","protected":true}`
-	}
-	return `{"name":"b","protected":false}`
-}
-func protectionJSON(contexts []string) string {
-	b, _ := json.Marshal(map[string]interface{}{
-		"required_status_checks": map[string]interface{}{
-			"contexts": contexts,
-		},
-	})
-	return string(b)
-}
-
-func newCFServer(t *testing.T, statusByPath map[string]int) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		st, ok := statusByPath[r.URL.Path]
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"success":false,"errors":[{"code":1003}]}`))
-			return
-		}
-		w.WriteHeader(st)
-		if st == http.StatusOK {
-			switch {
-			case strings.HasSuffix(r.URL.Path, "/tokens/verify"):
-				_, _ = w.Write([]byte(`{"success":true,"errors":[]}`))
-			case strings.HasSuffix(r.URL.Path, "/accounts"):
-				_, _ = w.Write([]byte(`{"success":true,"result":[{},{}]}`))
-			default:
-				_, _ = w.Write([]byte(`{"success":true,"errors":[]}`))
-			}
-		} else if st == http.StatusUnauthorized || st == http.StatusForbidden {
-			_, _ = w.Write([]byte(`{"success":false,"errors":[{"code":10000}]}`))
-		} else if st == http.StatusNotFound {
-			_, _ = w.Write([]byte(`{"success":false,"errors":[{"code":1003}]}`))
+func TestCloudflareBillingNarrow(t *testing.T) {
+	for _, status := range []int{200, 403} {
+		routes := cfRoutes(200)
+		base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+		if status == 200 {
+			routes[base+"subscriptions"] = `{"success":true,"result":[]}`
 		} else {
-			_, _ = w.Write([]byte(`{"success":false,"errors":[]}`))
+			routes[base+"subscriptions"] = status
 		}
-	}))
+		routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+		routes["/client/v4/user/billing/profile"] = 403
+		routes[base+"billing/spend-policies"] = 404
+		out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
+		if err != nil || out == nil || out.Block != (status != 200) {
+			t.Fatalf("status %d: %+v %v", status, out, err)
+		}
+		if status == 200 && !out.Warn {
+			t.Fatal("profile warning missing")
+		}
+	}
 }
 
-func TestIntegrationRealCF(t *testing.T) {
-	if os.Getenv("KC_SET_VERIFY_INTEGRATION") == "" {
-		t.Skip("set KC_SET_VERIFY_INTEGRATION=1 to run")
+func TestBillingOfficialPathsAndSpend404Unverified(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	routes := cfRoutes(200)
+	routes[base+"subscriptions"] = `{"success":true,"result":[]}`
+	routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+	routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+	routes[base+"billing/spend-policies"] = 404
+	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture-secret-do-not-print"), mockClient(routes))
+	if err != nil || out == nil || out.Block || !out.Warn {
+		t.Fatalf("expected accessible narrow token with spend warning: %+v %v", out, err)
 	}
-	if os.Getenv("CF_API_TOKEN") == "" {
-		t.Skip("CF_API_TOKEN required")
+	lines := strings.Join(out.ProbeLines, "\n")
+	if !strings.Contains(lines, `"probe":"spend_policies"`) ||
+		!strings.Contains(lines, `"result":"not_verified"`) ||
+		!strings.Contains(lines, `"status":404`) {
+		t.Fatalf("spend-policy 404 must not be reported accessible: %s", lines)
+	}
+	if strings.Contains(lines, "fixture-secret-do-not-print") {
+		t.Fatal("redacted result leaked token")
+	}
+}
+
+func TestBillingValidEmptySpendPolicyList(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	routes := cfRoutes(200)
+	routes[base+"subscriptions"] = `{"success":true,"result":[]}`
+	routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+	routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+	routes[base+"billing/spend-policies"] = `{"success":true,"result":[]}`
+	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
+	if err != nil || out == nil || out.Block || out.Warn {
+		t.Fatalf("200+[] on all list endpoints should produce no warning: %+v %v", out, err)
+	}
+}
+
+func TestBillingRejectsMalformedRequiredResults(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	for _, bad := range []string{
+		`{"success":true}`,
+		`{"success":true,"result":{}}`,
+		`{"success":true,"result":null}`,
+		`{"success":false,"result":[]}`,
+	} {
+		routes := cfRoutes(200)
+		routes[base+"subscriptions"] = bad
+		routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+		routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+		routes[base+"billing/spend-policies"] = `{"success":true,"result":[]}`
+		out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
+		if err != nil || out == nil || !out.Block {
+			t.Fatalf("invalid required response accepted: %+v %v", out, err)
+		}
+	}
+}
+
+func TestGitHubProtectedSuccess(t *testing.T) {
+	githubEnv(t)
+	routes := githubRoutes(true, `{"required_status_checks":{"contexts":["ci/lint"]}}`)
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(routes))
+	if err != nil || out == nil || out.Block || out.Warn || !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"ci/lint"`) {
+		t.Fatalf("unexpected: %+v %v", out, err)
+	}
+}
+func TestGitHubProtectionDeniedBlocks(t *testing.T) {
+	githubEnv(t)
+	for _, status := range []int{401, 403, 500} {
+		out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(githubRoutes(true, status)))
+		if err != nil || out == nil || !out.Block {
+			t.Fatalf("status %d should block: %+v %v", status, out, err)
+		}
+	}
+}
+func TestGitHubUnprotectedOrMissingClassicRuleIsNotVerified(t *testing.T) {
+	githubEnv(t)
+	for _, scenario := range []struct {
+		protected bool
+		status    int
+		label     string
+	}{{false, 200, "not_verified"}, {true, 404, "not_found"}} {
+		out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(githubRoutes(scenario.protected, scenario.status)))
+		if err != nil || out == nil || out.Block || !out.Warn || !strings.Contains(strings.Join(out.ProbeLines, "\n"), scenario.label) {
+			t.Fatalf("expected warning: %+v %v", out, err)
+		}
+	}
+}
+func TestMalformedBranchOrRulesetBlocks(t *testing.T) {
+	githubEnv(t)
+	for _, path := range []string{"/repos/org/repo/branches/main", "/repos/org/repo/rulesets"} {
+		routes := githubRoutes(true, `{}`)
+		routes[path] = `{"unexpected":true}`
+		out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(routes))
+		if err != nil || out == nil || !out.Block {
+			t.Fatalf("%s should block: %+v %v", path, out, err)
+		}
+	}
+}
+func TestUnsafeEnvironmentOriginRejectedBeforeRequest(t *testing.T) {
+	for _, tc := range []struct{ name, env, host string }{{"cloudflare_agent", "CF_API_BASE", "api.cloudflare.com"}, {"github_agent", "GH_API_BASE", "api.github.com"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, "http://attacker.invalid")
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.URL.Scheme != "https" || r.URL.Host != tc.host {
+					t.Errorf("wrong origin %s", r.URL.Redacted())
+				}
+				return reply(r, 401, `{}`), nil
+			})}
+			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
+			if err == nil || out != nil || calls != 0 || strings.Contains(err.Error(), "attacker") {
+				t.Fatalf("unsafe origin must fail before request: %+v %v calls %d", out, err, calls)
+			}
+		})
+	}
+}
+func TestRedirectNeverForwardsBearer(t *testing.T) {
+	for _, name := range []string{"cloudflare_agent", "github_agent"} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				resp := reply(r, 302, "")
+				resp.Header.Set("Location", "http://attacker.invalid/steal")
+				return resp, nil
+			})}
+			out, err := verify.Run(context.Background(), name, "", []byte("fixture"), client)
+			if err != nil || out == nil || !out.Block || calls != 1 {
+				t.Fatalf("redirect followed: %+v %v calls %d", out, err, calls)
+			}
+		})
+	}
+}
+func TestGitHubRulesets403Blocks(t *testing.T) {
+	githubEnv(t)
+	routes := githubRoutes(false, 200)
+	routes["/repos/org/repo/rulesets"] = 403
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(routes))
+	if err != nil || out == nil || !out.Block {
+		t.Fatalf("expected block: %+v %v", out, err)
+	}
+}
+func TestIntegrationRealCF(t *testing.T) {
+	if os.Getenv("KC_SET_VERIFY_INTEGRATION") == "" || os.Getenv("CF_API_TOKEN") == "" {
+		t.Skip("explicit integration credentials required")
 	}
 	out, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte(os.Getenv("CF_API_TOKEN")), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out == nil {
-		t.Fatal("expected outcome")
+	if err != nil || out == nil {
+		t.Fatalf("integration failed: %v", err)
 	}
 	b, _ := json.Marshal(out)
 	t.Logf("outcome %s", b)
+}
+
+func TestGitHubProtectionParsesCheckObjectsAndRejectsMalformed(t *testing.T) {
+	githubEnv(t)
+	valid := `{"required_status_checks":{"contexts":["ci/old"],"checks":[{"context":"ci/new"},{"context":"ci/old"}]}}`
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(githubRoutes(true, valid)))
+	if err != nil || out == nil || out.Block || !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"ci/new"`) {
+		t.Fatalf("check objects missing: %+v %v", out, err)
+	}
+	for _, invalid := range []string{`{}`, `{"required_status_checks":42}`, `{"required_status_checks":{"checks":[{}]}}`} {
+		out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), mockClient(githubRoutes(true, invalid)))
+		if err != nil || out == nil || !out.Block {
+			t.Fatalf("malformed protection accepted: %+v %v", out, err)
+		}
+	}
+}
+func TestGitHubProtectionTransportFailureBlocks(t *testing.T) {
+	githubEnv(t)
+	base := mockClient(githubRoutes(true, `{}`)).Transport
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/protection") {
+			return nil, errors.New("fixture transport failure")
+		}
+		return base.RoundTrip(r)
+	})}
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), client)
+	if err != nil || out == nil || !out.Block {
+		t.Fatalf("transport failure should block: %+v %v", out, err)
+	}
+}
+
+func TestCanonicalEnvironmentOriginAllowed(t *testing.T) {
+	for _, tc := range []struct{ name, env, origin string }{{"cloudflare_agent", "CF_API_BASE", "https://api.cloudflare.com/client/v4"}, {"github_agent", "GH_API_BASE", "https://api.github.com"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.origin)
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) { calls++; return reply(r, 401, `{}`), nil })}
+			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
+			if err != nil || out == nil || !out.Block || calls != 1 {
+				t.Fatalf("canonical origin should execute once: %+v %v calls %d", out, err, calls)
+			}
+		})
+	}
+}
+
+func TestMalformedOverrideNeverFallsThroughToProvider(t *testing.T) {
+	for _, tc := range []struct{ name, env string }{{"cloudflare_agent", "CF_API_BASE"}, {"cloudflare_billing_read", "CF_API_BASE"}, {"github_agent", "GH_API_BASE"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, "////")
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) { calls++; return reply(r, 401, `{}`), nil })}
+			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
+			if err == nil || out != nil || calls != 0 {
+				t.Fatalf("malformed origin must not call provider: %+v %v calls %d", out, err, calls)
+			}
+		})
+	}
 }
