@@ -78,15 +78,15 @@ func TestCloudflareAgentVerifyFail(t *testing.T) {
 func TestCloudflareBillingNarrow(t *testing.T) {
 	for _, status := range []int{200, 403} {
 		routes := cfRoutes(200)
-		base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/billing/"
+		base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
 		if status == 200 {
-			routes[base+"subscriptions"] = `{"success":true}`
+			routes[base+"subscriptions"] = `{"success":true,"result":[]}`
 		} else {
 			routes[base+"subscriptions"] = status
 		}
-		routes[base+"v1/billable-usage"] = `{"success":true}`
+		routes[base+"billable-usage"] = `{"success":true,"result":[]}`
 		routes["/client/v4/user/billing/profile"] = 403
-		routes[base+"spend-policies"] = 404
+		routes[base+"billing/spend-policies"] = 404
 		out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
 		if err != nil || out == nil || out.Block != (status != 200) {
 			t.Fatalf("status %d: %+v %v", status, out, err)
@@ -96,6 +96,62 @@ func TestCloudflareBillingNarrow(t *testing.T) {
 		}
 	}
 }
+
+func TestBillingOfficialPathsAndSpend404Unverified(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	routes := cfRoutes(200)
+	routes[base+"subscriptions"] = `{"success":true,"result":[]}`
+	routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+	routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+	routes[base+"billing/spend-policies"] = 404
+	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture-secret-do-not-print"), mockClient(routes))
+	if err != nil || out == nil || out.Block || !out.Warn {
+		t.Fatalf("expected accessible narrow token with spend warning: %+v %v", out, err)
+	}
+	lines := strings.Join(out.ProbeLines, "\n")
+	if !strings.Contains(lines, `"probe":"spend_policies"`) ||
+		!strings.Contains(lines, `"result":"not_verified"`) ||
+		!strings.Contains(lines, `"status":404`) {
+		t.Fatalf("spend-policy 404 must not be reported accessible: %s", lines)
+	}
+	if strings.Contains(lines, "fixture-secret-do-not-print") {
+		t.Fatal("redacted result leaked token")
+	}
+}
+
+func TestBillingValidEmptySpendPolicyList(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	routes := cfRoutes(200)
+	routes[base+"subscriptions"] = `{"success":true,"result":[]}`
+	routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+	routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+	routes[base+"billing/spend-policies"] = `{"success":true,"result":[]}`
+	out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
+	if err != nil || out == nil || out.Block || out.Warn {
+		t.Fatalf("200+[] on all list endpoints should produce no warning: %+v %v", out, err)
+	}
+}
+
+func TestBillingRejectsMalformedRequiredResults(t *testing.T) {
+	base := "/client/v4/accounts/b398955bcfe917a4af61d179af967b6a/"
+	for _, bad := range []string{
+		`{"success":true}`,
+		`{"success":true,"result":{}}`,
+		`{"success":true,"result":null}`,
+		`{"success":false,"result":[]}`,
+	} {
+		routes := cfRoutes(200)
+		routes[base+"subscriptions"] = bad
+		routes[base+"billable-usage"] = `{"success":true,"result":[]}`
+		routes["/client/v4/user/billing/profile"] = `{"success":true,"result":{}}`
+		routes[base+"billing/spend-policies"] = `{"success":true,"result":[]}`
+		out, err := verify.Run(context.Background(), "cloudflare_billing_read", "", []byte("fixture"), mockClient(routes))
+		if err != nil || out == nil || !out.Block {
+			t.Fatalf("invalid required response accepted: %+v %v", out, err)
+		}
+	}
+}
+
 func TestGitHubProtectedSuccess(t *testing.T) {
 	githubEnv(t)
 	routes := githubRoutes(true, `{"required_status_checks":{"contexts":["ci/lint"]}}`)

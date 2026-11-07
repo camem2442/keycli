@@ -51,12 +51,12 @@ version: 1
 
 | probe | 경로 | 기대 |
 |---|---|---|
-| `subscriptions` | `/accounts/{id}/billing/subscriptions` | 200 → narrow 필수 |
-| `billable_usage_v1` | `/accounts/{id}/billing/v1/billable-usage` | 200 → narrow 필수 |
+| `subscriptions` | `/accounts/{id}/subscriptions` | 200 → narrow 필수 |
+| `billable_usage_v1` | `/accounts/{id}/billable-usage` | 200 → narrow 필수 |
 | `user_billing_profile` | `/user/billing/profile` | 실패 시 경고( narrow 통과 시 저장 허용) |
-| `spend_policies` | `/accounts/{id}/billing/spend-policies` | 404 또는 CF code 1003 → `not_found`(auth 실패 아님) |
+| `spend_policies` | `/accounts/{id}/billing/spend-policies` | HTTP 200 + `result: []` = 접근 확인; 404/CF code 1003 = `not_verified` 경고(빈 목록의 증거 아님) |
 
-**narrow 통과:** `subscriptions`와 `billable_usage_v1` 모두 `ok`. 그 외 프로브는 경고만.
+**narrow 통과:** `subscriptions`와 `billable_usage_v1`은 HTTP 200 + `success=true` + `result` 배열이 필수이며, 다른 프로브의 실패는 경고로 남긴다. 200 응답만으로 실제 Workers Free 요금제, 청구 주기, 무과금 운영 또는 Staging 배포 권한을 증명하지 않는다.
 
 ### `github_agent`
 
