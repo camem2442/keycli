@@ -10,7 +10,7 @@
 - [ ] `./verify.sh --suite all` PASS on an unchanged PR HEAD. Confirm `gofmt`, `go vet`, tests, docs, policy and release stages.
 - [ ] TUI: no raw clipboard fallback when the auto-clear handler is absent. Handler admission fails **before** any resolver read.
 - [ ] Cursor: process observation failure means BLOCKED (not "not running"); invalid URL and DB JSON fail without writes.
-- [ ] Cursor: running + dry-run is accepted; running + write + no `--restart` is blocked; stopped write is accepted; running + `--restart` requires the normal close/relaunch path.
+- [ ] Cursor: running + dry-run is accepted; running + write + no `--restart` is blocked; stopped write is accepted; running + `--restart` is permitted **only on macOS**, where the real close/relaunch path exists. Other platforms reject a detected running Cursor process even with `--restart`.
 - [ ] SQLite fixture round-trip retains unrelated JSON fields, rejects corrupted files, and handles missing row inserts.
 
 Linux test results must **not** be promoted to real Mac acceptance.
