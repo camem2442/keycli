@@ -27,7 +27,11 @@ func TestGuardedAgeImport(t *testing.T) {
 	if c, _, _ := runKCSplit(senderEnv, "synthetic-only", "set", "demo", "--no-verify"); c != 0 {
 		t.Fatal("synthetic set failed")
 	}
-	c, bundle, _ := runKCSplit(senderEnv, "", "export", "demo", "--to", receiver.Recipient().String())
+	c, _, stderr := runKCSplit(senderEnv, "", "export", "missing", "--to", receiver.Recipient().String(), "--verified-recipient", other.Recipient().String())
+	if c == 0 || !strings.Contains(stderr, "recipient mismatch") {
+		t.Fatal("mismatch must fail before secret lookup")
+	}
+	c, bundle, _ := runKCSplit(senderEnv, "", "export", "demo", "--to", receiver.Recipient().String(), "--verified-recipient", receiver.Recipient().String())
 	if c != 0 {
 		t.Fatal("synthetic export failed")
 	}

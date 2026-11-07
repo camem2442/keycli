@@ -10,6 +10,7 @@ import (
 	"github.com/camem2442/keycli/internal/dotenv"
 	"github.com/camem2442/keycli/internal/exportrecv"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -19,12 +20,28 @@ func newExportCmd(a *app.App) *cobra.Command {
 	var toRecipient string
 	var toGitHub string
 	var stdout bool
+	var verifiedRecipient string
 
 	cmd := &cobra.Command{
 		Use:   "export NAME...",
 		Short: "Export secrets (dotenv clipboard or age bundle)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("verified-recipient") {
+				if format != "" || toGitHub != "" || toRecipient == "" || verifiedRecipient == "" || len(args) != 1 {
+					return fmt.Errorf("verified export requires one secret and exactly one explicit age recipient")
+				}
+				if err := transferguard.CheckRecipient(toRecipient, verifiedRecipient); err != nil {
+					return err
+				}
+				parsed, ssh, err := exportrecv.ParseRecipient(toRecipient)
+				if err != nil {
+					return err
+				}
+				if _, ok := parsed.(*age.X25519Recipient); !ok || ssh {
+					return fmt.Errorf("verified export requires an X25519 recipient")
+				}
+			}
 			secrets := map[string][]byte{}
 			for _, name := range args {
 				val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
@@ -52,6 +69,7 @@ func newExportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&toRecipient, "to", "", "age1… or ssh-… recipient")
 	cmd.Flags().StringVar(&toGitHub, "to-github", "", "Fetch ssh keys from github.com/USER.keys")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write dotenv to stdout when stdout is not a TTY")
+	cmd.Flags().StringVar(&verifiedRecipient, "verified-recipient", "", "recipient independently verified by operator before reading secrets")
 	return cmd
 }
 
