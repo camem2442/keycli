@@ -42,7 +42,7 @@ kc rules --target claude --write CLAUDE.md
 
 ## MCP (Model Context Protocol) 연동
 
-Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등록하여 네이티브 도구로 시크릿을 조회할 수 있습니다:
+Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등록할 수 있습니다. **기본은 메타데이터·진단 전용이며 비밀 값은 반환하지 않습니다.**
 
 ```json
 {
@@ -57,7 +57,7 @@ Claude Desktop, Cursor, OpenCode 등에서 `kc mcp`를 MCP stdio 서버로 등�
 
 제공되는 MCP 도구:
 - `list_secrets`: 시크릿 이름 및 메타데이터 목록 (값 미포함)
-- `get_secret`: 시크릿 값 조회 (감사 로그 및 정책 allowlist 적용)
+- `get_secret`: **기본 비활성화**. 신뢰하는 MCP 클라이언트에 한해 `kc mcp --allow-secret-values`를 명시하면 도구가 노출됩니다. 반환된 값은 모델 문맥·클라이언트 로그에 남을 수 있으므로 일반적인 인증 실행에는 `kc exec --require --only NAME -- COMMAND`를 권장합니다
 - `policy_check`: 에이전트의 시크릿 읽기 권한 사전 확인
 - `doctor`: keycli 상태 및 백엔드 연결성 진단
 
