@@ -246,3 +246,31 @@ func TestWireRejectsUnreadableDatabaseOnDryRun(t *testing.T) {
 		t.Fatal("invalid DB changed")
 	}
 }
+
+func TestCursorDBWriteAdmission(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform string
+		running  bool
+		restart  bool
+		dryRun   bool
+		denied   bool
+	}{
+		{name: "mac-stopped-write", platform: "darwin"},
+		{name: "mac-running-write-without-restart", platform: "darwin", running: true, denied: true},
+		{name: "mac-running-write-with-restart", platform: "darwin", running: true, restart: true},
+		{name: "linux-running-write-with-restart", platform: "linux", running: true, restart: true, denied: true},
+		{name: "linux-running-write-without-restart", platform: "linux", running: true, denied: true},
+		{name: "linux-running-dry-run", platform: "linux", running: true, dryRun: true},
+		{name: "mac-running-dry-run", platform: "darwin", running: true, dryRun: true},
+		{name: "linux-stopped-fixture", platform: "linux"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := cursorDBWriteAdmission(tc.running, tc.restart, tc.dryRun, tc.platform)
+			if (err != nil) != tc.denied {
+				t.Fatalf("admission error=%v, expected denied=%v", err, tc.denied)
+			}
+		})
+	}
+}

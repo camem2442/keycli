@@ -328,6 +328,10 @@ func loadItems(ctx context.Context, a *app.App) ([]resolve.ListItem, error) {
 }
 
 func copySecret(ctx context.Context, a *app.App, name string, copyFunc ClipboardCopyFunc) (string, bool) {
+	if copyFunc == nil {
+		// A fallback raw clipboard write would never schedule the auto-clear child.
+		return "클립보드 자동 삭제 처리가 없어 복사를 차단했습니다.", true
+	}
 	val, _, err := a.Resolver.Get(ctx, name)
 	if err != nil {
 		if kcerrors.Code(err) == kcerrors.ExitDenied {
@@ -335,16 +339,8 @@ func copySecret(ctx context.Context, a *app.App, name string, copyFunc Clipboard
 		}
 		return fmt.Sprintf("복사 실패: %v", err), true
 	}
-	text := string(val)
-	if copyFunc != nil {
-		if err := copyFunc(a, text, os.Getenv("KC_CLIP_OSC52") == "1"); err != nil {
-			return fmt.Sprintf("클립보드 복사 실패: %v", err), true
-		}
-	} else {
-		cp := clip.Provider{Config: a.Config}
-		if err := cp.Write(text); err != nil {
-			return fmt.Sprintf("클립보드 복사 실패: %v", err), true
-		}
+	if err := copyFunc(a, string(val), os.Getenv("KC_CLIP_OSC52") == "1"); err != nil {
+		return fmt.Sprintf("클립보드 복사 실패: %v", err), true
 	}
 	return fmt.Sprintf("✓ '%s' 클립보드에 복사 완료 (%v 후 자동 삭제)", name, clip.AutoClearDelay()), false
 }

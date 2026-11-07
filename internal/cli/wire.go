@@ -87,15 +87,12 @@ func newWireCursorVertexCmd(a *app.App) *cobra.Command {
 			fmt.Fprintf(cmd.ErrOrStderr(), "kc:   openAIBaseUrl: %s\n", res.NewURL)
 			fmt.Fprintf(cmd.ErrOrStderr(), "kc:   useOpenAIKey:  true\n")
 
-			if res.IsRunning && !res.Restarted {
-				fmt.Fprintf(cmd.ErrOrStderr(), "kc: warning: Cursor is currently running (PID %d). Because Cursor caches settings in RAM, you must reload window (Cmd+Shift+P -> Developer: Reload Window) or use 'kc wire cursor-vertex --restart' to take effect.\n", res.RunningPID)
-			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "display planned SQLite update without modifying database")
 	cmd.Flags().StringVar(&dbPath, "db", "", "path to Cursor state.vscdb (default: ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb)")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "explicit OpenAI Base URL override (default: auto-detected from active tunnel)")
-	cmd.Flags().BoolVar(&restart, "restart", false, "gracefully quit running Cursor before updating DB and relaunch it")
+	cmd.Flags().BoolVar(&restart, "restart", false, "required to write while Cursor is running; gracefully quit then relaunch")
 	return cmd
 }
