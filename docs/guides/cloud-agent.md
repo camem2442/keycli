@@ -15,7 +15,7 @@ bash scripts/cloud-install.sh
 
 동작:
 
-1. `KC_INSTALL_REF`(기본 `v0.6.0`)로 [`scripts/install.sh`](../scripts/install.sh) 실행 — GitHub release + `SHA256SUMS` 검증.
+1. `KC_INSTALL_REF`(기본 `v0.7.1`)로 [`scripts/install.sh`](../scripts/install.sh) 실행 — GitHub release + `SHA256SUMS` 검증.
 2. `kc`를 `~/.local/bin`에 두고 `/usr/local/bin`에 symlink (login PATH).
 3. `kc doctor --json` smoke (exit 0).
 
@@ -23,7 +23,7 @@ bash scripts/cloud-install.sh
 
 | 변수 | 필수 | 설명 |
 |------|------|------|
-| `KC_INSTALL_REF` | 아니오 | 설치할 release tag (기본 `v0.6.0`). |
+| `KC_INSTALL_REF` | 아니오 | 설치할 release tag (기본 `v0.7.1`). |
 | `KC_CLOUD_CLONE_AI_CORE` | 아니오 | `1`이면 install 중 ai-core clone 시도. 기본 `0` (keycli만). |
 | `KC_CLOUD_AI_CORE_DIR` | 아니오 | clone 경로 (기본 `~/ai-core`). |
 | `GITHUB_TOKEN` | ai-core 시 | `repo` 권한으로 `camem2442/ai-core` 읽기. 값을 커밋·로그에 넣지 않는다. |
