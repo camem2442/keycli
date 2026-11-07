@@ -31,6 +31,18 @@ func TestCloudflareAgentVerifyOK(t *testing.T) {
 	}
 }
 
+func TestCloudflareAgentVerifyRejectsCRLFInTokenWithoutNormalize(t *testing.T) {
+	srv := newCFServer(t, map[string]int{
+		"/client/v4/user/tokens/verify": 200,
+	})
+	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
+
+	_, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("my-token\r\n"), srv.Client())
+	if err == nil || !strings.Contains(err.Error(), "invalid header field value") {
+		t.Fatalf("expected invalid header err, got %v", err)
+	}
+}
+
 func TestCloudflareAgentVerifyFail(t *testing.T) {
 	srv := newCFServer(t, map[string]int{
 		"/client/v4/user/tokens/verify": 401,
