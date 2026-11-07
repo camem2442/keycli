@@ -2,9 +2,9 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **v0.7.1** [출시](https://github.com/camem2442/keycli/releases/tag/v0.7.1) — 기본 설치 pin 갱신 및 SHA256 검증. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8 다중 에이전트 인증 확대는 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md) 단계로, 아직 운영 인수가 끝나지 않았습니다.
+> 상태: **v0.7.2** [출시](https://github.com/camem2442/keycli/releases/tag/v0.7.2) — MCP 기본 비밀값 노출 제한, 기본 설치 pin 및 SHA256 검증. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8 다중 에이전트 인증 확대는 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md) 단계로, 아직 운영 인수가 끝나지 않았습니다.
 
-> **MCP 릴리스 주의:** 설치 기본값 **v0.7.1**의 `kc mcp`는 `get_secret` 값을 **기본 노출**하며, `--allow-secret-values` 옵션도 없습니다. **메타데이터 전용 기본값은 PR #16 이후의 아직 미출시된 `main` 소스 기능**입니다. 따라서 v0.7.1 설치만으로 MCP 값 노출이 차단된다고 판단하거나 해당 바이너리를 신뢰하지 않는 에이전트에 MCP 서버로 연결하지 마세요.
+> **MCP 보안 버전 구분:** 게시된 **v0.7.2**는 `kc mcp` 기본 도구를 메타데이터·진단으로 한정하고 비밀 값은 `--allow-secret-values`를 명시해야 합니다. **v0.7.1 이하의 MCP는 `get_secret`을 기본 노출**하므로 공유 에이전트에 연결하기 전 실제 설치 버전 확인이 필요합니다. 릴리스 바이너리의 Linux 다운로드·SHA256·격리 재설치 인수 근거는 [v072-release-evidence.md](docs/planning/v072-release-evidence.md)를 참조하세요.
 
 ## 사용 흐름 (설계)
 
@@ -19,7 +19,7 @@ kc audit --since 1h           # 읽기 감사 로그 (값 없음)
 kc exec --only github -- gh pr list
 kc rules --write AGENTS.md     # 에이전트 규칙 블록 삽입
 kc doctor --json
-kc mcp                      # 주의: v0.7.1 릴리스에서는 get_secret 기본 노출. main 소스는 metadata-only
+kc mcp                      # v0.7.2 기본 메타데이터 전용, get_secret은 명시적 opt-in
 kc interactive              # TTY에서 대화형 관리
 
 # 사람: 복사
@@ -65,11 +65,11 @@ curl -fsSL https://raw.githubusercontent.com/camem2442/keycli/main/scripts/insta
 go install github.com/camem2442/keycli/cmd/kc@latest
 ```
 
-`KC_INSTALL_REF=v0.7.1`로 현재 출시 태그를 명시적으로 고정할 수 있다. release 바이너리 경로(curl·`gh release download`)는 릴리스 `SHA256SUMS`와 대조한 뒤에만 설치하며, 합계 파일이 없거나 불일치하면 중단한다. `gh release download`는 `gh` 로그인 시 선택 경로.
+`KC_INSTALL_REF=v0.7.2`로 현재 출시 태그를 명시적으로 고정할 수 있다. release 바이너리 경로(curl·`gh release download`)는 릴리스 `SHA256SUMS`와 대조한 뒤에만 설치하며, 합계 파일이 없거나 불일치하면 중단한다. `gh release download`는 `gh` 로그인 시 선택 경로.
 
 **Mac (로컬 개발):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
 
-**Cursor Cloud Agent:** `bash scripts/cloud-install.sh` (기본 릴리스 `v0.7.1` + SHA256, `kc doctor --json`). 상세: [docs/guides/cloud-agent.md](docs/guides/cloud-agent.md).
+**Cursor Cloud Agent:** `bash scripts/cloud-install.sh` (기본 릴리스 `v0.7.2` + SHA256, `kc doctor --json`). 상세: [docs/guides/cloud-agent.md](docs/guides/cloud-agent.md).
 
 **제거:** `bash scripts/lifecycle.sh uninstall`
 
