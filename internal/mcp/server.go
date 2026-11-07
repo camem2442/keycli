@@ -14,19 +14,25 @@ import (
 
 // Server runs an MCP stdio JSON-RPC server for keycli.
 type Server struct {
-	app *app.App
-	in  io.Reader
-	out io.Writer
-	mu  sync.Mutex
+	app     *app.App
+	in      io.Reader
+	out     io.Writer
+	mu      sync.Mutex
+	options Options
+}
+
+// Options are server-owner choices, not settings supplied by MCP clients.
+type Options struct {
+	AllowSecretValues bool
 }
 
 // NewServer creates a new MCP server.
-func NewServer(a *app.App, in io.Reader, out io.Writer) *Server {
-	return &Server{
-		app: a,
-		in:  in,
-		out: out,
+func NewServer(a *app.App, in io.Reader, out io.Writer, choices ...Options) *Server {
+	options := Options{} // metadata-only is the safe default
+	if len(choices) > 0 {
+		options = choices[0]
 	}
+	return &Server{app: a, in: in, out: out, options: options}
 }
 
 // Run starts the JSON-RPC event loop until EOF or context cancellation.
@@ -90,7 +96,7 @@ func (s *Server) handleRequest(ctx context.Context, req Request) {
 		s.sendResult(req.ID, map[string]any{})
 
 	case "tools/list":
-		tools := GetToolDefinitions()
+		tools := GetToolDefinitions(s.options.AllowSecretValues)
 		s.sendResult(req.ID, ListToolsResult{Tools: tools})
 
 	case "tools/call":
@@ -100,7 +106,7 @@ func (s *Server) handleRequest(ctx context.Context, req Request) {
 			return
 		}
 
-		result, err := ExecuteTool(ctx, s.app, params.Name, params.Arguments)
+		result, err := ExecuteTool(ctx, s.app, params.Name, params.Arguments, s.options.AllowSecretValues)
 		if err != nil {
 			s.sendError(req.ID, ErrCodeInternalError, fmt.Sprintf("Tool execution error: %v", err), nil)
 			return
