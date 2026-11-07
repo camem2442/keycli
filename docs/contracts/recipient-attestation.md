@@ -98,6 +98,28 @@ flags entirely. Use only attested export where the operational policy requires
 issuer verification; enforcement against a malicious sender/operator is outside
 this command's threat model.
 
+## Canonical item binding
+
+Before creating a challenge or consuming an attestation, the command validates
+the entire in-memory alias namespace. Canonical names and aliases share the same
+case-insensitive namespace. Aliases belonging to multiple canonical items,
+canonical-name shadowing, case-only canonical collisions and invalid/blank
+spellings fail closed. Repeated aliases for the same canonical item are allowed.
+Even an otherwise unique requested name is rejected when the configuration has
+an ambiguous fallback elsewhere; no backend starts, nonce is consumed or output
+is created for this error. The command does not rewrite the configuration.
+
+The command chooses one canonical binding and passes that exact name to proof
+verification, value lookup and the bundle key. It does not recanonicalize the
+original input alias for each step. The ordinary resolver still performs its
+configured canonical/alias fallback, but the validated unique namespace prevents
+that lookup or policy canonicalization from selecting another canonical item.
+Reads use the canonical item's configured fallback order rather than prioritizing
+the caller's original alias spelling. The invocation uses the configuration
+already loaded in memory; backend initialization does not reread the config file.
+Any future path that mutates that configuration must revalidate this guarantee.
+Legacy non-attested alias resolution remains unchanged.
+
 ## Wire format and checks
 
 The signed payload is the exact compact UTF-8 JSON object below, with all fields
@@ -155,7 +177,7 @@ expiry, revocation, execution identity or storage protections.
   concurrency across threads and processes, private state and unsafe files.
 - CLI regression tests cover challenge creation, negative checks before secret
   resolution/plugin startup, partial opt-in, incompatible manual flags, encrypted
-  file output/decryption, replay and preservation of the latest default-deny policy. Local execution and remaining release/CI scope belong in the candidate report.
+  file output/decryption, replay, ambiguous alias rejection before backend startup/nonce consumption, stable canonical binding and preservation of the latest default-deny policy. Local execution and remaining release/CI scope belong in the candidate report.
 - Real issuer integration, authenticated provider administration, live runtime
   identity and real Mac acceptance are **NOT VERIFIED**. Do not use synthetic
   test success as authority to transfer real credentials.

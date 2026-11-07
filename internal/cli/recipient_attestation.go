@@ -27,7 +27,11 @@ func newRecipientChallengeCmd(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			request, err := recipientattest.CreateChallenge(a.Home, trust, recipient, environment, a.Resolver.CanonicalName(name), time.Now())
+			canonical, err := a.Resolver.StrictCanonicalName(name)
+			if err != nil {
+				return err
+			}
+			request, err := recipientattest.CreateChallenge(a.Home, trust, recipient, environment, canonical, time.Now())
 			if err != nil {
 				return err
 			}
@@ -58,7 +62,7 @@ func (o exportAttestation) enabled(cmd *cobra.Command) bool {
 	return cmd.Flags().Changed("recipient-attestation") || cmd.Flags().Changed("attestation-trust") || cmd.Flags().Changed("attestation-challenge")
 }
 
-func (o exportAttestation) authorize(a *app.App, recipient, name string) error {
+func (o exportAttestation) authorize(a *app.App, recipient, canonicalName string) error {
 	if o.envelope == "" || o.trust == "" || o.challenge == "" {
 		return fmt.Errorf("attested export requires --recipient-attestation, --attestation-trust and --attestation-challenge")
 	}
@@ -70,5 +74,5 @@ func (o exportAttestation) authorize(a *app.App, recipient, name string) error {
 	if err != nil {
 		return err
 	}
-	return recipientattest.VerifyAndConsume(a.Home, trust, data, o.challenge, recipient, a.Resolver.CanonicalName(name), time.Now)
+	return recipientattest.VerifyAndConsume(a.Home, trust, data, o.challenge, recipient, canonicalName, time.Now)
 }

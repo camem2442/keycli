@@ -51,12 +51,20 @@ func newExportCmd(a *app.App) *cobra.Command {
 					return fmt.Errorf("verified export requires an X25519 recipient")
 				}
 			}
+			lookupNames := args
 			if attested {
-				// Never fall back to a manual equality check or read any value
-				// when the trusted issuer/challenge checks fail.
-				if err := attestation.authorize(a, toRecipient, args[0]); err != nil {
+				// Freeze one unambiguous name before consuming the proof. The
+				// same name is passed to lookup and used as the bundle key.
+				canonical, err := a.Resolver.StrictCanonicalName(args[0])
+				if err != nil {
 					return err
 				}
+				// Never fall back to manual comparison or read a value when
+				// either the alias or trusted issuer/challenge checks fail.
+				if err := attestation.authorize(a, toRecipient, canonical); err != nil {
+					return err
+				}
+				lookupNames = []string{canonical}
 			}
 			// Backend construction may execute configured plugins, so even
 			// that step waits until attestation and replay checks succeed.
@@ -64,7 +72,7 @@ func newExportCmd(a *app.App) *cobra.Command {
 				return err
 			}
 			secrets := map[string][]byte{}
-			for _, name := range args {
+			for _, name := range lookupNames {
 				val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
 				if err != nil {
 					if kcerrors.Code(err) == kcerrors.ExitNotFound {
@@ -75,7 +83,11 @@ func newExportCmd(a *app.App) *cobra.Command {
 					}
 					return err
 				}
-				secrets[a.Resolver.CanonicalName(name)] = val
+				bundleName := name
+				if !attested {
+					bundleName = a.Resolver.CanonicalName(name)
+				}
+				secrets[bundleName] = val
 			}
 			if format == "dotenv" {
 				return exportDotenv(cmd, a, secrets, stdout)
