@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 const defaultCFAPIBase = "https://api.cloudflare.com/client/v4"
@@ -37,18 +36,12 @@ type cfHTTP struct {
 }
 
 func newCFHTTP(client *http.Client) *cfHTTP {
-	base := strings.TrimRight(os.Getenv("CF_API_BASE"), "/")
-	if base == "" {
-		base = defaultCFAPIBase
-	}
+	base := defaultCFAPIBase
 	acct := strings.TrimSpace(os.Getenv("CF_ACCOUNT_ID"))
 	if acct == "" {
 		acct = defaultCFAccountID
 	}
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-	return &cfHTTP{base: base, account: acct, client: client}
+	return &cfHTTP{base: base, account: acct, client: verificationClient(client)}
 }
 
 func (c *cfHTTP) bearerRequest(ctx context.Context, method, path string, token []byte) (*http.Response, []byte, error) {
