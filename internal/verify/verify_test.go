@@ -31,27 +31,15 @@ func TestCloudflareAgentVerifyOK(t *testing.T) {
 	}
 }
 
-func TestRunNormalizesTokenBeforeHTTP(t *testing.T) {
-	var auth string
-	inner := newCFServer(t, map[string]int{
+func TestCloudflareAgentVerifyRejectsCRLFInTokenWithoutNormalize(t *testing.T) {
+	srv := newCFServer(t, map[string]int{
 		"/client/v4/user/tokens/verify": 200,
-		"/client/v4/accounts":           200,
 	})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth == "" {
-			auth = r.Header.Get("Authorization")
-		}
-		inner.Config.Handler.ServeHTTP(w, r)
-	}))
-	t.Cleanup(srv.Close)
 	t.Setenv("CF_API_BASE", srv.URL+"/client/v4")
 
 	_, err := verify.Run(context.Background(), "cloudflare_agent", "", []byte("my-token\r\n"), srv.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if auth != "Bearer my-token" {
-		t.Fatalf("authorization %q", auth)
+	if err == nil || !strings.Contains(err.Error(), "invalid header field value") {
+		t.Fatalf("expected invalid header err, got %v", err)
 	}
 }
 

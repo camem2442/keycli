@@ -24,6 +24,7 @@ func newSetCmd(a *app.App) *cobra.Command {
 	var expiresStr string
 	var noVerify bool
 	var force bool
+	var normalize bool
 	cmd := &cobra.Command{
 		Use:   "set [NAME]",
 		Short: "Store a secret (stdin, prompt, --clip, or interactive wizard)",
@@ -59,12 +60,13 @@ func newSetCmd(a *app.App) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				value = []byte(text)
+				value = []byte(strings.TrimRight(text, "\n"))
 			} else if !term.IsTerminal(int(os.Stdin.Fd())) {
 				value, err = readAllStdin()
 				if err != nil {
 					return err
 				}
+				value = trimTrailingNewline(value)
 			} else {
 				fmt.Fprintf(os.Stderr, "값 입력: ")
 				b, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -74,9 +76,11 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				value = b
 			}
-			value = secret.NormalizeSecret(value)
-			if len(value) == 0 {
-				return kcerrors.ErrUsage
+			if normalize {
+				value = secret.NormalizeSecret(value)
+				if len(value) == 0 {
+					return kcerrors.ErrUsage
+				}
 			}
 			var exp *time.Time
 			if expiresStr != "" {
@@ -120,9 +124,22 @@ func newSetCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&expiresStr, "expires", "", "Expiry date YYYY-MM-DD")
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "Skip set-time provider verification")
 	cmd.Flags().BoolVar(&force, "force", false, "Store even when set-time verify fails")
+	cmd.Flags().BoolVar(&normalize, "normalize", false, "Trim surrounding spaces and remove all CR/LF (for pasted single-line PATs)")
 	return cmd
 }
 
 func readAllStdin() ([]byte, error) {
 	return io.ReadAll(os.Stdin)
+}
+
+// trimTrailingNewline removes exactly one line ending (LF or CRLF). Piped
+// input almost always ends with a newline that is not part of the secret.
+func trimTrailingNewline(b []byte) []byte {
+	if len(b) > 0 && b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+		if len(b) > 0 && b[len(b)-1] == '\r' {
+			b = b[:len(b)-1]
+		}
+	}
+	return b
 }

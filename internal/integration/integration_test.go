@@ -795,18 +795,28 @@ path = "` + storePath + `"
 		t.Fatalf("stdin newline not trimmed exactly once: %d %q %s", code, out, stderr)
 	}
 
-	code, _, stderr = runKCSplit(env, "  ghp_x\r\ny\nz  \n", "set", "demo2", "--no-verify")
+	rawMultiline := "  ghp_x\r\ny\nz  "
+	code, _, stderr = runKCSplit(env, rawMultiline, "set", "demo2", "--no-verify")
 	if code != 0 {
-		t.Fatalf("set embedded newlines: %d %s", code, stderr)
+		t.Fatalf("set multiline preserve: %d %s", code, stderr)
 	}
 	code, out, _ = runKCSplit(env, "", "get", "-n", "demo2")
-	if out != "ghp_xyz" {
-		t.Fatalf("embedded newlines: got %q", out)
+	if out != rawMultiline {
+		t.Fatalf("without --normalize: got %q want %q", out, rawMultiline)
 	}
 
-	code, _, _ = runKCSplit(env, " \r\n ", "set", "empty", "--no-verify")
+	code, _, stderr = runKCSplit(env, "  ghp_x\r\ny\nz  \n", "set", "demo3", "--no-verify", "--normalize")
+	if code != 0 {
+		t.Fatalf("set --normalize: %d %s", code, stderr)
+	}
+	code, out, _ = runKCSplit(env, "", "get", "-n", "demo3")
+	if out != "ghp_xyz" {
+		t.Fatalf("--normalize: got %q", out)
+	}
+
+	code, _, _ = runKCSplit(env, " \r\n ", "set", "empty", "--no-verify", "--normalize")
 	if code == 0 {
-		t.Fatal("whitespace-only secret must fail")
+		t.Fatal("whitespace-only secret must fail with --normalize")
 	}
 
 	clipFile := filepath.Join(home, "clip.txt")
