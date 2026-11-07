@@ -145,3 +145,20 @@ status: active
 ## DEFERRED
 
 TTL 캐시, rate limit, 출력 가림, 1Password 백엔드, 외부 `kc-target-*`.
+
+
+## v0.8 — 다중 에이전트 인증·검증 통합 (2026-11-07)
+
+현재 공개 릴리스는 **v0.7.1**이며, v0.7.0 operational close는 이미 COMPLETE입니다. 새로운 MCP/TUI/Cloudflare/Cursor Vertex 구현을 운영 인수 완료로 확대 해석하지 않습니다.
+
+다음 Goal의 정본은 [v08-multi-agent-auth-infrastructure.md](v08-multi-agent-auth-infrastructure.md)입니다.
+
+| 단계 | 요구 | 현재 |
+|---|---|---|
+| A | MCP 기본 metadata-only, 값 조회는 명시적 opt-in | COMPLETE — PR #16의 미출시 `main` 소스 및 Linux CI만. v0.7.1 릴리스는 `get_secret` 기본 노출; 패치 릴리스·실제 MCP 클라이언트 인수 NOT VERIFIED |
+| B | TUI 자동삭제 보호, Cursor live DB 변경 보호, Mac native matrix | PARTIAL — PR #17 소스/Linux CI COMPLETE, Mac native NOT VERIFIED |
+| C | Cursor·Claude·Codex 개별 환경에 kc exec + policy + audit 인수 | NOT VERIFIED |
+| D | Cursor alias 실제 PUT, Cloudflare test Worker push/cleanup 및 시크릿 수명 | NOT VERIFIED |
+| E | workspace-infra 공통 검증·Delivery 증거 소비, 제한된 파일럿 채택 | NOT VERIFIED |
+
+v0.8.0 태그·기본 설치 pin·전역 에이전트 적용은 위 운영 게이트가 검증되기 전까지 **DEFERRED**입니다.
