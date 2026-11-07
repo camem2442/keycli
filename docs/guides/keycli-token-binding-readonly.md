@@ -41,9 +41,22 @@ allow = ["github_agent"]
 [policy.agent.antigravity]
 allow = []
 
+[policy.agent.human]
+allow = ["*"] # preserve the current owner’s interactive CLI/TUI access
+
 [policy.agent.default]
 allow = []
 ```
+
+**Human compatibility:** with the new policy fallback, a `default` deny
+entry also applies to unconfigured `human` sessions. The explicit
+`[policy.agent.human]` rule preserves interactive owner workflows. This is
+NOT a hard security boundary: a same-UID agent can set `KC_AGENT=human`.
+Use separately scoped platform credentials/host isolation for real security.
+If a human-wide `*` allowlist is unacceptable, instead enumerate
+only the names that the owner really needs and test TUI/CLI behavior before
+deployment. Never enable a `default` deny rule on the real Mac without
+first confirming owner access and a tested config rollback.
 
 `github` (legacy Git credential helper) and `github_agent` (dedicated agent
 token) should remain distinct if their access scopes differ. `GH_TOKEN`
