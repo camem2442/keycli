@@ -14,7 +14,7 @@ date: 2026-11-07
 - v0.7.1 tagged release and Linux CI: **COMPLETE** for their declared scope (2026-11-05). Earlier v0.7.0 operational close is historical and stays closed.
 - Native `kc mcp`, TUI and `kc push cloudflare`: source and Linux unit tests present; actual provider/GUI/Worker acceptance **NOT VERIFIED**.
 - **Release gap:** the published **v0.7.1 binary advertises `get_secret` by default**, with no `--allow-secret-values` option. The metadata-only default is **unreleased main source** from merged [PR #16](https://github.com/camem2442/keycli/pull/16). Do not claim the installed v0.7.1 release has this protection; real-client acceptance and a separately gated patched release are **NOT VERIFIED**.
-- Mac TUI/Cursor DB protective gate: [PR #17](https://github.com/camem2442/keycli/pull/17) candidate, Mac native acceptance **NOT VERIFIED**.
+- Mac TUI/Cursor DB protective gate: source fix [PR #17](https://github.com/camem2442/keycli/pull/17) merged, Linux CI **COMPLETE**. Real Mac native acceptance **NOT VERIFIED** ([matrix](v08-mac-tui-cursor-acceptance.md)).
 - Cursor Cloud install/activate, Mac `kc push cursor` real PUT and GitHub `--app actions` paths were recorded in [v0.7 operational evidence](v07-operational-evidence.md), **COMPLETE only for those tested scopes**.
 - Cursor alias-through-real-PUT, GitHub other `--app`/`--user` combinations, Cloudflare real Wrangler, Claude/Codex 1-turn `kc` E2E, and live multi-agent policy enforcement: **NOT VERIFIED**. KC-25 (gh 401) stays conditional on reproduction.
 
@@ -71,7 +71,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 ### A. Local safe default (first)
 
 - MCP default metadata-only, unauthorized direct `tools/call` denial, opt-in-only `get_secret`. **Source COMPLETE** after PR #16 and Linux CI. **Release deployment NOT VERIFIED**: v0.7.1 still defaults to exposing `get_secret`. Require a reviewed patch/release gate before enrolling shared clients.
-- TUI fails closed without auto-clear; Cursor must not write a live DB without `--restart`; isolated SQLite fixtures and real Mac receipt separate. **PR #17 pending**.
+- TUI fails closed without auto-clear; Cursor refuses live DB writes without a valid macOS restart path; isolated SQLite fixtures and real Mac receipt separate. **PR #17 source COMPLETE; Mac native NOT VERIFIED**.
 - Run CLI status/exit regression, no values in stdout/stderr, no actual user vault touched by automated tests.
 
 ### B. Provider pilots (no blanket rollout)
