@@ -2,7 +2,11 @@ package interactive
 
 import (
 	"bytes"
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/camem2442/keycli/internal/app"
 
 	"github.com/camem2442/keycli/internal/resolve"
 )
@@ -99,5 +103,13 @@ func TestFormattingHelpers(t *testing.T) {
 	}
 	if got := PadRight("abc", 6); got != "abc   " {
 		t.Errorf("unexpected pad: %q", got)
+	}
+}
+
+func TestCopySecretRequiresAutoClearHandler(t *testing.T) {
+	// The missing handler must be rejected before the resolver is accessed.
+	status, isError := copySecret(context.Background(), &app.App{}, "fixture", nil)
+	if !isError || !strings.Contains(status, "차단") {
+		t.Fatalf("unsafe clipboard fallback was accepted: status=%q, error=%v", status, isError)
 	}
 }
