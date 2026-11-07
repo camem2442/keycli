@@ -87,15 +87,10 @@ func (p *Policy) rulesForAgent() (config.PolicyAgentSettings, bool) {
 	if spec, ok := agents[p.agent]; ok {
 		return spec, true
 	}
-	if p.agent == "human" {
-		if spec, ok := agents["human"]; ok {
-			return spec, true
-		}
-	}
-	if p.agent == "unknown" || p.agent == "human" || p.agent == "ci" {
-		if spec, ok := agents["default"]; ok {
-			return spec, true
-		}
+	// Any unregistered agent name (including explicit KC_AGENT labels) must
+	// inherit the configured default guardrail, not silently bypass it.
+	if spec, ok := agents["default"]; ok {
+		return spec, true
 	}
 	return config.PolicyAgentSettings{}, false
 }
