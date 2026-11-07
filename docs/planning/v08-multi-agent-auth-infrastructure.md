@@ -13,7 +13,7 @@ date: 2026-11-07
 
 - v0.7.1 tagged release and Linux CI: **COMPLETE** for their declared scope (2026-11-05). Earlier v0.7.0 operational close is historical and stays closed.
 - Native `kc mcp`, TUI and `kc push cloudflare`: source and Linux unit tests present; actual provider/GUI/Worker acceptance **NOT VERIFIED**.
-- MCP metadata-only by default / explicit `--allow-secret-values`: merged source fix in [PR #16](https://github.com/camem2442/keycli/pull/16); independent real-client acceptance **NOT VERIFIED**.
+- **Release gap:** the published **v0.7.1 binary advertises `get_secret` by default**, with no `--allow-secret-values` option. The metadata-only default is **unreleased main source** from merged [PR #16](https://github.com/camem2442/keycli/pull/16). Do not claim the installed v0.7.1 release has this protection; real-client acceptance and a separately gated patched release are **NOT VERIFIED**.
 - Mac TUI/Cursor DB protective gate: [PR #17](https://github.com/camem2442/keycli/pull/17) candidate, Mac native acceptance **NOT VERIFIED**.
 - Cursor Cloud install/activate, Mac `kc push cursor` real PUT and GitHub `--app actions` paths were recorded in [v0.7 operational evidence](v07-operational-evidence.md), **COMPLETE only for those tested scopes**.
 - Cursor alias-through-real-PUT, GitHub other `--app`/`--user` combinations, Cloudflare real Wrangler, Claude/Codex 1-turn `kc` E2E, and live multi-agent policy enforcement: **NOT VERIFIED**. KC-25 (gh 401) stays conditional on reproduction.
@@ -70,7 +70,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 
 ### A. Local safe default (first)
 
-- MCP default metadata-only, unauthorized direct `tools/call` denial, opt-in-only `get_secret`. **Source COMPLETE** after PR #16 and Linux CI; native clients remain NOT VERIFIED.
+- MCP default metadata-only, unauthorized direct `tools/call` denial, opt-in-only `get_secret`. **Source COMPLETE** after PR #16 and Linux CI. **Release deployment NOT VERIFIED**: v0.7.1 still defaults to exposing `get_secret`. Require a reviewed patch/release gate before enrolling shared clients.
 - TUI fails closed without auto-clear; Cursor must not write a live DB without `--restart`; isolated SQLite fixtures and real Mac receipt separate. **PR #17 pending**.
 - Run CLI status/exit regression, no values in stdout/stderr, no actual user vault touched by automated tests.
 
@@ -100,7 +100,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 ### E. Release + adoption
 
 - Only propose v0.8.0 after Linux CI, Mac scoped acceptance, 1-turn Cursor/Claude/Codex owner receipts and a documented rollback path.
-- Until then, preserve v0.7.1 as the pinned stable release and keep new work on reviewed PRs; update consumer profile pins only after separately accepted host evidence.
+- Until then, preserve v0.7.1 as the pinned release for its **already accepted CLI scopes, not for safe-default MCP**. Keep new work on reviewed PRs; issue a separately gated patch containing PR #16 before enabling shared MCP clients. Update consumer profile pins only after separately accepted host evidence.
 - Finish with a limited rollout to a single selected repository, then expand to other Develop Project repositories. Avoid "all projects enabled" claims based on one pilot.
 
 ## 5. Non-goals for v0.8 initial admission
