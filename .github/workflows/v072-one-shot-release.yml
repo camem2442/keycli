@@ -88,3 +88,27 @@ jobs:
             --notes-file docs/planning/v072-release-notes.md
           gh release view v0.7.2 --repo "$GITHUB_REPOSITORY" --json tagName,assets,isDraft,isPrerelease \
             --jq '{tag: .tagName, draft: .isDraft, prerelease: .isPrerelease, asset_names: [.assets[].name]}'
+      - name: Download published assets and exercise actual release installation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PUBLISHED="$RUNNER_TEMP/keycli-v072-published"
+          INSTALLED="$RUNNER_TEMP/keycli-v072-installed"
+          mkdir -p "$PUBLISHED" "$INSTALLED"
+          fetched=0
+          for attempt in 1 2 3; do
+            if gh release download v0.7.2 --repo "$GITHUB_REPOSITORY" --dir "$PUBLISHED"; then
+              fetched=1
+              break
+            fi
+            rm -f "$PUBLISHED"/*
+            sleep 3
+          done
+          test "$fetched" -eq 1
+          test "$(find "$PUBLISHED" -maxdepth 1 -type f | wc -l)" -eq 6
+          (cd "$PUBLISHED" && sha256sum -c SHA256SUMS)
+          cmp dist/kc-linux-amd64 "$PUBLISHED/kc-linux-amd64"
+          install -m 755 "$PUBLISHED/kc-linux-amd64" "$INSTALLED/kc"
+          bash scripts/verify-mcp-binary.sh "$INSTALLED/kc" v0.7.2
+          echo "published-download-install: v0.7.2 verified at exact release asset bytes"
