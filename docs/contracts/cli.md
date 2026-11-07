@@ -12,7 +12,7 @@ status: implemented
 | `kc exec [--only a,b] [--require] -- CMD...` | 매핑된 환경변수로 주입해 실행. `--require`는 `--only`에 적은 이름이 **모두** resolve·policy 통과할 때만 자식 시작(누락·거부 시 exit 2/5, 자식 0회). `--only` 생략 시 조회 가능한 전체 시크릿 주입(에이전트는 `--require --only` 권장). 자식 종료 코드를 그대로 반환. 자식 환경에서 `KC_KEY`·`KC_AGENT`는 제거 |
 | `kc mcp [--allow-secret-values]` | MCP JSON-RPC 2.0 stdio 서버. 기본 **메타데이터 전용**(`list_secrets`, `policy_check`, `doctor`); `get_secret`은 서버 소유자가 `--allow-secret-values`로 명시적으로 허용한 경우에만 노출·실행 |
 
-**릴리스/소스 구분:** 이 MCP 계약은 PR #16이 병합된 **미출시 `main` 소스** 기준입니다. 이미 발행된 **v0.7.1 바이너리**에는 이 옵션이 없으며, `get_secret`이 기본으로 노출됩니다. v0.7.1에서는 metadata-only 기본 보호가 적용되었다고 주장하지 마세요.
+**릴리스/소스 구분:** 이 MCP 계약은 게시된 **v0.7.2 바이너리**와 PR #16 병합 이후 소스에서 적용됩니다. **v0.7.1 이하**는 `get_secret` 기본 노출·opt-in 옵션 부재가 있으므로 동일한 기본 보안 계약으로 간주하지 않습니다. [릴리스 증거](../planning/v072-release-evidence.md)는 Linux 배포 자산의 SHA256 및 재설치 테스트에 한정됩니다.
 
 이름 해석: 별칭 표(`github` = `gh` = `GITHUB_TOKEN` = `GH_TOKEN`)와 대소문자 무시. 없으면 stderr에 한 줄 `kc: NAME 없음. 사용자에게 'kc set NAME' 실행을 요청하세요.`
 
