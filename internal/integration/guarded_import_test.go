@@ -3,6 +3,8 @@ package integration_test
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,13 +29,32 @@ func TestGuardedAgeImport(t *testing.T) {
 	if c, _, _ := runKCSplit(senderEnv, "synthetic-only", "set", "demo", "--no-verify"); c != 0 {
 		t.Fatal("synthetic set failed")
 	}
-	c, _, stderr := runKCSplit(senderEnv, "", "export", "missing", "--to", receiver.Recipient().String(), "--verified-recipient", other.Recipient().String())
+	bundlePath := filepath.Join(t.TempDir(), "synthetic.age")
+	c, _, stderr := runKCSplit(senderEnv, "", "export", "missing", "--to", receiver.Recipient().String(), "--verified-recipient", other.Recipient().String(), "--output-file", bundlePath)
 	if c == 0 || !strings.Contains(stderr, "recipient mismatch") {
 		t.Fatal("mismatch must fail before secret lookup")
 	}
-	c, bundle, _ := runKCSplit(senderEnv, "", "export", "demo", "--to", receiver.Recipient().String(), "--verified-recipient", receiver.Recipient().String())
-	if c != 0 {
+	args := []string{"export", "demo", "--to", receiver.Recipient().String(), "--verified-recipient", receiver.Recipient().String(), "--output-file", bundlePath}
+	c, stdout, _ := runKCSplit(senderEnv, "", args...)
+	if c != 0 || stdout != "" {
 		t.Fatal("synthetic export failed")
+	}
+	info, err := os.Stat(bundlePath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatal("encrypted file permissions")
+	}
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		t.Fatal("encrypted file missing")
+	}
+	bundle := string(data)
+	c, _, _ = runKCSplit(senderEnv, "", args...)
+	if c == 0 {
+		t.Fatal("existing output overwritten")
+	}
+	c, _, _ = runKCSplit(senderEnv, "", "export", "demo", "--to", receiver.Recipient().String(), "--output-file", filepath.Join(t.TempDir(), "missing-check.age"))
+	if c == 0 {
+		t.Fatal("output without verified recipient accepted")
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(bundle)))
 	flags := []string{"import", "--expected-sha256", digest, "--verified-recipient", receiver.Recipient().String(), "--expected-name", "demo"}
