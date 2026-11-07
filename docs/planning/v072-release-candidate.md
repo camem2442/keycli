@@ -20,7 +20,8 @@ release_tag: v0.7.2
 3. Build 5 release binaries + `SHA256SUMS`, `sha256sum -c` all assets.
 4. Run the **actual installed Linux binary** in an isolated temporary directory: 3 metadata tools by default, forged `get_secret` denied, opt-in tool discovery includes `get_secret`, `doctor` works, and version `v0.7.2` appears. Use no real credentials.
 5. Only after steps 2–4 succeed, create the GitHub tag and Release on the exact running `GITHUB_SHA`. Verify six expected asset names. The tag/release creation is part of this job because GitHub `GITHUB_TOKEN`-generated tag events do not start another workflow.
-6. Follow-up: inspect published tag SHA, release asset checksum and test logs; then, **in another PR**, pin installer defaults to v0.7.2 after external release is independently confirmed.
+6. Re-download all six **published** release assets, verify the published `SHA256SUMS`, compare remote Linux bytes with the tested local artifact, install in a fresh isolated temporary prefix, and re-run the binary MCP smoke. A post-publish failure is a **PARTIAL RELEASE / FOLLOW-UP REQUIRED**, not a green acceptance.
+7. Follow-up: inspect published tag SHA, release asset checksum and test logs; then, **in another PR**, pin installer defaults to v0.7.2 after external release is independently confirmed.
 
 A workflow failure before step 5 means **NOT RELEASED**. A partially published release must be inspected and repaired deliberately; do not rerun an already tagged release blindly.
 
