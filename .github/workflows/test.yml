@@ -27,3 +27,13 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: ./verify.sh --suite all
+      # Temporary, source-only validation artifact for PR #26. Remove after
+      # the cross-environment synthetic transfer has been verified.
+      - name: Preserve Linux binary for synthetic transfer test
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 26
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: keycli-pr26-linux-synthetic-${{ github.sha }}
+          path: dist/kc-linux-amd64
+          if-no-files-found: error
+          retention-days: 1
