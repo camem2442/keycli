@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,13 @@ func Run(ctx context.Context, name, note string, token []byte, client *http.Clie
 	p, ok := DetectProvider(name, note)
 	if !ok {
 		return nil, nil
+	}
+	// Reject unsafe header bytes before any transport is invoked. A custom
+	// RoundTripper may not enforce net/http\x27s default wire-header validation.
+	// This applies only to provider tokens; ordinary multiline secrets remain
+	// untouched and the CLI\x27s --normalize remains an explicit opt-in.
+	if p != ProviderGitHubPAT && (bytes.IndexByte(token, 13) >= 0 || bytes.IndexByte(token, 10) >= 0) {
+		return nil, errors.New("provider token contains a newline; use --normalize for single-line keys")
 	}
 	switch p {
 	case ProviderCloudflareAgent:
