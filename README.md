@@ -4,6 +4,8 @@
 
 > 상태: **v0.7.1** [출시](https://github.com/camem2442/keycli/releases/tag/v0.7.1) — 기본 설치 pin 갱신 및 SHA256 검증. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8 다중 에이전트 인증 확대는 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md) 단계로, 아직 운영 인수가 끝나지 않았습니다.
 
+> **MCP 릴리스 주의:** 설치 기본값 **v0.7.1**의 `kc mcp`는 `get_secret` 값을 **기본 노출**하며, `--allow-secret-values` 옵션도 없습니다. **메타데이터 전용 기본값은 PR #16 이후의 아직 미출시된 `main` 소스 기능**입니다. 따라서 v0.7.1 설치만으로 MCP 값 노출이 차단된다고 판단하거나 해당 바이너리를 신뢰하지 않는 에이전트에 MCP 서버로 연결하지 마세요.
+
 ## 사용 흐름 (설계)
 
 ```bash
@@ -17,7 +19,7 @@ kc audit --since 1h           # 읽기 감사 로그 (값 없음)
 kc exec --only github -- gh pr list
 kc rules --write AGENTS.md     # 에이전트 규칙 블록 삽입
 kc doctor --json
-kc mcp                      # 메타데이터 전용; get_secret은 명시적 opt-in 필요
+kc mcp                      # 주의: v0.7.1 릴리스에서는 get_secret 기본 노출. main 소스는 metadata-only
 kc interactive              # TTY에서 대화형 관리
 
 # 사람: 복사
