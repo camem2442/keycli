@@ -75,7 +75,7 @@ version: 1
 
 ## 테스트·CI
 
-- 운영 검증 대상은 각각 `https://api.cloudflare.com/client/v4` 및 `https://api.github.com`으로 고정하고 HTTP redirect를 따르지 않는다. `CF_API_BASE`와 `GH_API_BASE` 환경 변수는 사용하지 않는다.
+- 운영 검증 대상은 각각 `https://api.cloudflare.com/client/v4` 및 `https://api.github.com`으로 고정하고 HTTP redirect를 따르지 않는다. `CF_API_BASE`와 `GH_API_BASE`가 공식 주소가 아닌 값으로 설정돼 있으면 외부 요청 전에 오류로 중단한다. 환경 변수의 원문은 오류에 출력하지 않는다.
 - 테스트는 메모리 내 HTTP transport를 주입하며 실제 서버나 비밀을 사용하지 않는다. Cloudflare 실연동은 `KC_SET_VERIFY_INTEGRATION=1` + `CF_API_TOKEN`이 별도로 필요한 선택 검사다. GitHub probe repo/branch는 `GH_PROBE_REPO` / `GH_PROBE_BRANCH`로 지정한다.
 
 ## 금지

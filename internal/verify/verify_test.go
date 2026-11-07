@@ -137,7 +137,7 @@ func TestMalformedBranchOrRulesetBlocks(t *testing.T) {
 		}
 	}
 }
-func TestEnvironmentCannotChangeVerificationOrigin(t *testing.T) {
+func TestUnsafeEnvironmentOriginRejectedBeforeRequest(t *testing.T) {
 	for _, tc := range []struct{ name, env, host string }{{"cloudflare_agent", "CF_API_BASE", "api.cloudflare.com"}, {"github_agent", "GH_API_BASE", "api.github.com"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(tc.env, "http://attacker.invalid")
@@ -150,8 +150,8 @@ func TestEnvironmentCannotChangeVerificationOrigin(t *testing.T) {
 				return reply(r, 401, `{}`), nil
 			})}
 			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
-			if err != nil || out == nil || !out.Block || calls != 1 {
-				t.Fatalf("unexpected result: %+v %v calls %d", out, err, calls)
+			if err == nil || out != nil || calls != 0 || strings.Contains(err.Error(), "attacker") {
+				t.Fatalf("unsafe origin must fail before request: %+v %v calls %d", out, err, calls)
 			}
 		})
 	}
@@ -220,5 +220,33 @@ func TestGitHubProtectionTransportFailureBlocks(t *testing.T) {
 	out, err := verify.Run(context.Background(), "github_agent", "", []byte("fixture"), client)
 	if err != nil || out == nil || !out.Block {
 		t.Fatalf("transport failure should block: %+v %v", out, err)
+	}
+}
+
+func TestCanonicalEnvironmentOriginAllowed(t *testing.T) {
+	for _, tc := range []struct{ name, env, origin string }{{"cloudflare_agent", "CF_API_BASE", "https://api.cloudflare.com/client/v4"}, {"github_agent", "GH_API_BASE", "https://api.github.com"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.origin)
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) { calls++; return reply(r, 401, `{}`), nil })}
+			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
+			if err != nil || out == nil || !out.Block || calls != 1 {
+				t.Fatalf("canonical origin should execute once: %+v %v calls %d", out, err, calls)
+			}
+		})
+	}
+}
+
+func TestMalformedOverrideNeverFallsThroughToProvider(t *testing.T) {
+	for _, tc := range []struct{ name, env string }{{"cloudflare_agent", "CF_API_BASE"}, {"cloudflare_billing_read", "CF_API_BASE"}, {"github_agent", "GH_API_BASE"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.env, "////")
+			calls := 0
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) { calls++; return reply(r, 401, `{}`), nil })}
+			out, err := verify.Run(context.Background(), tc.name, "", []byte("fixture"), client)
+			if err == nil || out != nil || calls != 0 {
+				t.Fatalf("malformed origin must not call provider: %+v %v calls %d", out, err, calls)
+			}
+		})
 	}
 }

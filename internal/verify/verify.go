@@ -27,10 +27,19 @@ func Run(ctx context.Context, name, note string, token []byte, client *http.Clie
 	}
 	switch p {
 	case ProviderCloudflareAgent:
+		if err := requireOfficialOrigin("CF_API_BASE", defaultCFAPIBase); err != nil {
+			return nil, err
+		}
 		return runCloudflareAgent(ctx, token, client)
 	case ProviderCloudflareBillingRead:
+		if err := requireOfficialOrigin("CF_API_BASE", defaultCFAPIBase); err != nil {
+			return nil, err
+		}
 		return runCloudflareBilling(ctx, token, client)
 	case ProviderGitHubAgent:
+		if err := requireOfficialOrigin("GH_API_BASE", defaultGHAPIBase); err != nil {
+			return nil, err
+		}
 		return runGitHubAgent(ctx, token, client)
 	case ProviderGitHubPAT:
 		return nil, nil
