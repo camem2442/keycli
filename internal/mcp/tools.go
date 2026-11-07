@@ -13,8 +13,8 @@ import (
 )
 
 // GetToolDefinitions returns all supported MCP tools.
-func GetToolDefinitions() []Tool {
-	return []Tool{
+func GetToolDefinitions(allowSecretValues bool) []Tool {
+	tools := []Tool{
 		{
 			Name:        "list_secrets",
 			Description: "List available secret names and metadata. Never returns secret values.",
@@ -73,10 +73,21 @@ func GetToolDefinitions() []Tool {
 			},
 		},
 	}
+	if allowSecretValues {
+		return tools
+	}
+	// Do not even advertise secret-value retrieval unless the owner opted in.
+	safe := make([]Tool, 0, len(tools)-1)
+	for _, tool := range tools {
+		if tool.Name != "get_secret" {
+			safe = append(safe, tool)
+		}
+	}
+	return safe
 }
 
 // ExecuteTool handles tool execution by name.
-func ExecuteTool(ctx context.Context, a *app.App, name string, argsRaw json.RawMessage) (*CallToolResult, error) {
+func ExecuteTool(ctx context.Context, a *app.App, name string, argsRaw json.RawMessage, allowSecretValues bool) (*CallToolResult, error) {
 	switch name {
 	case "list_secrets":
 		var args struct {
@@ -136,6 +147,10 @@ func ExecuteTool(ctx context.Context, a *app.App, name string, argsRaw json.RawM
 		return textResult(string(b)), nil
 
 	case "get_secret":
+		// Enforce at call time too: clients can invoke an unadvertised tool directly.
+		if !allowSecretValues {
+			return errorResult("MCP secret values disabled. Use kc mcp --allow-secret-values only for trusted clients; secret values may enter model context or client logs."), nil
+		}
 		var args struct {
 			Name string `json:"name"`
 		}

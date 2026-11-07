@@ -71,7 +71,7 @@ func TestMCPServerLifecycle(t *testing.T) {
 	in := strings.NewReader(input)
 	out := &bytes.Buffer{}
 
-	server := NewServer(a, in, out)
+	server := NewServer(a, in, out, Options{AllowSecretValues: true})
 	if err := server.Run(context.Background()); err != nil {
 		t.Fatalf("Server.Run failed: %v", err)
 	}
@@ -192,5 +192,75 @@ func TestMCPParseError(t *testing.T) {
 	}
 	if resp.Error == nil || resp.Error.Code != ErrCodeParseError {
 		t.Fatalf("expected parse error, got: %v", resp)
+	}
+}
+
+// TestMCPDefaultMetadataOnly verifies both tool discovery and direct forged
+// tools/call requests cannot reveal values without the server owner's opt-in.
+func TestMCPDefaultMetadataOnly(t *testing.T) {
+	a := newTestApp(t)
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_secret","arguments":{"name":"github"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_secrets","arguments":{}}}`,
+	}, "\n") + "\n"
+	out := &bytes.Buffer{}
+	if err := NewServer(a, strings.NewReader(input), out).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("ghp_test12345")) {
+		t.Fatal("MCP returned the secret without explicit opt-in")
+	}
+	lines := bytes.Split(bytes.TrimSpace(out.Bytes()), []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("want 3 responses, got %d", len(lines))
+	}
+	var listResp struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(lines[0], &listResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(listResp.Result.Tools) != 3 {
+		t.Fatalf("metadata-only server must advertise 3 tools: %+v", listResp.Result.Tools)
+	}
+	for _, tool := range listResp.Result.Tools {
+		if tool.Name == "get_secret" {
+			t.Fatal("secret-reading tool was advertised without opt-in")
+		}
+	}
+	var forged Response
+	if err := json.Unmarshal(lines[1], &forged); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(forged.Result)
+	var denied CallToolResult
+	if err := json.Unmarshal(raw, &denied); err != nil {
+		t.Fatal(err)
+	}
+	if !denied.IsError || len(denied.Content) == 0 || !strings.Contains(denied.Content[0].Text, "disabled") {
+		t.Fatalf("unadvertised secret call not rejected: %+v", denied)
+	}
+	var metadata Response
+	if err := json.Unmarshal(lines[2], &metadata); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := json.Marshal(metadata.Result)
+	var allowed CallToolResult
+	if err := json.Unmarshal(m, &allowed); err != nil || allowed.IsError {
+		t.Fatalf("metadata list failed: %v %+v", err, allowed)
+	}
+}
+
+func TestMCPGetSecretDenialPrecedesResolver(t *testing.T) {
+	// A nil Resolver must not be touched when owner permission is missing.
+	result, err := ExecuteTool(context.Background(), &app.App{}, "get_secret",
+		json.RawMessage(`{"name":"github"}`), false)
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("expected pre-resolver denial, got result=%+v err=%v", result, err)
 	}
 }
