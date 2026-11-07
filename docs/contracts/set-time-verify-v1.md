@@ -7,11 +7,14 @@ version: 1
 
 `kc set`은 저장 직전에 등록된 **provider**에 맞는 원격 검증을 수행한다. 검증은 방금 입력한 값만 메모리에서 사용하며 `kc get`을 호출하지 않는다.
 
+**시크릿 바이트:** 기본은 입력값을 **그대로** 저장·검증에 사용한다(의도적인 앞뒤 공백·개행 보존). 파이프 stdin만 끝의 개행 **한 번**을 제거하고, `--clip`은 클립보드 텍스트 끝의 `\n`만 제거한다. 붙여넣은 PAT 등 단일 줄 토큰에서 CR/LF·공백을 치우려면 `--normalize`를 쓴다(앞뒤 공백 trim + 본문의 모든 CR/LF 제거). merge 전 Mac에서의 우회: `kc set NAME --clip`, 또는 `printf '%s' "$TOKEN" | kc set NAME`, 필요 시 `--normalize` 또는 `--no-verify` 후 수동 확인.
+
 ## 동작
 
 | 플래그 | 의미 |
 |---|---|
 | (기본) | provider가 있으면 verify 실행 |
+| `--normalize` | 명시적으로 단일 줄 PAT에 한해 앞뒤 공백·CR/LF를 정규화하고 저장 |
 | `--no-verify` | 검증 생략 |
 | `--force` | 검증 실패 시에도 저장 진행 |
 
@@ -69,14 +72,14 @@ version: 1
 |---|---|---|
 | `branch` | `/repos/{repo}/branches/{branch}` | 200 → `protected` 불리언만 |
 | `rulesets` | `/repos/{repo}/rulesets` | 200 → 통과 (빈 배열 허용); **403 → 저장 거부** (admin read 부족) |
-| `protection` | `…/branches/{branch}/protection` | `protected=true`일 때만 호출; 200 → `required_status_checks.contexts` **이름만** (최대 50); 404 → `not_found` (실패 아님) |
+| `protection` | `…/branches/{branch}/protection` | `protected=true`일 때만 호출; 200 → `required_status_checks.contexts` **이름만** (최대 50); 401/403·전송 오류·잘못된 응답 → 저장 중단; 404 → `not_found` 경고 (권한 확인 아님) |
 
-**통과:** `/user` 200 + `rulesets` 403 아님. `rulesets` 403은 `--force` 없이 **저장 중단**.
+**통과:** `/user` 200, branch와 유효한 `rulesets` 응답을 확인한다. 보호된 브랜치에서 classic protection 조회가 401/403 또는 오류면 `--force` 없이 저장을 중단한다. 브랜치가 비보호이거나 classic rule이 404인 경우 저장은 허용하되 경고하며, branch protection 읽기 권한을 확인했다고 주장하지 않는다. ruleset에 의해 보호된 브랜치에는 classic rule이 없을 수 있다.
 
 ## 테스트·CI
 
-- Cloudflare: `CF_API_BASE` 덮어쓰기; 실연동 `KC_SET_VERIFY_INTEGRATION=1` + `CF_API_TOKEN`.
-- GitHub: `GH_API_BASE` 덮어쓰기; probe repo/branch는 `GH_PROBE_REPO` / `GH_PROBE_BRANCH`. 실연동은 등록 PAT만 메모리에서 사용(argv·로그 금지).
+- 운영 검증 대상은 각각 `https://api.cloudflare.com/client/v4` 및 `https://api.github.com`으로 고정하고 HTTP redirect를 따르지 않는다. `CF_API_BASE`와 `GH_API_BASE`가 공식 주소가 아닌 값으로 설정돼 있으면 외부 요청 전에 오류로 중단한다. 환경 변수의 원문은 오류에 출력하지 않는다.
+- 테스트는 메모리 내 HTTP transport를 주입하며 실제 서버나 비밀을 사용하지 않는다. Cloudflare 실연동은 `KC_SET_VERIFY_INTEGRATION=1` + `CF_API_TOKEN`이 별도로 필요한 선택 검사다. GitHub probe repo/branch는 `GH_PROBE_REPO` / `GH_PROBE_BRANCH`로 지정한다.
 
 ## 금지
 
