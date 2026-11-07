@@ -73,7 +73,6 @@ func GetToolDefinitions(allowSecretValues bool) []Tool {
 			},
 		},
 	}
-	}
 	if allowSecretValues {
 		return tools
 	}
