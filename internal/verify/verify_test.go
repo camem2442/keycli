@@ -250,3 +250,17 @@ func TestMalformedOverrideNeverFallsThroughToProvider(t *testing.T) {
 		})
 	}
 }
+
+// With default byte preservation, CRLF within a single-line bearer token must
+// fail verification before any provider request (opt-in --normalize is CLI-owned).
+func TestCloudflareAgentVerifyRejectsCRLFInTokenWithoutNormalize(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return reply(r, http.StatusOK, `{"success":true,"result":[]}`), nil
+	})}
+	out, err := verify.Run(context.Background(), "cloudflare_agent", "", append([]byte("fixture-token"), byte(13), byte(10)), client)
+	if err == nil || out != nil || calls != 0 {
+		t.Fatalf("CRLF token must be rejected before network, got outcome=%+v err=%v calls=%d", out, err, calls)
+	}
+}

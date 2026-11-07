@@ -7,11 +7,14 @@ version: 1
 
 `kc set`은 저장 직전에 등록된 **provider**에 맞는 원격 검증을 수행한다. 검증은 방금 입력한 값만 메모리에서 사용하며 `kc get`을 호출하지 않는다.
 
+**시크릿 바이트:** 기본은 입력값을 **그대로** 저장·검증에 사용한다(의도적인 앞뒤 공백·개행 보존). 파이프 stdin만 끝의 개행 **한 번**을 제거하고, `--clip`은 클립보드 텍스트 끝의 `\n`만 제거한다. 붙여넣은 PAT 등 단일 줄 토큰에서 CR/LF·공백을 치우려면 `--normalize`를 쓴다(앞뒤 공백 trim + 본문의 모든 CR/LF 제거). merge 전 Mac에서의 우회: `kc set NAME --clip`, 또는 `printf '%s' "$TOKEN" | kc set NAME`, 필요 시 `--normalize` 또는 `--no-verify` 후 수동 확인.
+
 ## 동작
 
 | 플래그 | 의미 |
 |---|---|
 | (기본) | provider가 있으면 verify 실행 |
+| `--normalize` | 명시적으로 단일 줄 PAT에 한해 앞뒤 공백·CR/LF를 정규화하고 저장 |
 | `--no-verify` | 검증 생략 |
 | `--force` | 검증 실패 시에도 저장 진행 |
 
