@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"filippo.io/age"
@@ -10,6 +11,7 @@ import (
 	"github.com/camem2442/keycli/internal/dotenv"
 	"github.com/camem2442/keycli/internal/exportrecv"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -19,12 +21,30 @@ func newExportCmd(a *app.App) *cobra.Command {
 	var toRecipient string
 	var toGitHub string
 	var stdout bool
+	var verifiedRecipient string
+	var outputFile string
 
 	cmd := &cobra.Command{
 		Use:   "export NAME...",
 		Short: "Export secrets (dotenv clipboard or age bundle)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			guarded := cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("output-file")
+			if guarded {
+				if format != "" || toGitHub != "" || stdout || toRecipient == "" || verifiedRecipient == "" || outputFile == "" || len(args) != 1 {
+					return fmt.Errorf("verified export requires one secret, one explicit age recipient, verified recipient and output file")
+				}
+				if err := transferguard.CheckRecipient(toRecipient, verifiedRecipient); err != nil {
+					return err
+				}
+				parsed, ssh, err := exportrecv.ParseRecipient(toRecipient)
+				if err != nil {
+					return err
+				}
+				if _, ok := parsed.(*age.X25519Recipient); !ok || ssh {
+					return fmt.Errorf("verified export requires an X25519 recipient")
+				}
+			}
 			secrets := map[string][]byte{}
 			for _, name := range args {
 				val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
@@ -43,7 +63,22 @@ func newExportCmd(a *app.App) *cobra.Command {
 				return exportDotenv(cmd, a, secrets, stdout)
 			}
 			if toRecipient != "" || toGitHub != "" {
-				return exportAge(cmd, secrets, toRecipient, toGitHub)
+				if guarded {
+					f, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+					if err != nil {
+						return fmt.Errorf("create encrypted output: %w", err)
+					}
+					err = exportAge(cmd, f, secrets, toRecipient, toGitHub)
+					closeErr := f.Close()
+					if err != nil {
+						return fmt.Errorf("export failed; partial encrypted file retained: %w", err)
+					}
+					if closeErr != nil {
+						return fmt.Errorf("close encrypted file; inspect file before reuse: %w", closeErr)
+					}
+					return nil
+				}
+				return exportAge(cmd, os.Stdout, secrets, toRecipient, toGitHub)
 			}
 			return kcerrors.ErrUsage
 		},
@@ -52,6 +87,8 @@ func newExportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&toRecipient, "to", "", "age1… or ssh-… recipient")
 	cmd.Flags().StringVar(&toGitHub, "to-github", "", "Fetch ssh keys from github.com/USER.keys")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write dotenv to stdout when stdout is not a TTY")
+	cmd.Flags().StringVar(&verifiedRecipient, "verified-recipient", "", "recipient independently verified by operator before reading secrets")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "create a new encrypted bundle file (0600; requires verified recipient)")
 	return cmd
 }
 
@@ -72,7 +109,7 @@ func exportDotenv(cmd *cobra.Command, a *app.App, secrets map[string][]byte, std
 	return nil
 }
 
-func exportAge(cmd *cobra.Command, secrets map[string][]byte, toRecipient, toGitHub string) error {
+func exportAge(cmd *cobra.Command, output io.Writer, secrets map[string][]byte, toRecipient, toGitHub string) error {
 	var recipients []age.Recipient
 	var sshUsed bool
 	if toRecipient != "" {
@@ -96,7 +133,7 @@ func exportAge(cmd *cobra.Command, secrets map[string][]byte, toRecipient, toGit
 	if sshUsed {
 		fmt.Fprintln(cmd.ErrOrStderr(), "kc: 경고: SSH 수신자를 쓰면 암호문에 공개키 태그가 남습니다.")
 	}
-	if err := agebundle.Encrypt(os.Stdout, secrets, recipients); err != nil {
+	if err := agebundle.Encrypt(output, secrets, recipients); err != nil {
 		return err
 	}
 	return nil
