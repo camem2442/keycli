@@ -30,6 +30,8 @@ func Run(ctx context.Context, name, note string, token []byte, client *http.Clie
 		return runCloudflareAgent(ctx, token, client)
 	case ProviderCloudflareBillingRead:
 		return runCloudflareBilling(ctx, token, client)
+	case ProviderGitHubAgent:
+		return runGitHubAgent(ctx, token, client)
 	case ProviderGitHubPAT:
 		return nil, nil
 	default:

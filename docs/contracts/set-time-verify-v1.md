@@ -33,6 +33,7 @@ version: 1
 |---|---|
 | `cloudflare_agent` | 이름 `cloudflare_agent` 또는 `cloudflare_agent` 노트 |
 | `cloudflare_billing_read` | 이름 `cloudflare_billing_read` 또는 동일 노트 |
+| `github_agent` | 이름 `github_agent`, 동일 노트, 또는 `github_<suffix>` (표: `agent`) |
 | `github_pat` | 이름 `github_pat` (v1: 검증 no-op, 예약) |
 
 ### `cloudflare_agent`
@@ -54,7 +55,28 @@ version: 1
 
 **narrow 통과:** `subscriptions`와 `billable_usage_v1` 모두 `ok`. 그 외 프로브는 경고만.
 
-테스트·CI: `CF_API_BASE`로 API 베이스 덮어쓰기. 실연동은 `KC_SET_VERIFY_INTEGRATION=1` 및 `CF_API_TOKEN`.
+### `github_agent`
+
+1. `GET https://api.github.com/user` — `Authorization: Bearer` (입력값). HTTP **200** 필수; `login`만 프로브 JSON에 기록.
+2. 토큰 verify 통과 시 probe repo (환경 변수로 덮어쓰기 가능):
+
+| 변수 | 기본값 |
+|---|---|
+| `GH_PROBE_REPO` | `camem2442/mock-exam-timer` |
+| `GH_PROBE_BRANCH` | `integration/member-records` |
+
+| probe | 경로 | 기대 |
+|---|---|---|
+| `branch` | `/repos/{repo}/branches/{branch}` | 200 → `protected` 불리언만 |
+| `rulesets` | `/repos/{repo}/rulesets` | 200 → 통과 (빈 배열 허용); **403 → 저장 거부** (admin read 부족) |
+| `protection` | `…/branches/{branch}/protection` | `protected=true`일 때만 호출; 200 → `required_status_checks.contexts` **이름만** (최대 50); 404 → `not_found` (실패 아님) |
+
+**통과:** `/user` 200 + `rulesets` 403 아님. `rulesets` 403은 `--force` 없이 **저장 중단**.
+
+## 테스트·CI
+
+- Cloudflare: `CF_API_BASE` 덮어쓰기; 실연동 `KC_SET_VERIFY_INTEGRATION=1` + `CF_API_TOKEN`.
+- GitHub: `GH_API_BASE` 덮어쓰기; probe repo/branch는 `GH_PROBE_REPO` / `GH_PROBE_BRANCH`. 실연동은 등록 PAT만 메모리에서 사용(argv·로그 금지).
 
 ## 금지
 

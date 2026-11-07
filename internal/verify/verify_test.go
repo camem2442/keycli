@@ -68,6 +68,94 @@ func TestCloudflareBillingNarrowPass(t *testing.T) {
 	}
 }
 
+func TestGitHubAgentVerifyOK(t *testing.T) {
+	repo := "camem2442/mock-exam-timer"
+	branch := "main"
+	srv := newGHServer(t, ghRoutes{
+		"/user":                                        userJSON(`{"login":"camem2442"}`),
+		"/repos/" + repo + "/branches/main":            branchJSON(true),
+		"/repos/" + repo + "/rulesets":                 `[]`,
+		"/repos/" + repo + "/branches/main/protection": protectionJSON([]string{"ci/lint", "ci/test"}),
+	})
+	t.Setenv("GH_API_BASE", srv.URL)
+	t.Setenv("GH_PROBE_REPO", repo)
+	t.Setenv("GH_PROBE_BRANCH", branch)
+
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("gh-test-token"), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || out.Block || out.VerifyStatus != 200 {
+		t.Fatalf("out %+v", out)
+	}
+	if !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"login":"camem2442"`) {
+		t.Fatalf("probes %v", out.ProbeLines)
+	}
+	if !strings.Contains(strings.Join(out.ProbeLines, "\n"), `"ci/lint"`) {
+		t.Fatalf("protection contexts missing %v", out.ProbeLines)
+	}
+}
+
+func TestGitHubAgentUserFail(t *testing.T) {
+	srv := newGHServer(t, ghRoutes{
+		"/user": http.StatusUnauthorized,
+	})
+	t.Setenv("GH_API_BASE", srv.URL)
+
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("bad"), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || !out.Block {
+		t.Fatalf("expected block %+v", out)
+	}
+}
+
+func TestGitHubAgentRulesets403Blocks(t *testing.T) {
+	repo := "camem2442/mock-exam-timer"
+	srv := newGHServer(t, ghRoutes{
+		"/user":                             userJSON(`{"login":"camem2442"}`),
+		"/repos/" + repo + "/branches/main": branchJSON(false),
+		"/repos/" + repo + "/rulesets":      http.StatusForbidden,
+	})
+	t.Setenv("GH_PROBE_BRANCH", "main")
+	t.Setenv("GH_API_BASE", srv.URL)
+	t.Setenv("GH_PROBE_REPO", repo)
+
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("tok"), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || !out.Block {
+		t.Fatalf("rulesets 403 should block %+v", out)
+	}
+}
+
+func TestGitHubAgentUnprotectedSkipsProtection(t *testing.T) {
+	repo := "org/repo"
+	srv := newGHServer(t, ghRoutes{
+		"/user":                             userJSON(`{"login":"u"}`),
+		"/repos/" + repo + "/branches/main": branchJSON(false),
+		"/repos/" + repo + "/rulesets":      `[]`,
+	})
+	t.Setenv("GH_API_BASE", srv.URL)
+	t.Setenv("GH_PROBE_REPO", repo)
+	t.Setenv("GH_PROBE_BRANCH", "main")
+
+	out, err := verify.Run(context.Background(), "github_agent", "", []byte("tok"), srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || out.Block {
+		t.Fatalf("expected pass %+v", out)
+	}
+	for _, line := range out.ProbeLines {
+		if strings.Contains(line, `"probe":"protection"`) {
+			t.Fatalf("protection should be skipped %v", out.ProbeLines)
+		}
+	}
+}
+
 func TestCloudflareBillingNarrowFail(t *testing.T) {
 	srv := newCFServer(t, map[string]int{
 		"/client/v4/user/tokens/verify":                                                  200,
@@ -83,6 +171,55 @@ func TestCloudflareBillingNarrowFail(t *testing.T) {
 	if out == nil || !out.Block {
 		t.Fatalf("expected block %+v", out)
 	}
+}
+
+type ghRoutes map[string]interface{}
+
+func newGHServer(t *testing.T, routes ghRoutes) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		path := r.URL.EscapedPath()
+		if path == "" {
+			path = r.URL.Path
+		}
+		v, ok := routes[path]
+		if !ok {
+			v, ok = routes[r.URL.Path]
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		switch x := v.(type) {
+		case int:
+			w.WriteHeader(x)
+		case string:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(x))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+}
+
+func userJSON(inner string) string { return inner }
+func branchJSON(protected bool) string {
+	if protected {
+		return `{"name":"b","protected":true}`
+	}
+	return `{"name":"b","protected":false}`
+}
+func protectionJSON(contexts []string) string {
+	b, _ := json.Marshal(map[string]interface{}{
+		"required_status_checks": map[string]interface{}{
+			"contexts": contexts,
+		},
+	})
+	return string(b)
 }
 
 func newCFServer(t *testing.T, statusByPath map[string]int) *httptest.Server {

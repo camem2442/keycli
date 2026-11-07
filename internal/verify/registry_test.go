@@ -15,6 +15,7 @@ func TestDetectProvider(t *testing.T) {
 		{"cloudflare_agent", "", verify.ProviderCloudflareAgent, true},
 		{"other", "cloudflare_billing_read", verify.ProviderCloudflareBillingRead, true},
 		{"cloudflare_billing_read", "", verify.ProviderCloudflareBillingRead, true},
+		{"github_agent", "", verify.ProviderGitHubAgent, true},
 		{"github", "", "", false},
 		{"github_pat", "", verify.ProviderGitHubPAT, true},
 	}
