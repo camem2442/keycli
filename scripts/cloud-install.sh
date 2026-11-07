@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-KC_INSTALL_REF="${KC_INSTALL_REF:-v0.7.1}"
+KC_INSTALL_REF="${KC_INSTALL_REF:-v0.7.2}"
 PREFIX="${PREFIX:-${HOME}/.local/bin}"
 
 export KC_INSTALL_REF
