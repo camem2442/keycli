@@ -10,6 +10,10 @@
 
 ## Current Work Goal
 
+**v0.8.0 다중 에이전트 공통 인증 인수: PARTIAL** (2026-11-07). 구현 정본과 운영 인수를 분리하고, [v08 로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)에 따라 MCP 안전 기본값·Mac TUI/DB 보호·Cursor/Claude/Codex 1턴·Cloudflare 실전 검증을 개별 Goal로 관리합니다. 릴리스 설치 기본값은 **v0.7.1**이며, v0.8.0 배포와 다중 에이전트 실운영은 **NOT VERIFIED**입니다.
+
+### 이전 Goal — v0.7.0 운영 종결
+
 **v0.7.0 출시 + operational close: COMPLETE** (2026-10-29 기준, [release gate](docs/planning/v07-release-gate.md)에 정의된 범위만). tag [`v0.7.0`](https://github.com/camem2442/keycli/releases/tag/v0.7.0). 운영 근거: [v07-operational-evidence.md](docs/planning/v07-operational-evidence.md).
 
 - Mac mac-smoke·`kc push cursor` 실 PUT·목록·DELETE — **COMPLETE** (KC-55)
