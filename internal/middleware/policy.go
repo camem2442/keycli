@@ -71,12 +71,16 @@ func (p *Policy) Allowed(canonicalName string) bool {
 		return true
 	}
 	for _, pattern := range spec.Deny {
-		if matchName(pattern, canonicalName) {
+		// A malformed deny pattern cannot be evaluated, so deny rather than
+		// let the broad allow beneath it apply (fail closed).
+		matched, err := matchNameErr(pattern, canonicalName)
+		if err != nil || matched {
 			return false
 		}
 	}
 	for _, pattern := range spec.Allow {
-		if matchName(pattern, canonicalName) {
+		matched, err := matchNameErr(pattern, canonicalName)
+		if err == nil && matched {
 			return true
 		}
 	}
@@ -119,17 +123,19 @@ func canonicalForPolicy(cfg config.Config, name string) string {
 	return name
 }
 
-func matchName(pattern, name string) bool {
+// matchNameErr reports whether pattern matches name, and whether the pattern is
+// a usable glob. Callers must treat a non-nil error as fail-closed: a malformed
+// pattern cannot be evaluated, so it must not fall through to the allow list.
+func matchNameErr(pattern, name string) (bool, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
-		return false
+		return false, nil
 	}
 	if pattern == name {
-		return true
+		return true, nil
 	}
 	if strings.ContainsAny(pattern, "*?[") {
-		ok, err := path.Match(strings.ToLower(pattern), strings.ToLower(name))
-		return err == nil && ok
+		return path.Match(strings.ToLower(pattern), strings.ToLower(name))
 	}
-	return strings.EqualFold(pattern, name)
+	return strings.EqualFold(pattern, name), nil
 }

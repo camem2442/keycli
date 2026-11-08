@@ -183,3 +183,29 @@ func TestPolicyEmptyDenyKeepsAllowBehaviour(t *testing.T) {
 		t.Fatal("empty deny list must not change allow semantics")
 	}
 }
+
+// A malformed deny pattern cannot be evaluated, so it must fail closed instead
+// of letting the broad allow beneath it apply.
+func TestPolicyMalformedDenyFailsClosed(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"*"}, Deny: []string{"sogang-[abc"}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+	for _, name := range []string{"github", "github_agent", "dev_cf_worker_read"} {
+		if p.Allowed(name) {
+			t.Fatalf("%s must be denied when a deny pattern is malformed", name)
+		}
+	}
+}
+
+// A malformed allow pattern must not match anything; the agent stays denied.
+func TestPolicyMalformedAllowDoesNotMatch(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"dev_[abc"}},
+	}
+	if middleware.NewPolicy(cfg, "cursor").Allowed("dev_cf_worker_read") {
+		t.Fatal("malformed allow pattern must not match")
+	}
+}
