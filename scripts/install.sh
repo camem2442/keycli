@@ -2,7 +2,7 @@
 # Install kc to ~/.local/bin (no sudo). Public repo: curl release or go install first.
 set -euo pipefail
 
-REF="${KC_INSTALL_REF:-v0.7.2}"
+REF="${KC_INSTALL_REF:-v0.8.0}"
 PREFIX="${PREFIX:-${HOME}/.local/bin}"
 MODULE="github.com/camem2442/keycli/cmd/kc"
 GITHUB_REPO="camem2442/keycli"
