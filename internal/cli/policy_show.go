@@ -31,13 +31,13 @@ func newPolicyShowCmd(a *app.App) *cobra.Command {
 				// diagnostic step, and an invalid policy must have no digest.
 				digest, _ := middleware.EffectivePolicyDigest(a.Config, agent)
 				payload := struct {
-					V        int      `json:"v"`
-					Agent    string   `json:"agent"`
-					Enforced bool     `json:"enforced"`
-					Source   string   `json:"source"`
-					Allow    []string `json:"allow"`
-					Deny     []string `json:"deny"`
-					PolicyDigest string `json:"policy_digest,omitempty"`
+					V            int      `json:"v"`
+					Agent        string   `json:"agent"`
+					Enforced     bool     `json:"enforced"`
+					Source       string   `json:"source"`
+					Allow        []string `json:"allow"`
+					Deny         []string `json:"deny"`
+					PolicyDigest string   `json:"policy_digest,omitempty"`
 				}{V: 1, Agent: agent, Enforced: enforced, Source: source, Allow: allow, Deny: deny, PolicyDigest: digest}
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
