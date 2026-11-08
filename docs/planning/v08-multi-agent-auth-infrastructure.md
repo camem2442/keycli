@@ -57,7 +57,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 | Consumer | Default delivery | Owning verification | Status |
 |---|---|---|---|
 | Cursor local | Keychain/file via `kc exec --require --only` + optional helper | Live GUI and policy deny/allow + short-lived fake secret | PARTIAL |
-| Cursor Cloud | Platform environment secret + `kc doctor`, scoped `kc exec` | Fresh VM, bound release SHA, exact permitted command, no leaked value | PARTIAL (bootstrap proven, policy E2E open) |
+| Cursor Cloud | Platform environment secret + `kc doctor`, scoped `kc exec` | Fresh VM, bound release SHA, exact permitted command, no leaked value | **COMPLETE for the allowlist contract** — single Linux VM, released `v0.7.2`, A/B/C = 0/5/2 with child spawn only on allow ([receipt](../reviews/2026-11-08-kc-cursor-cloud-p3-01.md)). `policy_digest` 재현, `pin_match`, `deny` 기능, 실제 provider 자격증명은 **NOT VERIFIED** |
 | Claude Code local/cloud | Native platform secret or per-host local resolver; `CLAUDE.md` rules | One CLI turn with required non-secret output + deny/no-child scenario | NOT VERIFIED |
 | Codex local/cloud | Native platform secret or per-host resolver; `AGENTS.md` rules | Same independent single-turn and phase-specific secret presence | NOT VERIFIED |
 | OpenCode standalone | `kc exec` into `--standalone`; no background service secret persistence | One turn plus no `service.json` secret write | PARTIAL |
