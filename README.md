@@ -2,7 +2,7 @@
 
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
-> 상태: **v0.7.2** [출시](https://github.com/camem2442/keycli/releases/tag/v0.7.2) — MCP 기본 비밀값 노출 제한, 기본 설치 pin 및 SHA256 검증. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8.0은 공통 인증 CLI 안정화 릴리스이며 출시 조건은 [release gate](docs/planning/v080-release-gate.md)에 있습니다. 에이전트별 운영 도입은 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)의 별도 소비자 조건이며 아직 끝나지 않았습니다.
+> 상태: **v0.8.0** [출시](https://github.com/camem2442/keycli/releases/tag/v0.8.0) — 공통 인증 CLI 안정화(정책 deny·alias 충돌 거부·`policy_digest`·`exec --require`·import 덮어쓰기 거부), 로컬 기본 설치 pin([증거](docs/planning/v080-release-evidence.md)). Cloud Agent 기본 pin은 v0.7.2 유지. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8.0은 공통 인증 CLI 안정화 릴리스이며 출시 조건은 [release gate](docs/planning/v080-release-gate.md)에 있습니다. 에이전트별 운영 도입은 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)의 별도 소비자 조건이며 아직 끝나지 않았습니다.
 
 > **MCP 보안 버전 구분:** 게시된 **v0.7.2**는 `kc mcp` 기본 도구를 메타데이터·진단으로 한정하고 비밀 값은 `--allow-secret-values`를 명시해야 합니다. **v0.7.1 이하의 MCP는 `get_secret`을 기본 노출**하므로 공유 에이전트에 연결하기 전 실제 설치 버전 확인이 필요합니다. 릴리스 바이너리의 Linux 다운로드·SHA256·격리 재설치 인수 근거는 [v072-release-evidence.md](docs/planning/v072-release-evidence.md)를 참조하세요.
 
@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/camem2442/keycli/main/scripts/insta
 go install github.com/camem2442/keycli/cmd/kc@latest
 ```
 
-`KC_INSTALL_REF=v0.7.2`로 현재 출시 태그를 명시적으로 고정할 수 있다. release 바이너리 경로(curl·`gh release download`)는 릴리스 `SHA256SUMS`와 대조한 뒤에만 설치하며, 합계 파일이 없거나 불일치하면 중단한다. `gh release download`는 `gh` 로그인 시 선택 경로.
+`scripts/install.sh` 기본은 `v0.8.0`이며 `KC_INSTALL_REF=v0.7.2`로 이전 태그에 롤백할 수 있다. release 바이너리 경로(curl·`gh release download`)는 릴리스 `SHA256SUMS`와 대조한 뒤에만 설치하며, 합계 파일이 없거나 불일치하면 중단한다. `gh release download`는 `gh` 로그인 시 선택 경로.
 
 **Mac (로컬 개발):** `bash scripts/lifecycle.sh build-dev --install` → `~/.local/bin/kc` (+ `keycli` symlink). 검증: `./verify.sh --suite release`.
 

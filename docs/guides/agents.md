@@ -8,7 +8,7 @@ status: implemented
 ## 공통 규칙
 
 1. `kc ls --json`으로 이름만 확인한다 (값 금지).
-2. 명령 실행은 `kc exec --only NAME -- COMMAND…`를 우선한다. 단순 조회만 필요하면 `kc get NAME` (stdout만, 로그·커밋 금지).
+2. 명령 실행은 `kc exec --require --only NAME -- COMMAND…`를 우선한다(v0.8.0: 누락 exit 2, 거부 exit 5, 두 경우 모두 자식 미실행). 단순 조회만 필요하면 `kc get NAME` (stdout만, 로그·커밋 금지).
 3. 종료 코드 **3**은 샌드박스/키체인 차단 — 사용자에게 샌드박스 밖 실행 또는 env 시크릿을 요청한다.
 4. 종료 코드 **5**는 정책 거부 — `kc policy check NAME`으로 확인하고 사용자에게 allowlist 수정을 요청한다.
 5. ai-core 키체인 항목(`local.study.ai.*`)은 **읽기 전용**이다.
@@ -39,6 +39,25 @@ kc rules --target agents --write AGENTS.md
 kc rules --target cursor --write .cursor/rules/keycli.mdc
 kc rules --target claude --write CLAUDE.md
 ```
+
+## 에이전트별 인증 적용 범위 (v0.8.0)
+
+kc가 소유하는 것은 **로컬 시크릿 이름·alias·정책·필요한 명령 하나로의 전달**뿐이다. 중앙 인증 서버, 공용 토큰 동기화, 전체 Vault 전송은 하지 않는다.
+
+| 에이전트 | 기본 권장 역할 | 모델 로그인·클라우드 인증 | kc 연결 |
+|---|---|---|---|
+| Codex | 주 개발·코드 수정 | Codex/OpenAI 자체 로그인 | 필요할 때 `[policy.agent.codex]` + `exec --require --only` |
+| Claude Code | 복잡한 분석·검토 | Claude 자체 로그인 | 필요할 때 `[policy.agent.claude]` |
+| Cursor (local/Cloud) | UI·클라우드 개발 | Cursor 자체 로그인; Cloud는 플랫폼 환경 시크릿 | 첫 로컬 파일럿 대상(아래 영수증) |
+| OpenCode | 저비용 반복·탐색 | 공급자 자체 키 경로 | 자동 탐지 프로필 없음 → `KC_AGENT=opencode` 섹션을 만들기 전까지 `default`(전부 거부) |
+
+역할은 기본 권장값이며 작업마다 모델·실행 환경을 바꿀 수 있다. 시크릿은 세 층으로 나눈다.
+
+- **사람 전용**: 지갑·개인 계정·전체 권한 토큰. 모든 에이전트 섹션의 `deny`에 둔다. 사람은 `KC_AGENT=human`으로 명시해 사용한다.
+- **제한 개발용**: 읽기 전용·좁은 범위 토큰. 에이전트가 `exec --require --only`로 받는다.
+- **운영 효과 권한**: 배포·쓰기 토큰. 해당 작업 동안만 허용하고 끝나면 좁힌다. 실제 권한은 공급자 토큰 범위에서도 제한한다.
+
+검증에는 `kc get`, 전체 Vault 전송, 광범위 토큰 복제, 환경변수 덤프를 쓰지 않는다. 허용/거부/누락은 합성 이름과 `kc policy check`(값 없음)로 확인한다.
 
 ## MCP (Model Context Protocol) 연동
 
