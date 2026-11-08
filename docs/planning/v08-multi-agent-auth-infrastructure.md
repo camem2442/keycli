@@ -87,7 +87,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 - Cursor alias real PUT → list name → DELETE using a temporary secret: **COMPLETE** (2026-11-08, [receipt](../reviews/2026-11-08-kc-p4-cursor-alias-put.md)). v0.7.0 alias dry-run alone was not sufficient. `--repos` 범위, `secret_name_ambiguous`, 1000 상한, GUI 주입은 **NOT VERIFIED**.
 - Cloudflare: fake-Wrangler CI **COMPLETE**, and a separate permissioned test Worker push → verify → delete is **COMPLETE** (2026-11-08, [receipt](../reviews/2026-11-08-kc-p4-cloudflare-push.md)) — no production rotation. 무료 플랜 한도·반복 예산·롤백은 **NOT VERIFIED**.
 - Do not expand GitHub `--user`/`codespaces`/`agents` until a concrete consumer needs them.
-- Add credential expiry/rotation/cleanup ownership: importing age bundles can persist file-store data without expiration; imported names may overwrite values. No automatic refresh or global sweep.
+- Add credential expiry/rotation/cleanup ownership: **import overwrite refusal + no-expiry warning COMPLETE** (2026-11-08, [ownership](../reviews/2026-11-08-credential-lifecycle-ownership.md)); rotation/cleanup ownership documented. 자동 갱신·전역 스윕은 **비목표**로 유지한다.
 
 ### D. Common verification integration
 
