@@ -36,7 +36,7 @@ status: implemented
 | `kc doctor [--json]` | 백엔드·config·identity 출처(`KC_KEY`/`receiver.key`/`kc.age`)·PATH `kc` 충돌·키체인·클립보드·git helper (값 미출력). JSON `kc_age`는 `env`/`file`/`keychain`/`missing`/`locked`/`blocked`, `identity_path`는 file일 때만 |
 | `kc push cursor\|gh\|cloudflare [NAME...] [--repos …] [--worker W --worker-env E --wrangler-config PATH]` | 플랫폼 시크릿에 직접 등록 ([전송 계약](transfer.md)) |
 | `kc export NAME... --to KEY\|--to-github USER\|--format dotenv` | 암호화 번들 또는 클립보드용 dotenv |
-| `kc import` | stdin의 age 번들을 저장소에 추가 |
+| `kc import [--force]` | stdin의 age 번들을 저장소에 추가. 번들은 만료를 싣지 않으며, **기존 이름을 덮어쓰려 하면 거부**한다(`--force` 필요). 성공 시 "no expiry" 경고를 stderr에 남긴다 |
 | `kc status` | 내보낸 뒤 바뀐 항목 표시. 읽을 수 없는 이름은 값 없이 stderr에 이름·사유를 보고 |
 | `kc doctor [--json]` | 백엔드·config·키·PATH 충돌 (값 미출력) |
 | `kc plugin list [--json]` | `kc-backend-*` 발견, enabled, protocol v1, capabilities (enabled만 handshake) |
