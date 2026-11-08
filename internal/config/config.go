@@ -173,9 +173,6 @@ func Load(home string) (Config, string, error) {
 	if c.Policy.Agent == nil {
 		c.Policy.Agent = map[string]PolicyAgentSettings{}
 	}
-	if err := c.ValidatePolicyPatterns(); err != nil {
-		return Config{}, path, err
-	}
 	if c.Audit.Path != "" {
 		c.Audit.Path = expandHome(c.Audit.Path, home)
 	}

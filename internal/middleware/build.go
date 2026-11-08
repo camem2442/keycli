@@ -12,6 +12,12 @@ func BuildChain(home string, cfg config.Config, warn func(string)) []Middleware 
 	if len(cfg.Middleware) == 0 {
 		return nil
 	}
+	if err := cfg.ValidatePolicyPatterns(); err != nil {
+		// Fail closed: an unparseable rule cannot be evaluated, so no read is
+		// allowed rather than letting a broad allow apply. The CLI reports the
+		// error itself; this is the backstop for callers that bypass it.
+		return []Middleware{denyAll()}
+	}
 	agent := DetectAgent()
 	var out []Middleware
 	for _, name := range cfg.Middleware {

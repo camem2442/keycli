@@ -139,3 +139,12 @@ func matchNameErr(pattern, name string) (bool, error) {
 	}
 	return strings.EqualFold(pattern, name), nil
 }
+
+// denyAll denies every read. Used when the policy config cannot be evaluated.
+func denyAll() Middleware {
+	return func(next Lookup) Lookup {
+		return func(ctx context.Context, name string) ([]byte, string, error) {
+			return nil, "", fmt.Errorf("%w: %s", kcerrors.ErrDenied, name)
+		}
+	}
+}
