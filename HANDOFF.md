@@ -2,7 +2,7 @@
 
 ## 2026-11-08 — policy deny + 라이브 적용 검증
 
-`[policy.agent.*] deny = [...]`를 추가했다(PR #30, `b69c3b6`). Cursor Cloud 단일 VM 파일럿은 릴리스 `v0.7.2`로 **allowlist 계약 PASS**(A/B/C = 0/5/2, 허용일 때만 자식 실행, 합성 시크릿만) — [영수증](docs/reviews/2026-11-08-kc-cursor-cloud-p3-01.md). `policy_digest` 재현·`pin_match`·`deny` 기능·실제 provider 자격증명은 **NOT VERIFIED**. `deny`는 `allow`보다 먼저 평가되고, 잘못된 글로브는 진단 명령(`doctor`/`policy`/`rules`)을 제외한 모든 명령에서 명시적으로 거부되며(PR #32) 평가 단계에서도 fail-closed다. Mac 로컬 `cursor` 기준으로 `get`/`exec`/`ls`/`policy check` 네 경로의 허용·거부·오류를 합성 probe로 확인했다([검증](docs/reviews/2026-11-08-policy-deny-live-enforcement.md)). 다중 에이전트 동시 적용·Cloud Agent·`kc push` 경로는 **NOT VERIFIED**이며, 이 정책은 보안 경계가 아닌 **실수 방지 가드레일**이다. `kc policy show`(적용 규칙·출처·강제 여부)와 `kc policy validate`(전체 패턴 사전 검증)를 추가했다.
+`[policy.agent.*] deny = [...]`를 추가했다(PR #30, `b69c3b6`). Cursor Cloud 단일 VM 파일럿은 릴리스 `v0.7.2`로 **allowlist 계약 PASS**(A/B/C = 0/5/2, 허용일 때만 자식 실행, 합성 시크릿만) — [영수증](docs/reviews/2026-11-08-kc-cursor-cloud-p3-01.md). `policy_digest` 재현·`pin_match`·`deny` 기능·실제 provider 자격증명은 **NOT VERIFIED**. `deny`는 `allow`보다 먼저 평가되고, 잘못된 글로브는 진단 명령(`doctor`/`policy`/`rules`)을 제외한 모든 명령에서 명시적으로 거부되며(PR #32) 평가 단계에서도 fail-closed다. Mac 로컬 `cursor` 기준으로 `get`/`exec`/`ls`/`policy check` 네 경로의 허용·거부·오류를 합성 probe로 확인했다([검증](docs/reviews/2026-11-08-policy-deny-live-enforcement.md)). 다중 에이전트 동시 적용·Cloud Agent·`kc push` 경로는 **NOT VERIFIED**이며, 이 정책은 보안 경계가 아닌 **실수 방지 가드레일**이다. `kc policy show`(적용 규칙·출처·강제 여부)와 `kc policy validate`(전체 패턴 사전 검증)를 추가했다. Cursor Cloud 별칭 경유 실 PUT → 목록 → DELETE 왕복은 합성 값으로 **COMPLETE**([영수증](docs/reviews/2026-11-08-kc-p4-cursor-alias-put.md)); `--repos` 범위·충돌·상한·GUI 주입은 **NOT VERIFIED**.
 
 ## 2026-10-26 — 공통 정책 채택
 
