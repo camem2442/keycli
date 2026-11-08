@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -28,8 +30,40 @@ type AuditSettings struct {
 }
 
 // PolicyAgentSettings is a per-agent allowlist (globs allowed).
+//
+// Deny is evaluated before Allow, so a narrow exception list can sit under a
+// broad allow (e.g. allow = ["*"], deny = ["github"]).
 type PolicyAgentSettings struct {
 	Allow []string `toml:"allow"`
+	Deny  []string `toml:"deny"`
+}
+
+// ValidatePolicyPatterns rejects malformed or empty allow/deny globs.
+//
+// A bad pattern is not inert: path.Match fails on it, so a malformed deny rule
+// would match nothing and the broad allow beneath it would silently apply.
+// Rejecting the config makes that mistake explicit instead of widening access.
+func (c Config) ValidatePolicyPatterns() error {
+	for agent, spec := range c.Policy.Agent {
+		for _, list := range []struct {
+			kind     string
+			patterns []string
+		}{
+			{"allow", spec.Allow},
+			{"deny", spec.Deny},
+		} {
+			for _, raw := range list.patterns {
+				pattern := strings.TrimSpace(raw)
+				if pattern == "" {
+					return fmt.Errorf("policy.agent.%s.%s: empty pattern", agent, list.kind)
+				}
+				if _, err := path.Match(strings.ToLower(pattern), "probe"); err != nil {
+					return fmt.Errorf("policy.agent.%s.%s: invalid glob %q: %w", agent, list.kind, raw, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // PolicySettings groups agent allowlists.
@@ -138,6 +172,9 @@ func Load(home string) (Config, string, error) {
 	}
 	if c.Policy.Agent == nil {
 		c.Policy.Agent = map[string]PolicyAgentSettings{}
+	}
+	if err := c.ValidatePolicyPatterns(); err != nil {
+		return Config{}, path, err
 	}
 	if c.Audit.Path != "" {
 		c.Audit.Path = expandHome(c.Audit.Path, home)
