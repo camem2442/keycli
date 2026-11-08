@@ -16,6 +16,8 @@ func newPolicyCmd(a *app.App) *cobra.Command {
 		Short: "Agent allowlist policy (guardrail)",
 	}
 	cmd.AddCommand(newPolicyCheckCmd(a))
+	cmd.AddCommand(newPolicyShowCmd(a))
+	cmd.AddCommand(newPolicyValidateCmd(a))
 	return cmd
 }
 

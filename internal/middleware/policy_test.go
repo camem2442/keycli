@@ -275,3 +275,22 @@ func TestDeniedErrorKeepsErrDenied(t *testing.T) {
 		t.Fatalf("message should name the reason, got %q", err.Error())
 	}
 }
+
+func TestEffectiveRulesSource(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor":  {Allow: []string{"*"}},
+		"default": {Allow: []string{"demo"}},
+	}
+
+	if spec, src := middleware.EffectiveRules(cfg, "cursor"); src != "explicit" || len(spec.Allow) != 1 || spec.Allow[0] != "*" {
+		t.Fatalf("explicit: %+v %s", spec, src)
+	}
+	if spec, src := middleware.EffectiveRules(cfg, "unknown"); src != "default" || spec.Allow[0] != "demo" {
+		t.Fatalf("default: %+v %s", spec, src)
+	}
+	empty := config.Default(t.TempDir())
+	if _, src := middleware.EffectiveRules(empty, "cursor"); src != "none" {
+		t.Fatalf("none expected, got %s", src)
+	}
+}

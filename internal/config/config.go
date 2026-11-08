@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -38,12 +40,13 @@ type PolicyAgentSettings struct {
 	Deny  []string `toml:"deny"`
 }
 
-// ValidatePolicyPatterns rejects malformed or empty allow/deny globs.
+// PolicyPatternErrors lists every malformed or empty allow/deny glob, sorted.
 //
 // A bad pattern is not inert: path.Match fails on it, so a malformed deny rule
 // would match nothing and the broad allow beneath it would silently apply.
-// Rejecting the config makes that mistake explicit instead of widening access.
-func (c Config) ValidatePolicyPatterns() error {
+// Reporting every entry (not just the first) is what `kc policy validate` needs.
+func (c Config) PolicyPatternErrors() []string {
+	var out []string
 	for agent, spec := range c.Policy.Agent {
 		for _, list := range []struct {
 			kind     string
@@ -55,13 +58,23 @@ func (c Config) ValidatePolicyPatterns() error {
 			for _, raw := range list.patterns {
 				pattern := strings.TrimSpace(raw)
 				if pattern == "" {
-					return fmt.Errorf("policy.agent.%s.%s: empty pattern", agent, list.kind)
+					out = append(out, fmt.Sprintf("policy.agent.%s.%s: empty pattern", agent, list.kind))
+					continue
 				}
 				if _, err := path.Match(strings.ToLower(pattern), "probe"); err != nil {
-					return fmt.Errorf("policy.agent.%s.%s: invalid glob %q: %w", agent, list.kind, raw, err)
+					out = append(out, fmt.Sprintf("policy.agent.%s.%s: invalid glob %q: %v", agent, list.kind, raw, err))
 				}
 			}
 		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ValidatePolicyPatterns returns the first policy pattern error, or nil.
+func (c Config) ValidatePolicyPatterns() error {
+	if errs := c.PolicyPatternErrors(); len(errs) > 0 {
+		return errors.New(errs[0])
 	}
 	return nil
 }

@@ -133,16 +133,10 @@ func (p *Policy) Agent() string {
 }
 
 func (p *Policy) rulesForAgent() (config.PolicyAgentSettings, bool) {
-	agents := p.cfg.Policy.Agent
-	if spec, ok := agents[p.agent]; ok {
-		return spec, true
-	}
-	// Any unregistered agent name (including explicit KC_AGENT labels) must
-	// inherit the configured default guardrail, not silently bypass it.
-	if spec, ok := agents["default"]; ok {
-		return spec, true
-	}
-	return config.PolicyAgentSettings{}, false
+	// An unregistered agent name (including explicit KC_AGENT labels) inherits
+	// the configured default guardrail rather than silently bypassing it.
+	spec, source := EffectiveRules(p.cfg, p.agent)
+	return spec, source != "none"
 }
 
 func canonicalForPolicy(cfg config.Config, name string) string {
@@ -187,4 +181,19 @@ func denyAll() Middleware {
 			return nil, "", &DeniedError{Name: name, Reason: ReasonInvalidPattern}
 		}
 	}
+}
+
+// EffectiveRules returns the allow/deny rules that apply to agent, and where
+// they came from: "explicit" (named entry), "default" (fallback), or "none".
+func EffectiveRules(cfg config.Config, agent string) (config.PolicyAgentSettings, string) {
+	if agent == "" {
+		agent = DetectAgent()
+	}
+	if spec, ok := cfg.Policy.Agent[agent]; ok {
+		return spec, "explicit"
+	}
+	if spec, ok := cfg.Policy.Agent["default"]; ok {
+		return spec, "default"
+	}
+	return config.PolicyAgentSettings{}, "none"
 }

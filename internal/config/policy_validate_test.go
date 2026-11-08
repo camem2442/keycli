@@ -93,3 +93,29 @@ func TestLoadStillRejectsBrokenTOML(t *testing.T) {
 		t.Fatal("broken TOML must still fail at load")
 	}
 }
+
+func TestPolicyPatternErrorsReturnsAll(t *testing.T) {
+	cfg, err := loadWith(t, `
+[policy.agent.cursor]
+allow = ["*", "bad["]
+deny = ["sogang-[abc", "  "]
+
+[policy.agent.codex]
+deny = ["x["]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := cfg.PolicyPatternErrors()
+	if len(errs) != 4 {
+		t.Fatalf("expected 4 errors, got %d: %v", len(errs), errs)
+	}
+	for i := 1; i < len(errs); i++ {
+		if errs[i-1] > errs[i] {
+			t.Fatalf("errors must be sorted: %v", errs)
+		}
+	}
+	if !strings.Contains(errs[0], "policy.agent.") {
+		t.Fatalf("errors must name the agent path: %q", errs[0])
+	}
+}
