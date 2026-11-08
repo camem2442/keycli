@@ -40,13 +40,14 @@ type PolicyAgentSettings struct {
 	Deny  []string `toml:"deny"`
 }
 
-// PolicyPatternErrors lists every malformed or empty allow/deny glob, sorted.
+// PolicyPatternErrors lists malformed allow/deny globs and ambiguous aliases.
+// The existing method name is retained for callers of the policy preflight.
 //
 // A bad pattern is not inert: path.Match fails on it, so a malformed deny rule
 // would match nothing and the broad allow beneath it would silently apply.
 // Reporting every entry (not just the first) is what `kc policy validate` needs.
 func (c Config) PolicyPatternErrors() []string {
-	var out []string
+	out := c.AliasErrors()
 	for agent, spec := range c.Policy.Agent {
 		for _, list := range []struct {
 			kind     string
@@ -71,7 +72,7 @@ func (c Config) PolicyPatternErrors() []string {
 	return out
 }
 
-// ValidatePolicyPatterns returns the first policy pattern error, or nil.
+// ValidatePolicyPatterns returns the first policy/alias preflight error, or nil.
 func (c Config) ValidatePolicyPatterns() error {
 	if errs := c.PolicyPatternErrors(); len(errs) > 0 {
 		return errors.New(errs[0])
