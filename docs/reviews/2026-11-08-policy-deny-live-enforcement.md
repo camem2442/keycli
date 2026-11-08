@@ -38,14 +38,24 @@ A/B/C는 `KC_CONFIG`로만 분기했고 정본 파일은 건드리지 않았다.
 | `kc ls --json` | **`policy_denied=true`** |
 | `kc policy check dev_policy_probe` | **exit 5** |
 
-### C. 잘못된 deny 글로브
+### C. 잘못된 deny 글로브 — 네 경로 전부
 
-| 명령 | 결과 |
-| --- | --- |
-| `kc get dev_policy_probe` | **exit 1** |
-| 메시지 | `kc: policy.agent.cursor.deny: invalid glob "dev_policy_probe[": syntax error in pattern` |
+측정 바이너리: `kc version v0.7.2-38-g043029f (043029f)`.
+설정은 라이브 사본의 `[policy.agent.cursor] deny`에 `bad[`를 추가한 것이다.
+
+| 명령 | 결과 | 메시지 |
+| --- | --- | --- |
+| `kc get github_agent` | **exit 1** | `Error: policy.agent.cursor.deny: invalid glob "bad[": syntax error in pattern` |
+| `kc exec --require --only github_agent -- true` | **exit 1** | 동일 (자식 미실행) |
+| `kc ls` | **exit 1** | 동일 |
+| `kc policy check github_agent` | **exit 1** | `kc: policy.agent.cursor.deny: invalid glob "bad[": …` |
+| `kc rules` (진단) | exit 0 | — |
 
 조용히 무시되지 않고, 에이전트·목록·패턴을 지목해 실패한다.
+
+이전 빌드(`b69c3b6`, PR #31 시점)에서는 같은 명령들이 **설정 로드 단계**에서 exit 1로
+끝났다. 위 표는 PR #32 이후 빌드로, 실패가 명령 단위로 보고되는 동작을 측정한 것이다.
+두 빌드 모두 네 경로가 exit 1이라는 결론은 같지만 실패 지점이 다르다.
 
 ## 정리
 

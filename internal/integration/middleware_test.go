@@ -139,21 +139,37 @@ github = ["gh", "GITHUB_TOKEN", "GH_TOKEN"]
 		t.Fatal(out)
 	}
 	var payload struct {
+		V     int `json:"v"`
 		Items []struct {
 			Name         string `json:"name"`
 			PolicyDenied bool   `json:"policy_denied"`
+			PolicyReason string `json:"policy_reason"`
+			PolicyRule   string `json:"policy_rule"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatal(err)
+	}
+	// policy_reason/policy_rule are additive, so the schema stays v1.
+	if payload.V != 1 {
+		t.Fatalf("ls --json schema must stay v1 for additive fields, got v=%d", payload.V)
 	}
 	var sawDenied bool
 	for _, it := range payload.Items {
 		if it.Name == "github" && it.PolicyDenied {
 			t.Fatal("github should not be denied")
 		}
+		if it.Name == "github" && (it.PolicyReason != "" || it.PolicyRule != "") {
+			t.Fatalf("allowed item must omit policy fields: %+v", it)
+		}
 		if it.PolicyDenied {
 			sawDenied = true
+			if it.PolicyReason != "not_allowed" {
+				t.Fatalf("expected not_allowed reason, got %+v", it)
+			}
+			if it.PolicyRule != "" {
+				t.Fatalf("not_allowed has no matching rule, got %+v", it)
+			}
 		}
 	}
 	if !sawDenied {
