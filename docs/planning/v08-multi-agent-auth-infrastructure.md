@@ -100,7 +100,8 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 
 ### E. Release + adoption
 
-- Only propose v0.8.0 after Linux CI, Mac scoped acceptance, 1-turn Cursor/Claude/Codex owner receipts and a documented rollback path.
+- ~~Only propose v0.8.0 after Linux CI, Mac scoped acceptance, 1-turn Cursor/Claude/Codex owner receipts and a documented rollback path.~~ **Superseded 2026-11-08 by the [v0.8.0 release gate](v080-release-gate.md)** (sole-developer decision). v0.8.0 is the common auth **CLI stabilization** release. Release-blocking: exact-source Linux CI, published checksum, real-binary synthetic core smoke, rollback path. The 1-turn Cursor/Claude/Codex receipts, Mac GUI/Keychain/TUI and provider transfers moved to **consumer adoption** conditions below; they keep their §3 status and are not marked COMPLETE by the release.
+- **Consumer adoption conditions (per agent, not release-blocking):** pinned verified release binary on that host; `middleware = ["audit","policy"]`; the agent's section allows only limited development names and denies human-only and operating-effect names; allow / deny (exit 5, no child) / missing (exit 2, no child) receipt with synthetic or metadata-only checks; model login and cloud platform auth stay with the agent's own provider.
 - Use v0.7.2 as the **new default install pin** after the verified patch release and this follow-up PR. Keep prior v0.7.1 available only for explicit rollback; do not claim safe-default MCP there. Real shared MCP client deployment and per-consumer pin changes still need their own host evidence; update consumer profiles only after separately accepted host evidence.
 - Finish with a limited rollout to a single selected repository, then expand to other Develop Project repositories. Avoid "all projects enabled" claims based on one pilot.
 
@@ -108,4 +109,4 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 
 Central vault, automatic export of all local keys, raw-secret MCP tools enabled by default, shared background service plaintext token sync, cross-account Cloudflare secrets replication, sweeping workspace credentials, and same-user agent isolation solely by `KC_AGENT`.
 
-**Current goal status:** PARTIAL — source infrastructure exists; cross-provider operating acceptance and trusted delivery integration remain open.
+**Current goal status:** PARTIAL — v0.8.0 CLI release is gated separately by [v080-release-gate.md](v080-release-gate.md); source infrastructure exists; cross-provider operating acceptance and trusted delivery integration remain open.
