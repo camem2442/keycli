@@ -1,3 +1,13 @@
+## 2026-11-07 — Alias binding correction (authorized Draft update)
+
+Published Draft PR #29 at `d2650d3` has a confirmed duplicate-alias binding defect: one synthetic run accepted 98 of 128 signed-alpha exports, and 24 accepted exports had a different item name or value. No real secret was used. This local follow-up validates the full alias namespace before challenge creation/consumption and freezes the verified canonical item for lookup and bundle naming. It covers duplicate aliases, canonical shadowing, case collisions, ambiguous fallback, early rejection without backend/state effects, and valid alias roundtrips. Legacy alias behavior is unchanged. The user separately authorized publishing this correction to the existing Draft PR #29 branch and checking new CI. Match the new remote head and its CI checkout commit before accepting publication; the previous green CI covers the defective version only. Merge, release and live credential transfer remain outside scope.
+
+## 2026-11-07 — Issuer-attested recipient isolated candidate
+
+**PARTIAL**. An isolated candidate adds sender-owned five-minute one-use challenges and an opt-in Ed25519 issuer attestation gate before backend startup/secret access. Starting baseline: `e89fee85368e886410a9fd0688b3c20c65d6ff10`; latest-main baseline: `167814a5f35567888240a347a19637c92dc3e933`. The original candidate is preserved at local commit `efd7981`. Latest-main changes do not overlap the task files; the new default policy remains enforced after attestation. Existing work was preserved. See [recipient attestation contract](docs/contracts/recipient-attestation.md) for format, trust prerequisite and failure/operational limits.
+
+Synthetic verification is not evidence of actual provider or dot environment identity. Live trust anchor, issuer integration, real-token transfer and Mac acceptance are **NOT VERIFIED**. Review publication is authorized on a separate branch and Draft PR; merge, release and real-credential transfer remain outside scope. The ten locked Go modules were obtained from the official Go proxy and matched against the original go.sum; `go mod verify` succeeded. Local docs/policy/unit suites, complete CLI integration and Linux/Darwin arm64/amd64 vet were exercised with synthetic data in an isolated filesystem. Release/CI and real Mac checks remain separate; the test runner permits synthetic loopback fixtures, not an OS-enforced egress sandbox. NEXT CONTEXT: continue in this task for provider trust provisioning or separately approved publication, preserving the candidate and test evidence.
+
 # HANDOFF — keycli (`kc`)
 
 ## 2026-11-08 — policy deny + 라이브 적용 검증

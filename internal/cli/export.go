@@ -23,18 +23,24 @@ func newExportCmd(a *app.App) *cobra.Command {
 	var stdout bool
 	var verifiedRecipient string
 	var outputFile string
+	var attestation exportAttestation
 
 	cmd := &cobra.Command{
 		Use:   "export NAME...",
 		Short: "Export secrets (dotenv clipboard or age bundle)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			guarded := cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("output-file")
+			attested := attestation.enabled(cmd)
+			guarded := attested || cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("output-file")
 			if guarded {
-				if format != "" || toGitHub != "" || stdout || toRecipient == "" || verifiedRecipient == "" || outputFile == "" || len(args) != 1 {
-					return fmt.Errorf("verified export requires one secret, one explicit age recipient, verified recipient and output file")
+				if format != "" || toGitHub != "" || stdout || toRecipient == "" || outputFile == "" || len(args) != 1 {
+					return fmt.Errorf("guarded export requires one secret, one explicit age recipient and output file")
 				}
-				if err := transferguard.CheckRecipient(toRecipient, verifiedRecipient); err != nil {
+				if attested {
+					if cmd.Flags().Changed("verified-recipient") {
+						return fmt.Errorf("attested export cannot be combined with --verified-recipient")
+					}
+				} else if err := transferguard.CheckRecipient(toRecipient, verifiedRecipient); err != nil {
 					return err
 				}
 				parsed, ssh, err := exportrecv.ParseRecipient(toRecipient)
@@ -45,8 +51,28 @@ func newExportCmd(a *app.App) *cobra.Command {
 					return fmt.Errorf("verified export requires an X25519 recipient")
 				}
 			}
+			lookupNames := args
+			if attested {
+				// Freeze one unambiguous name before consuming the proof. The
+				// same name is passed to lookup and used as the bundle key.
+				canonical, err := a.Resolver.StrictCanonicalName(args[0])
+				if err != nil {
+					return err
+				}
+				// Never fall back to manual comparison or read a value when
+				// either the alias or trusted issuer/challenge checks fail.
+				if err := attestation.authorize(a, toRecipient, canonical); err != nil {
+					return err
+				}
+				lookupNames = []string{canonical}
+			}
+			// Backend construction may execute configured plugins, so even
+			// that step waits until attestation and replay checks succeed.
+			if err := a.Reload(cmd.Context()); err != nil {
+				return err
+			}
 			secrets := map[string][]byte{}
-			for _, name := range args {
+			for _, name := range lookupNames {
 				val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
 				if err != nil {
 					if kcerrors.Code(err) == kcerrors.ExitNotFound {
@@ -57,7 +83,11 @@ func newExportCmd(a *app.App) *cobra.Command {
 					}
 					return err
 				}
-				secrets[a.Resolver.CanonicalName(name)] = val
+				bundleName := name
+				if !attested {
+					bundleName = a.Resolver.CanonicalName(name)
+				}
+				secrets[bundleName] = val
 			}
 			if format == "dotenv" {
 				return exportDotenv(cmd, a, secrets, stdout)
@@ -88,7 +118,8 @@ func newExportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&toGitHub, "to-github", "", "Fetch ssh keys from github.com/USER.keys")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write dotenv to stdout when stdout is not a TTY")
 	cmd.Flags().StringVar(&verifiedRecipient, "verified-recipient", "", "recipient independently verified by operator before reading secrets")
-	cmd.Flags().StringVar(&outputFile, "output-file", "", "create a new encrypted bundle file (0600; requires verified recipient)")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "create a new encrypted bundle file (0600; requires recipient verification)")
+	attestation.flags(cmd)
 	return cmd
 }
 

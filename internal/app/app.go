@@ -29,6 +29,19 @@ type App struct {
 
 // New builds the application graph.
 func New(ctx context.Context) (*App, error) {
+	a, err := NewUnopened()
+	if err != nil {
+		return nil, err
+	}
+	if err = a.Reload(ctx); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// NewUnopened loads configuration and aliases without constructing backends.
+// Commands that guard secret access can verify before external plugin startup.
+func NewUnopened() (*App, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
@@ -47,15 +60,11 @@ func New(ctx context.Context) (*App, error) {
 		SecurityRunner:           runner,
 		AllowKeychainOnNonDarwin: testhooks.Env(cfg, "KC_TEST_KEYCHAIN") == "1",
 	}
-	backends, err := backend.Build(ctx, cfg, deps)
-	if err != nil {
-		return nil, err
-	}
 	return &App{
 		Home:       home,
 		Config:     cfg,
 		ConfigPath: cfgPath,
-		Resolver:   resolve.New(cfg, backends, home, auditWarn),
+		Resolver:   resolve.New(cfg, nil, home, auditWarn),
 		Deps:       deps,
 	}, nil
 }
