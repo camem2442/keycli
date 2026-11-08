@@ -10,7 +10,7 @@ status: implemented
 | `kc ls [--json] [--all] [--stale]` | 사용 가능한 이름과 메타데이터(저장소, 메모, 만료일). **값은 절대 출력하지 않음**. 정책으로 읽기 거부된 이름은 기본 숨김(`--all`이면 `(policy:<reason>)` 표시·JSON `policy_denied`). JSON은 추가로 `policy_reason`(`deny_hit`/`not_allowed`/`invalid_pattern`)과 `policy_rule`(매칭된 패턴)을 **선택 필드**로 싣는다 — 스키마 v1의 하위 호환 추가다. `--stale`은 원장에 기록된 이름만 읽어 `*`/`stale_export`를 표시하며 거부 이름은 읽지 않음 |
 | `kc get NAME [--source]` | 값만 stdout. `--source`는 **stderr**에 출처만 출력(예: `keychain:local.study.ai.groq/groq_api_key`, `env:GROQ_API_KEYS`). 값은 절대 포함하지 않음 |
 | `kc exec [--only a,b] [--require] -- CMD...` | 매핑된 환경변수로 주입해 실행. `--require`는 `--only`에 적은 이름이 **모두** resolve·policy 통과할 때만 자식 시작(누락·거부 시 exit 2/5, 자식 0회). `--only` 생략 시 조회 가능한 전체 시크릿 주입(에이전트는 `--require --only` 권장). 자식 종료 코드를 그대로 반환. 자식 환경에서 `KC_KEY`·`KC_AGENT`는 제거 |
-| `kc policy show [--agent A] [--json]` | 해당 에이전트에 실제 적용되는 `allow`/`deny`와 출처(`explicit`/`default`/`none`), 강제 여부(`enforced`)를 보여준다. `--json`은 `{"v":1,...}`. 규칙이 깨져 있어도 동작한다 |
+| `kc policy show [--agent A] [--json]` | 해당 에이전트에 실제 적용되는 `allow`/`deny`와 출처(`explicit`/`default`/`none`), 강제 여부(`enforced`)를 보여준다. `--json`은 `{"v":1,...}`. 규칙이 깨져 있어도 동작한다; 정상 규칙에서는 유효 정책·alias 테이블의 SHA-256 `policy_digest`를 추가하며, 패턴 오류 시 해당 필드를 생략한다. [P5 계약](effective-policy-digest-v1.md) |
 | `kc policy validate [--json]` | 모든 `allow`/`deny` 패턴을 검증해 **첫 오류가 아니라 전부** 보고한다. 정상이면 exit 0, 오류가 있으면 각 줄을 stderr에 쓰고 exit 1. `--json`은 `{"v":1,"ok":bool,"agents":n,"errors":[...]}` |
 | `kc mcp [--allow-secret-values]` | MCP JSON-RPC 2.0 stdio 서버. 기본 **메타데이터 전용**(`list_secrets`, `policy_check`, `doctor`); `get_secret`은 서버 소유자가 `--allow-secret-values`로 명시적으로 허용한 경우에만 노출·실행 |
 
