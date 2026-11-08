@@ -1,5 +1,9 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-08 — policy deny + 라이브 적용 검증
+
+`[policy.agent.*] deny = [...]`를 추가했다(PR #30, `b69c3b6`). `deny`는 `allow`보다 먼저 평가되고, 잘못된 글로브는 로드 단계에서 명시적으로 거부되며 평가 단계에서도 fail-closed다. Mac 로컬 `cursor` 기준으로 `get`/`exec`/`ls`/`policy check` 네 경로의 허용·거부·오류를 합성 probe로 확인했다([검증](docs/reviews/2026-11-08-policy-deny-live-enforcement.md)). 다중 에이전트 동시 적용·Cloud Agent·`kc push` 경로는 **NOT VERIFIED**이며, 이 정책은 보안 경계가 아닌 **실수 방지 가드레일**이다.
+
 ## 2026-10-26 — 공통 정책 채택
 
 정책 lock을 `652dec3c`로 명시적으로 갱신했다. [의미 차이·검증 범위](docs/reviews/2026-10-26-workspace-policy-adoption.md) 참조. 제품/운영 인수와 별개인 로컬 문서 변경이다. NEXT CONTEXT: 기존 제품 작업 경계를 유지하며 다음 범위를 결정한다.
