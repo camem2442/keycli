@@ -28,8 +28,12 @@ type AuditSettings struct {
 }
 
 // PolicyAgentSettings is a per-agent allowlist (globs allowed).
+//
+// Deny is evaluated before Allow, so a narrow exception list can sit under a
+// broad allow (e.g. allow = ["*"], deny = ["github"]).
 type PolicyAgentSettings struct {
 	Allow []string `toml:"allow"`
+	Deny  []string `toml:"deny"`
 }
 
 // PolicySettings groups agent allowlists.

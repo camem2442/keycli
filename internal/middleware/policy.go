@@ -61,6 +61,7 @@ func (p *Policy) Middleware() Middleware {
 }
 
 // Allowed reports whether name may be read under the current agent policy.
+// Deny wins over Allow, so a broad allow can carry narrow exceptions.
 func (p *Policy) Allowed(canonicalName string) bool {
 	if !HasRules(p.cfg) {
 		return true
@@ -68,6 +69,11 @@ func (p *Policy) Allowed(canonicalName string) bool {
 	spec, applies := p.rulesForAgent()
 	if !applies {
 		return true
+	}
+	for _, pattern := range spec.Deny {
+		if matchName(pattern, canonicalName) {
+			return false
+		}
 	}
 	for _, pattern := range spec.Allow {
 		if matchName(pattern, canonicalName) {

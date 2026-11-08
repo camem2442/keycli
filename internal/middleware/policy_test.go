@@ -115,3 +115,71 @@ func TestPolicyExplicitHumanOverridesDefaultDeny(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyDenyOverridesBroadAllow(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"*"}, Deny: []string{"github", "sogang-*"}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+	if p.Allowed("github") {
+		t.Fatal("explicit deny must override allow=*")
+	}
+	if p.Allowed("sogang-pw") {
+		t.Fatal("deny glob must match")
+	}
+	for _, name := range []string{"github_agent", "dev_cf_worker_read", "cloudflare_agent"} {
+		if !p.Allowed(name) {
+			t.Fatalf("%s should stay allowed under allow=*", name)
+		}
+	}
+}
+
+func TestPolicyDenyOverridesNarrowAllow(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"dev_*"}, Deny: []string{"dev_github_oauth_client_secret"}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+	if p.Allowed("dev_github_oauth_client_secret") {
+		t.Fatal("deny must win even when allow matches")
+	}
+	if !p.Allowed("dev_cf_worker_read") {
+		t.Fatal("non-denied allow match should pass")
+	}
+	if p.Allowed("github") {
+		t.Fatal("names outside allow stay denied")
+	}
+}
+
+func TestPolicyDenyOnlyIsStillDenyByDefault(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Deny: []string{"github"}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+	if p.Allowed("anything") {
+		t.Fatal("deny-only rule must not imply allow")
+	}
+}
+
+func TestPolicyDenyIsCaseInsensitive(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"*"}, Deny: []string{"GitHub"}},
+	}
+	if middleware.NewPolicy(cfg, "cursor").Allowed("github") {
+		t.Fatal("deny should match case-insensitively")
+	}
+}
+
+func TestPolicyEmptyDenyKeepsAllowBehaviour(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"github_agent"}, Deny: []string{}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+	if !p.Allowed("github_agent") || p.Allowed("github") {
+		t.Fatal("empty deny list must not change allow semantics")
+	}
+}
