@@ -32,6 +32,9 @@ Draft PR #47~#63(검증 전용 #54/#57/#61 제외)의 고유 변경분만으로 
   `PROVIDER_LIVE=NOT_VERIFIED` · `RELEASE=BLOCKED`
 - 블로커: PR 생성·병합·태그 권한(사용자 결정), mac-smoke 미실행, WI-KC-02 미구현
 - 이번 작업의 실제 외부 효과: push/PR/merge/tag 0, provider mutation 0, Keychain·`~/.kc` 변경 0
+## 2026-11-08 — 정책·전송 계층 마감
+
+PR #30–#39로 `deny`, 거부 사유, `policy show|validate`, Cursor Cloud allowlist 파일럿, alias 실 PUT, `kc push cloudflare`, import 덮어쓰기 거부를 닫았다. 요약과 NOT VERIFIED 목록은 [마감 문서](docs/reviews/2026-11-08-policy-lifecycle-closeout.md)가 소유한다. 다음은 P5(검증 통합)와 P6(v0.8.0 제안)이다.
 
 ## 2026-11-08 — policy deny + 라이브 적용 검증
 
