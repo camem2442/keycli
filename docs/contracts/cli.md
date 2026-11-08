@@ -7,7 +7,7 @@ status: implemented
 
 | 명령 | 동작 |
 |---|---|
-| `kc ls [--json] [--all] [--stale]` | 사용 가능한 이름과 메타데이터(저장소, 메모, 만료일). **값은 절대 출력하지 않음**. 정책으로 읽기 거부된 이름은 기본 숨김(`--all`이면 `(policy)` 표시·JSON `policy_denied`). `--stale`은 원장에 기록된 이름만 읽어 `*`/`stale_export`를 표시하며 거부 이름은 읽지 않음 |
+| `kc ls [--json] [--all] [--stale]` | 사용 가능한 이름과 메타데이터(저장소, 메모, 만료일). **값은 절대 출력하지 않음**. 정책으로 읽기 거부된 이름은 기본 숨김(`--all`이면 `(policy:<reason>)` 표시·JSON `policy_denied`). JSON은 추가로 `policy_reason`(`deny_hit`/`not_allowed`/`invalid_pattern`)과 `policy_rule`(매칭된 패턴)을 **선택 필드**로 싣는다 — 스키마 v1의 하위 호환 추가다. `--stale`은 원장에 기록된 이름만 읽어 `*`/`stale_export`를 표시하며 거부 이름은 읽지 않음 |
 | `kc get NAME [--source]` | 값만 stdout. `--source`는 **stderr**에 출처만 출력(예: `keychain:local.study.ai.groq/groq_api_key`, `env:GROQ_API_KEYS`). 값은 절대 포함하지 않음 |
 | `kc exec [--only a,b] [--require] -- CMD...` | 매핑된 환경변수로 주입해 실행. `--require`는 `--only`에 적은 이름이 **모두** resolve·policy 통과할 때만 자식 시작(누락·거부 시 exit 2/5, 자식 0회). `--only` 생략 시 조회 가능한 전체 시크릿 주입(에이전트는 `--require --only` 권장). 자식 종료 코드를 그대로 반환. 자식 환경에서 `KC_KEY`·`KC_AGENT`는 제거 |
 | `kc mcp [--allow-secret-values]` | MCP JSON-RPC 2.0 stdio 서버. 기본 **메타데이터 전용**(`list_secrets`, `policy_check`, `doctor`); `get_secret`은 서버 소유자가 `--allow-secret-values`로 명시적으로 허용한 경우에만 노출·실행 |
@@ -38,7 +38,7 @@ status: implemented
 | `kc status` | 내보낸 뒤 바뀐 항목 표시. 읽을 수 없는 이름은 값 없이 stderr에 이름·사유를 보고 |
 | `kc doctor [--json]` | 백엔드·config·키·PATH 충돌 (값 미출력) |
 | `kc plugin list [--json]` | `kc-backend-*` 발견, enabled, protocol v1, capabilities (enabled만 handshake) |
-| `kc audit [--since DUR] [--name N] [--agent A] [--json]` | `~/.kc/audit.log` JSONL 조회(값·해시·길이 없음). `--json`은 항목이 없어도 `[]` |
+| `kc audit [--since DUR] [--name N] [--agent A] [--json]` | `~/.kc/audit.log` JSONL 조회(값·해시·길이 없음). `--json`은 항목이 없어도 `[]`. 정책 거부 레코드는 `outcome=denied`에 `reason`·`rule`을 선택 필드로 함께 남긴다 |
 | `kc policy check [--agent A] NAME` | 현재(또는 지정) 에이전트가 NAME 읽기 허용 여부(거부 시 종료 5) |
 | `kc wire opencode-vertex [--dry-run] [--config PATH]` | `vertex-byok` 로컬 프록시용 OpenCode `provider` 블록을 `opencode.json`에 병합. `apiKey`는 `{env:PROXY_API_KEY}` |
 | `kc wire cursor-vertex [--dry-run] [--db PATH] [--base-url URL] [--restart]` | `vertex-byok` Quick Tunnel URL을 Cursor 데스크톱의 `state.vscdb`(`openAIBaseUrl`, `useOpenAIKey=true`)에 자동 반영. 실행 중인 Cursor의 DB를 `--restart` 없이 수정하지 않음(실패 처리); `--dry-run`은 항상 무변경. `--restart` 시 정상 종료 후 DB 기록 및 재실행 |

@@ -43,11 +43,16 @@ func newPolicyCheckCmd(a *app.App) *cobra.Command {
 				}
 				return nil
 			}
-			if p.Allowed(canon) {
+			d := p.Evaluate(canon)
+			if d.Allowed {
 				fmt.Fprintf(os.Stderr, "kc: agent %q may read %q\n", agent, canon)
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "kc: agent %q may not read %q (policy deny)\n", agent, canon)
+			if d.Rule != "" {
+				fmt.Fprintf(os.Stderr, "kc: agent %q may not read %q (%s %q)\n", agent, canon, d.Reason, d.Rule)
+			} else {
+				fmt.Fprintf(os.Stderr, "kc: agent %q may not read %q (%s)\n", agent, canon, d.Reason)
+			}
 			return kcerrors.ErrDenied
 		},
 	}

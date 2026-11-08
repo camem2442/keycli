@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/camem2442/keycli/internal/config"
@@ -233,5 +234,44 @@ func TestBuildChainInvalidPolicyDeniesAll(t *testing.T) {
 	}
 	if _, _, err := wrapped(context.Background(), "github"); !errors.Is(err, kcerrors.ErrDenied) {
 		t.Fatalf("expected ErrDenied, got %v", err)
+	}
+}
+
+func TestPolicyEvaluateReportsReason(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"dev_*"}, Deny: []string{"dev_blocked"}},
+	}
+	p := middleware.NewPolicy(cfg, "cursor")
+
+	if d := p.Evaluate("dev_blocked"); d.Allowed || d.Reason != middleware.ReasonDenyHit || d.Rule != "dev_blocked" {
+		t.Fatalf("expected deny_hit/dev_blocked, got %+v", d)
+	}
+	if d := p.Evaluate("dev_ok"); !d.Allowed {
+		t.Fatalf("expected allowed, got %+v", d)
+	}
+	if d := p.Evaluate("github"); d.Allowed || d.Reason != middleware.ReasonNotAllowed {
+		t.Fatalf("expected not_allowed, got %+v", d)
+	}
+}
+
+func TestPolicyEvaluateReportsInvalidPattern(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"*"}, Deny: []string{"bad["}},
+	}
+	d := middleware.NewPolicy(cfg, "cursor").Evaluate("github")
+	if d.Allowed || d.Reason != middleware.ReasonInvalidPattern || d.Rule != "bad[" {
+		t.Fatalf("expected invalid_pattern/bad[, got %+v", d)
+	}
+}
+
+func TestDeniedErrorKeepsErrDenied(t *testing.T) {
+	err := error(&middleware.DeniedError{Name: "github", Reason: middleware.ReasonDenyHit, Rule: "github"})
+	if !errors.Is(err, kcerrors.ErrDenied) {
+		t.Fatal("DeniedError must unwrap to ErrDenied")
+	}
+	if !strings.Contains(err.Error(), "deny_hit") {
+		t.Fatalf("message should name the reason, got %q", err.Error())
 	}
 }

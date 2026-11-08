@@ -52,39 +52,79 @@ func (p *Policy) Middleware() Middleware {
 	return func(next Lookup) Lookup {
 		return func(ctx context.Context, name string) ([]byte, string, error) {
 			canon := canonicalForPolicy(p.cfg, name)
-			if !p.Allowed(canon) {
-				return nil, "", fmt.Errorf("%w: %s", kcerrors.ErrDenied, canon)
+			if d := p.Evaluate(canon); !d.Allowed {
+				return nil, "", &DeniedError{Name: canon, Reason: d.Reason, Rule: d.Rule}
 			}
 			return next(ctx, name)
 		}
 	}
 }
 
+// Decision explains why a name was allowed or denied.
+type Decision struct {
+	Allowed bool
+	Reason  string // "", ReasonDenyHit, ReasonNotAllowed, ReasonInvalidPattern
+	Rule    string // the pattern that produced the decision
+}
+
+// Denial reasons reported in ls --json, policy check and the audit log.
+const (
+	ReasonDenyHit        = "deny_hit"
+	ReasonNotAllowed     = "not_allowed"
+	ReasonInvalidPattern = "invalid_pattern"
+)
+
+// DeniedError carries the policy decision so callers can report the rule
+// instead of a bare "denied".
+type DeniedError struct {
+	Name   string
+	Reason string
+	Rule   string
+}
+
+func (e *DeniedError) Error() string {
+	if e.Rule == "" {
+		return fmt.Sprintf("%s: %s", kcerrors.ErrDenied, e.Name)
+	}
+	return fmt.Sprintf("%s: %s (%s %q)", kcerrors.ErrDenied, e.Name, e.Reason, e.Rule)
+}
+
+// Unwrap keeps errors.Is(err, kcerrors.ErrDenied) working.
+func (e *DeniedError) Unwrap() error { return kcerrors.ErrDenied }
+
 // Allowed reports whether name may be read under the current agent policy.
 // Deny wins over Allow, so a broad allow can carry narrow exceptions.
 func (p *Policy) Allowed(canonicalName string) bool {
+	return p.Evaluate(canonicalName).Allowed
+}
+
+// Evaluate returns the decision and the rule behind it.
+func (p *Policy) Evaluate(canonicalName string) Decision {
 	if !HasRules(p.cfg) {
-		return true
+		return Decision{Allowed: true}
 	}
 	spec, applies := p.rulesForAgent()
 	if !applies {
-		return true
+		return Decision{Allowed: true}
 	}
 	for _, pattern := range spec.Deny {
 		// A malformed deny pattern cannot be evaluated, so deny rather than
 		// let the broad allow beneath it apply (fail closed).
 		matched, err := matchNameErr(pattern, canonicalName)
-		if err != nil || matched {
-			return false
+		if err != nil {
+			return Decision{Reason: ReasonInvalidPattern, Rule: pattern}
+		}
+		if matched {
+			return Decision{Reason: ReasonDenyHit, Rule: pattern}
 		}
 	}
 	for _, pattern := range spec.Allow {
 		matched, err := matchNameErr(pattern, canonicalName)
 		if err == nil && matched {
-			return true
+			return Decision{Allowed: true}
 		}
 	}
-	return false
+	return Decision{Reason: ReasonNotAllowed}
 }
 
 // Agent returns the resolved agent id.
@@ -144,7 +184,7 @@ func matchNameErr(pattern, name string) (bool, error) {
 func denyAll() Middleware {
 	return func(next Lookup) Lookup {
 		return func(ctx context.Context, name string) ([]byte, string, error) {
-			return nil, "", fmt.Errorf("%w: %s", kcerrors.ErrDenied, name)
+			return nil, "", &DeniedError{Name: name, Reason: ReasonInvalidPattern}
 		}
 	}
 }
