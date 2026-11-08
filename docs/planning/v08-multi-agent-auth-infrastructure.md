@@ -84,7 +84,7 @@ Human-owned local secret origin (macOS Keychain / encrypted file)
 
 ### C. Transmission and lifecycle
 
-- Cursor `cursor_api_key` alias real PUT → list name → DELETE using a temporary secret. v0.7.0 alias dry-run is not sufficient.
+- Cursor alias real PUT → list name → DELETE using a temporary secret: **COMPLETE** (2026-11-08, [receipt](../reviews/2026-11-08-kc-p4-cursor-alias-put.md)). v0.7.0 alias dry-run alone was not sufficient. `--repos` 범위, `secret_name_ambiguous`, 1000 상한, GUI 주입은 **NOT VERIFIED**.
 - Cloudflare: first fake-Wrangler CI, then separate permissioned test Worker (no production rotation), then delete/verify. Confirm free-plan usage before repeated tests.
 - Do not expand GitHub `--user`/`codespaces`/`agents` until a concrete consumer needs them.
 - Add credential expiry/rotation/cleanup ownership: importing age bundles can persist file-store data without expiration; imported names may overwrite values. No automatic refresh or global sweep.
