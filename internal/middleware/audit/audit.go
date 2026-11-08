@@ -20,6 +20,8 @@ type Record struct {
 	Name    string `json:"name"`
 	Source  string `json:"source,omitempty"`
 	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
+	Rule    string `json:"rule,omitempty"`
 	Agent   string `json:"agent"`
 	PID     int    `json:"pid"`
 	PPID    int    `json:"ppid"`

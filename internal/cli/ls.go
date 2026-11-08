@@ -44,7 +44,11 @@ func newLSCmd(a *app.App) *cobra.Command {
 					line += " *"
 				}
 				if it.PolicyDenied {
-					line += " (policy)"
+					line += " (policy"
+					if it.PolicyReason != "" {
+						line += ":" + it.PolicyReason
+					}
+					line += ")"
 				}
 				fmt.Println(line)
 			}

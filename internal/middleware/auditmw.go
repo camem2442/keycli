@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -28,6 +29,11 @@ func auditMiddleware(w *audit.Writer, agent string) Middleware {
 				PID:     os.Getpid(),
 				PPID:    os.Getppid(),
 				CWD:     audit.CWD(),
+			}
+			var denied *DeniedError
+			if errors.As(err, &denied) {
+				rec.Reason = denied.Reason
+				rec.Rule = denied.Rule
 			}
 			if writeErr := w.Append(rec); writeErr != nil {
 				msg := fmt.Sprintf("kc: audit log write failed: %v", writeErr)

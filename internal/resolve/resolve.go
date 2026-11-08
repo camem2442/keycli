@@ -39,10 +39,15 @@ func New(cfg config.Config, backends []backend.Backend, home string, warn func(s
 
 // PolicyAllowed reports whether the current agent may read canonicalName.
 func (r *Resolver) PolicyAllowed(canonicalName string) bool {
+	return r.PolicyDecision(canonicalName).Allowed
+}
+
+// PolicyDecision returns the decision and the rule behind it.
+func (r *Resolver) PolicyDecision(canonicalName string) middleware.Decision {
 	if r.policy == nil {
-		return true
+		return middleware.Decision{Allowed: true}
 	}
-	return r.policy.Allowed(canonicalName)
+	return r.policy.Evaluate(canonicalName)
 }
 
 // CurrentAgent returns the detected or overridden agent id.
@@ -202,6 +207,8 @@ type ListItem struct {
 	Expires      *string  `json:"expires"`
 	StaleExport  bool     `json:"stale_export"`
 	PolicyDenied bool     `json:"policy_denied"`
+	PolicyReason string   `json:"policy_reason,omitempty"`
+	PolicyRule   string   `json:"policy_rule,omitempty"`
 }
 
 // List aggregates metadata from all backends.
@@ -259,8 +266,12 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 	}
 	out := make([]ListItem, 0, len(byName))
 	for _, li := range byName {
-		if middleware.PolicyEnabled(r.cfg) && !r.PolicyAllowed(li.Name) {
-			li.PolicyDenied = true
+		if middleware.PolicyEnabled(r.cfg) {
+			if d := r.PolicyDecision(li.Name); !d.Allowed {
+				li.PolicyDenied = true
+				li.PolicyReason = d.Reason
+				li.PolicyRule = d.Rule
+			}
 		}
 		out = append(out, li)
 	}
