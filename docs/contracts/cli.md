@@ -71,7 +71,7 @@ deny  = ["github", "sogang-*"]
 allow = ["demo"]
 ```
 
-정책 섹션이 없으면 모든 읽기 허용. 에이전트별 `[policy.agent.NAME]`만 deny-by-default(글로브 허용). `default`·`human`은 미식별·TTY·CI 등에 적용. **`deny`는 `allow`보다 먼저 평가된다** — 넓은 `allow` 아래 좁은 예외를 둘 때 쓴다(`allow = ["*"]` + `deny = ["github"]`). `deny`만 있고 `allow`가 비어 있으면 여전히 deny-by-default이며, `deny`는 allow를 만들어내지 않는다. **잘못된 글로브는 조용히 무시되지 않는다**: config 로드 시 에이전트·목록·패턴을 지목해 실패하고, 평가 단계에서도 잘못된 `deny` 패턴은 fail-closed(거부)로 처리한다. **`[policy.agent.*]` 규칙만으로는 강제되지 않는다.** `middleware`에 `"policy"`가 있을 때만 `get` 거부와 `ls`의 `(policy)`/`policy_denied` 표시가 함께 적용된다. `kc policy check`도 같은 기준을 쓰며, 규칙만 있고 미들웨어가 없으면 "not enforced"를 알린다.
+정책 섹션이 없으면 모든 읽기 허용. 에이전트별 `[policy.agent.NAME]`만 deny-by-default(글로브 허용). `default`·`human`은 미식별·TTY·CI 등에 적용. **`deny`는 `allow`보다 먼저 평가된다** — 넓은 `allow` 아래 좁은 예외를 둘 때 쓴다(`allow = ["*"]` + `deny = ["github"]`). `deny`만 있고 `allow`가 비어 있으면 여전히 deny-by-default이며, `deny`는 allow를 만들어내지 않는다. **잘못된 글로브는 조용히 무시되지 않는다**: 설정 로드 자체는 성공하지만 `doctor`·`policy`·`rules`를 제외한 모든 명령이 에이전트·목록·패턴을 지목해 실패(exit 1)하고, 정책 미들웨어도 fail-closed로 전부 거부한다. 진단 명령은 계속 동작해 원인을 확인할 수 있다. **`[policy.agent.*]` 규칙만으로는 강제되지 않는다.** `middleware`에 `"policy"`가 있을 때만 `get` 거부와 `ls`의 `(policy)`/`policy_denied` 표시가 함께 적용된다. `kc policy check`도 같은 기준을 쓰며, 규칙만 있고 미들웨어가 없으면 "not enforced"를 알린다.
 
 ## git credential 호스트 매핑
 

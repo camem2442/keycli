@@ -57,6 +57,15 @@ func Execute() int {
 	root.AddCommand(newWireCmd(a))
 	root.AddCommand(newInteractiveCmd(a))
 	root.AddCommand(newMCPCmd(a))
+	// A malformed policy glob must not brick diagnostics. Reads still fail
+	// closed: every command outside the diagnostic set reports the error and
+	// exits non-zero, and the policy middleware denies everything.
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if policyDiagnostic(cmd) {
+			return nil
+		}
+		return a.Config.ValidatePolicyPatterns()
+	}
 	if err := root.Execute(); err != nil {
 		var ec ExitCodeError
 		if errors.As(err, &ec) {
@@ -94,4 +103,17 @@ func mapCobraErr(err error) error {
 		}
 	}
 	return err
+}
+
+// policyDiagnostic reports whether cmd may run even when the policy config has
+// an invalid glob. These commands read no secret values, so an operator can
+// still see what is wrong instead of losing every entry point.
+func policyDiagnostic(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "doctor", "policy", "rules", "help", "completion":
+			return true
+		}
+	}
+	return false
 }

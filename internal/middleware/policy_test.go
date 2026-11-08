@@ -1,9 +1,12 @@
 package middleware_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/camem2442/keycli/internal/config"
+	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/camem2442/keycli/internal/middleware"
 )
 
@@ -207,5 +210,28 @@ func TestPolicyMalformedAllowDoesNotMatch(t *testing.T) {
 	}
 	if middleware.NewPolicy(cfg, "cursor").Allowed("dev_cf_worker_read") {
 		t.Fatal("malformed allow pattern must not match")
+	}
+}
+
+// An unparseable policy must fail closed through the built chain, and warn.
+func TestBuildChainInvalidPolicyDeniesAll(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Middleware = []string{"policy"}
+	cfg.Policy.Agent = map[string]config.PolicyAgentSettings{
+		"cursor": {Allow: []string{"*"}, Deny: []string{"sogang-[abc"}},
+	}
+	chain := middleware.BuildChain(t.TempDir(), cfg, func(string) {})
+	if len(chain) == 0 {
+		t.Fatal("expected a fail-closed middleware")
+	}
+	lookup := func(ctx context.Context, name string) ([]byte, string, error) {
+		return []byte("value"), "store", nil
+	}
+	wrapped := lookup
+	for i := len(chain) - 1; i >= 0; i-- {
+		wrapped = chain[i](wrapped)
+	}
+	if _, _, err := wrapped(context.Background(), "github"); !errors.Is(err, kcerrors.ErrDenied) {
+		t.Fatalf("expected ErrDenied, got %v", err)
 	}
 }
