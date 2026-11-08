@@ -14,7 +14,9 @@
 
 ## Current Work Goal
 
-**v0.8.0 다중 에이전트 공통 인증 인수: PARTIAL** (2026-11-07). 구현 정본과 운영 인수를 분리하고, [v08 로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)에 따라 MCP 안전 기본값·Mac TUI/DB 보호·Cursor/Claude/Codex 1턴·Cloudflare 실전 검증을 개별 Goal로 관리합니다. 기본 설치 pin은 **v0.7.2**이며, 릴리스의 Linux 바이너리 다운로드·SHA256·격리 재설치 MCP 인수는 **COMPLETE**([증거](docs/planning/v072-release-evidence.md))입니다. 실제 Mac GUI와 Codex/Claude 1턴 E2E, Cloudflare 운영 도입은 여전히 **NOT VERIFIED**입니다. v0.7.1 이하 바이너리의 MCP는 `get_secret`을 기본 노출하므로 공유 클라이언트에서 사용하지 않습니다.
+**v0.8.0 출시 범위 재정의 (2026-11-08):** v0.8.0은 모든 에이전트 운영 인수 버전이 아니라 **공통 인증 CLI 안정화 릴리스**다. 출시 차단 조건(정확한 소스 Linux CI·게시 자산 checksum·실 바이너리 합성 스모크·롤백)과 후속 **소비자 도입 조건**(에이전트별 1턴·Mac GUI/Keychain·공급자 전송)을 [v0.8.0 release gate](docs/planning/v080-release-gate.md)로 분리했다. 이전 로드맵 §4.E의 조건은 삭제하지 않고 대체 표시했으며, 소비자 조건의 현재 상태(NOT VERIFIED/PARTIAL)는 그대로다.
+
+**v0.8.0 다중 에이전트 공통 인증 인수(소비자 도입): PARTIAL** (2026-11-07). 구현 정본과 운영 인수를 분리하고, [v08 로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)에 따라 MCP 안전 기본값·Mac TUI/DB 보호·Cursor/Claude/Codex 1턴·Cloudflare 실전 검증을 개별 Goal로 관리합니다. 기본 설치 pin은 **v0.7.2**이며, 릴리스의 Linux 바이너리 다운로드·SHA256·격리 재설치 MCP 인수는 **COMPLETE**([증거](docs/planning/v072-release-evidence.md))입니다. 실제 Mac GUI와 Codex/Claude 1턴 E2E, Cloudflare 운영 도입은 여전히 **NOT VERIFIED**입니다. v0.7.1 이하 바이너리의 MCP는 `get_secret`을 기본 노출하므로 공유 클라이언트에서 사용하지 않습니다.
 
 ### 이전 Goal — v0.7.0 운영 종결
 
