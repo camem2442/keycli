@@ -4,7 +4,7 @@ Status: NOT VERIFIED for real GitHub token/host; no repository state changes are
 
 ## Ownership
 
-`workspace-infra/tooling/ci_dispatch_guard.py` is the canonical policy/GET collector. `kc ci-guard` is a thin opt-in adapter that resolves only the `github_agent` secret through the existing KeyCLI policy, checks a SHA256 pin on that script, then runs `python3 -I -B` with **only** `GH_TOKEN` injected to the child. It does **not** call GitHub workflow dispatch, Ready, or merge and does not create a new token store. The selected Python and `gh` executables remain trusted-host dependencies, not authenticated by the script digest.
+`workspace-infra/tooling/ci_dispatch_guard.py` is the canonical policy/GET collector. `kc ci-guard` is a thin opt-in adapter that resolves only the `github_agent` secret through the existing KeyCLI policy, checks a SHA256 pin on that script, stages verified bytes into a private temporary file, then runs `python3 -I -B` with **only** `GH_TOKEN` injected to the child. It does **not** call GitHub workflow dispatch, Ready, or merge and does not create a new token store. The selected Python and `gh` executables remain trusted-host dependencies, not authenticated by the script digest.
 
 ## Read-only use
 
@@ -39,7 +39,7 @@ Minimal request (all fields required):
 
 These example hashes are placeholders, never use them as production inputs. Observe request fields from the current PR and Git blob, and derive scope/environment digests from a reviewed fixed manifest, not arbitrary agent prompts.
 
-Provider artifact adoption in each consumer workflow is a **separate PR**. Today old runs without the canonical artifact MUST report NO_VERIFIED_DUPLICATE, so they do not falsely block new required tests. `--script-sha256` protects the Python source bytes at the time of local read, not malicious host binaries, concurrent file modification, direct GitHub UI or an untrusted token issuer.
+Provider artifact adoption in each consumer workflow is a **separate PR**. Today old runs without the canonical artifact MUST report NO_VERIFIED_DUPLICATE, so they do not falsely block new required tests. `--script-sha256` protects the exact staged Python bytes executed by the child. It cannot authenticate trusted host binaries, direct GitHub UI, or a token issuer.
 
 ### Exit codes
 
