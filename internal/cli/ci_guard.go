@@ -33,10 +33,14 @@ func newCIGuardCmd(a *app.App) *cobra.Command {
 			}
 			// Execute a private copy of verified bytes, not the mutable source path.
 			dir, err := os.MkdirTemp("", "kc-ci-guard-")
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			defer os.RemoveAll(dir)
 			staged := filepath.Join(dir, "ci_dispatch_guard.py")
-			if err := os.WriteFile(staged, pinned, 0400); err != nil { return err }
+			if err := os.WriteFile(staged, pinned, 0400); err != nil {
+				return err
+			}
 			argv := []string{"-I", "-B", staged, "--request", request}
 			env := stripEnvKeys(os.Environ(), "KC_KEY", "KC_AGENT", "GH_TOKEN", "GITHUB_TOKEN", "GH_AGENT_TOKEN")
 			if snapshot == "" {
