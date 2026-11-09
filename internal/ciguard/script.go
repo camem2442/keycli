@@ -10,33 +10,33 @@ import (
 	"strings"
 )
 
-// VerifyScript rejects unpinned or redirected Python code before a GitHub token
-// can be injected into a child process. It does not authenticate the Python
-// interpreter or gh binary; those must be independently trusted host binaries.
-func VerifyScript(path, expectedDigest string) (string, error) {
+// VerifyScript returns the independently verified bytes, not the mutable source path.
+// Callers must execute only a private copy of these bytes. Python and gh binaries
+// remain separately trusted host dependencies.
+func VerifyScript(path, expectedDigest string) ([]byte, error) {
 	if !filepath.IsAbs(path) || len(expectedDigest) != 64 || strings.ToLower(expectedDigest) != expectedDigest {
-		return "", errors.New("absolute script path and lowercase SHA256 are required")
+		return nil, errors.New("absolute script path and lowercase SHA256 are required")
 	}
 	if _, err := hex.DecodeString(expectedDigest); err != nil {
-		return "", errors.New("invalid script SHA256")
+		return nil, errors.New("invalid script SHA256")
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 64*1024 {
-		return "", errors.New("guard must be a bounded regular non-symlink script")
+		return nil, errors.New("guard must be a bounded regular non-symlink script")
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if len(raw) > 64*1024 || int64(len(raw)) != info.Size() {
-		return "", errors.New("guard script changed during read")
+		return nil, errors.New("guard script changed during read")
 	}
 	found := fmt.Sprintf("%x", sha256.Sum256(raw))
 	if found != expectedDigest {
-		return "", errors.New("guard source SHA256 mismatch")
+		return nil, errors.New("guard source SHA256 mismatch")
 	}
-	return path, nil
+	return raw, nil
 }
