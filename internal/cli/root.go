@@ -44,6 +44,7 @@ func Execute() int {
 	root.AddCommand(newExportCmd(a))
 	root.AddCommand(newImportCmd(a))
 	root.AddCommand(newStatusCmd(a))
+	root.AddCommand(newCIGuardCmd(a))
 	root.AddCommand(newClipWaitClearCmd(a))
 	root.AddCommand(newLinkCmd(a))
 	root.AddCommand(newUnlinkCmd(a))
