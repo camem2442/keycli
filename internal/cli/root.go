@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
@@ -16,11 +15,26 @@ import (
 
 // Execute runs the kc command tree.
 func Execute() int {
-	a, err := app.New(contextBackground())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "kc: %v\n", err)
-		return kcerrors.ExitError
+	return runRoot(newRoot(app.New))
+}
+
+func runRoot(root *cobra.Command) int {
+	if err := root.Execute(); err != nil {
+		var ec ExitCodeError
+		if errors.As(err, &ec) {
+			return ec.Code
+		}
+		return kcerrors.Code(mapCobraErr(err))
 	}
+	return kcerrors.ExitOK
+}
+
+func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
+	// Constructors capture the pointer. Populate it only for commands that
+	// need the application graph, after Cobra has selected the command.
+	a := &app.App{}
+	delivery := newDeliveryCmd()
+	auth := newAuthCmd()
 	root := &cobra.Command{
 		Use:          "kc",
 		Short:        "keycli — personal secrets CLI",
@@ -56,28 +70,29 @@ func Execute() int {
 	root.AddCommand(newPolicyCmd(a))
 	root.AddCommand(newWireCmd(a))
 	root.AddCommand(newInteractiveCmd(a))
-	root.AddCommand(newMCPCmd(a))
+	root.AddCommand(newMCPCmd(a), delivery, auth)
 	// A malformed policy glob must not brick diagnostics. Reads still fail
 	// closed: every command outside the diagnostic set reports the error and
 	// exits non-zero, and the policy middleware denies everything.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		switch cmd.Name() {
+		case "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+			return nil
+		}
+		if cmd == delivery || cmd.Parent() == delivery || cmd == auth || cmd.Parent() == auth {
+			return nil
+		}
+		loaded, err := openApp(cmd.Context())
+		if err != nil {
+			return err
+		}
+		*a = *loaded
 		if policyDiagnostic(cmd) {
 			return nil
 		}
 		return a.Config.ValidatePolicyPatterns()
 	}
-	if err := root.Execute(); err != nil {
-		var ec ExitCodeError
-		if errors.As(err, &ec) {
-			return ec.Code
-		}
-		return kcerrors.Code(mapCobraErr(err))
-	}
-	return kcerrors.ExitOK
-}
-
-func contextBackground() context.Context {
-	return context.Background()
+	return root
 }
 
 func mapCobraErr(err error) error {

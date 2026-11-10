@@ -39,3 +39,22 @@ func (c Config) AliasErrors() []string {
 	sort.Strings(out)
 	return out
 }
+
+// CanonicalName returns the primary name for any alias (case-insensitive).
+func (c Config) CanonicalName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return name
+	}
+	for canon, aliases := range c.Alias {
+		if strings.ToLower(canon) == n {
+			return canon
+		}
+		for _, a := range aliases {
+			if strings.ToLower(a) == n {
+				return canon
+			}
+		}
+	}
+	return name
+}
