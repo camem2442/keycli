@@ -37,7 +37,8 @@ func reconcile(ctx context.Context, store journal.Store, id string, plan deliver
 	plan.ID = planID
 	grant, err := authorize(ctx, id, plan)
 	if err != nil || !time.Now().Before(grant.ExpiresAt) || grant.PlanDigest != planID ||
-		!sha256Digest(grant.GrantDigest) || !sha256Digest(grant.ExpectedActiveDigest) ||
+		!sha256Digest(grant.GrantDigest) || !sha256Digest(grant.OriginalWriteGrantDigest) ||
+		grant.GrantDigest == grant.OriginalWriteGrantDigest || !sha256Digest(grant.ExpectedActiveDigest) ||
 		grant.Worker != plan.Target.Worker || grant.Environment != plan.Target.Environment || grant.Destination != plan.Target.Destination ||
 		!cloudflareAccount(grant.AccountID) {
 		return journal.Record{}, errors.New("Cloudflare read-only reconciliation not admitted")
@@ -45,7 +46,9 @@ func reconcile(ctx context.Context, store journal.Store, id string, plan deliver
 	ctx, cancel := context.WithDeadline(ctx, grant.ExpiresAt)
 	defer cancel()
 	targetDigest := digestTarget(grant)
-	intent := journal.Intent{OperationID: id, TargetDigest: targetDigest, PlanDigest: planID, GrantDigest: grant.GrantDigest}
+	// The read authorization is fresh and distinct from the original write
+	// grant. Reconcile only the exact journal record of that older write.
+	intent := journal.Intent{OperationID: id, TargetDigest: targetDigest, PlanDigest: planID, GrantDigest: grant.OriginalWriteGrantDigest}
 	return store.Reconcile(intent, func(record journal.Record) (journal.Observation, error) {
 		if record.State == journal.IntentWritten {
 			return journal.Observation{}, journal.ErrUnknownEffect
