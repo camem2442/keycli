@@ -109,3 +109,55 @@ CREDENTIAL_ISOLATION          NOT_VERIFIED
 
 승인 후 예상 작업량: 코드 4파일 + 하네스 1개 + 테스트 10종, Mac↔Flip3 왕복 1회.
 `CROSS_HOST_EFFECT_FENCING`은 1·2·3·9·10이 실제 로그로 통과할 때만 선언한다.
+
+---
+
+## portbridge 통합 결정 (2026-11-11, 사용자 제안)
+
+`camem2442/portbridge`를 **S3 전송 계층**으로 채택한다. Gateway 앞단에서 tailnet 전용
+HTTPS 경로만 제공하고, 인증은 기존 HMAC Envelope가 그대로 담당한다.
+
+### 사전 점검 (읽기 전용, Mac에서 실행)
+
+```
+PASS Tailscale backend: Running
+PASS This Mac on tailnet: sj-mac.taile502be.ts.net
+PASS HTTPS certificates: sj-mac.taile502be.ts.net
+PASS Local SSH 22: reachable
+PASS Existing Serve ports: 8443
+PASS Free tailnet HTTPS port: 8444 (점검 시점)
+```
+
+### 전송 왕복 실측 (Flip3 없이, 로컬 서비스 대상)
+
+| 단계 | 결과 |
+|---|---|
+| loopback echo 서버 → `portbridge preview 18083 --https-port 8457 --minutes 1` | 경로 생성 |
+| `curl --resolve sj-mac…:8457:100.103.132.91 https://sj-mac…:8457/` | **HTTP 200**, marker 일치 |
+| TLS 검증 | 기본 검증 통과(공인 인증서) |
+| 종료 후 `tailscale serve status` | 8457 라우트 **잔여 없음** |
+
+### 확인된 제약 (S3 설계에 반영)
+
+1. **Serve는 loopback에 바인딩하지 않는다.** Mac에서 자기 자신을 호출할 때도 tailnet IP를 써야 한다(127.0.0.1 접속 불가).
+2. **시스템 DNS로 tailnet FQDN이 해석되지 않는다.** 이 Mac의 resolver는 `8.8.8.8`이고, `100.100.100.100`(MagicDNS)으로는 해석된다. 클라이언트가 MagicDNS를 쓰지 않으면 `--resolve`/Host 지정이 필요하다.
+3. **8444는 이미 다른 foreground 세션이 점유**(→ `127.0.0.1:8899`). 건드리지 않고 빈 포트를 명시 지정한다.
+4. URL 출력 후 실제 라우트 반영까지 약 2–3초가 걸린다. 테스트는 readiness poll을 둔다.
+5. `preview`는 대상이 **loopback 전용**일 때만 동작한다 → Gateway 바인딩과 일치.
+
+### 역할 분리
+
+| 계층 | 담당 |
+|---|---|
+| tailnet 노출·TLS·경로 수명 | portbridge (운영 도구, 라이브러리 의존 아님) |
+| 요청 인증(HMAC)·세션 키 | KeyCLI gateway |
+| claim·generation fencing | 기존 ClaimStore + gateway |
+| 효과 실행 | gateway의 synthetic provider |
+
+portbridge는 **인증 수단이 아니다**. tailnet 접근 가능성만 제공하므로, 출발지 IP를 인증으로
+쓰지 않는다는 S3 원칙이 그대로 유지된다.
+
+### 남은 승인 (변경 없음)
+
+- Flip3를 writer로 사용해도 되는지 (원격 실행 승인)
+- Flip3에서 서명 클라이언트를 어떻게 실행할지: (a) Termux Python 스크립트, (b) Mac에서 cross-compile한 정적 Go 바이너리(linux/arm64)
