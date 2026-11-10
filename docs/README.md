@@ -10,6 +10,7 @@
 | 보안 모델·한계 | [contracts/security-model.md](contracts/security-model.md) |
 | 왜 이렇게 정했나 | [decisions/0001-design-choices.md](decisions/0001-design-choices.md) · [0006 OpenCode 실행 모드](decisions/0006-opencode-execution-modes.md) |
 | 단계별 계획 | [planning/roadmap.md](planning/roadmap.md) |
+| v0.9 GitHub·Cloudflare·Oracle 구현 설계 (미구현) | [implementation/v09/README.md](implementation/v09/README.md) |
 | v0.8 다중 에이전트 공통 인증 인수 | [planning/v08-multi-agent-auth-infrastructure.md](planning/v08-multi-agent-auth-infrastructure.md) |
 | v0.8.0 출시 조건(CLI 안정화) | [planning/v080-release-gate.md](planning/v080-release-gate.md) |
 | v0.8.0 릴리스 증거·Cursor 파일럿 | [planning/v080-release-evidence.md](planning/v080-release-evidence.md) |
