@@ -57,23 +57,23 @@ var (
 // Request is the writer's intent. ExpiresAt bounds replay; MutationID is the
 // durable idempotency key.
 type Request struct {
-	GoalID       string
-	MutationID   string
-	Provider     string
-	Action       string
-	TargetDigest string
-	PlanDigest   string
-	GrantDigest  string
-	Generation   int64
-	Session      string
-	Owner        string
-	ExpiresAt    time.Time
+	GoalID       string    `json:"goal_id"`
+	MutationID   string    `json:"mutation_id"`
+	Provider     string    `json:"provider"`
+	Action       string    `json:"action"`
+	TargetDigest string    `json:"target_digest"`
+	PlanDigest   string    `json:"plan_digest"`
+	GrantDigest  string    `json:"grant_digest"`
+	Generation   int64     `json:"generation"`
+	Session      string    `json:"session"`
+	Owner        string    `json:"owner"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 // Envelope is the wire form: request plus its HMAC-SHA256 signature.
 type Envelope struct {
-	Request   Request
-	Signature string
+	Request   Request `json:"request"`
+	Signature string  `json:"signature"`
 }
 
 // ClaimSnapshot is a verified view supplied by the existing ClaimStore adapter.
@@ -121,12 +121,12 @@ type Provider interface {
 
 // Receipt is the writer-visible outcome. It never claims provider truth.
 type Receipt struct {
-	MutationID     string
-	Status         string
-	ProviderCalls  int
-	OperationState string
-	ProofDigest    string
-	Note           string
+	MutationID     string `json:"mutation_id"`
+	Status         string `json:"status"`
+	ProviderCalls  int    `json:"provider_calls"`
+	OperationState string `json:"operation_state,omitempty"`
+	ProofDigest    string `json:"proof_digest,omitempty"`
+	Note           string `json:"note,omitempty"`
 }
 
 const (
