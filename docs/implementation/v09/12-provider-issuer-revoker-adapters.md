@@ -99,3 +99,14 @@ type ProviderRevoker interface {
 [KeyCLI #58](https://github.com/camem2442/keycli/pull/58)은 [#56](https://github.com/camem2442/keycli/pull/56)의 기존 `rotation.VerifyOldCredential` 콜백에 연결되는 **읽기 전용** Go package `internal/rotation/provideridentity`를 추가한다. GitHub repository Actions Secret의 immutable repository/owner ID + 세대별 이름 + pinned created/updated 시간, Cloudflare Account Token의 정확한 계정/토큰 ID·status·issued_on·policy digest, OCI Vault management의 Secret/Compartment/Vault OCID와 `DEPRECATED` version number를 실제 GET API로 검사한다.
 
 **증거:** Go 1.23.2 격리 모듈(업스트림 #56 rotation 코드 동일 Git blob, journal은 테스트용 shim)에서 unit/race/vet/gofmt PASS. **Go 1.22 whole KeyCLI module, 실 공급자 인증·권한/응답 스키마·실제 폐기 NOT VERIFIED**. #57 CI는 새 #58 Blob을 포함하지 않는다. Cloudflare는 Account API Tokens Read가 필요하며 403이면 HOLD. Oracle의 Signer/tenancy assertion은 신뢰 호스트가 제공해야 한다. GitHub Secret GET은 값·DELETE CAS를 증명하지 않는다. 동일 UID 콜백·메타데이터 digest만으로 운영 Revoker가 승인됐다고 주장하지 않는다.
+
+## K10-06 제한된 실제 Provider effect 소스 — #60 + #63
+
+[PR #60](https://github.com/camem2442/keycli/pull/60)은 **`internal/rotation/providerlifecycle`**에 실제 GitHub·Cloudflare·OCI HTTPS 효과의 좁은 내부 Go 어댑터를 추가한다. 각각 단일 요청·고정 HTTPS origin·redirect/환경 프록시/자동 재시도 없음·민감정보 비출력·호스트 승인 callback 요구. 기존 #58 `provideridentity` 독립 GET과 #51 Prepare/#53 Finalize·Journal을 대체하는 권한 엔진이 아니다.
+
+- **GitHub:** 동일 Repo/Owner ID를 가진 `NAME_GEN_N` Actions Secret 하나 DELETE(204). 신규 Secret 암호화 PUT은 기존 #47 코드 재사용. GitHub Secret DELETE는 원본 OpenAI/API 서비스 키 자체의 폐기가 아니다. 이름 기반 API에는 compare-and-delete 없음.
+- **Cloudflare:** 계정 소유 API Token 신규 발급 POST 후 결과 값을 trusted private sink로 단발 전달, 과거 Account Token 정확한 ID 삭제. [#63](https://github.com/camem2442/keycli/pull/63)에서 `expires_on` **5분 이상 24시간 이내 필수**; Account API Tokens Write/Read 및 permission group은 실제 별도 Owner 허가가 필요. Token Roll·전역 권한 상승 금지.
+- **OCI:** Management UpdateSecret `stage=PENDING` + If-Match, 독립적으로 확인된 이전 `DEPRECATED` 버전만 ScheduleSecretVersionDeletion. 예약은 영구삭제 시각 이전부터 **즉시 접근 장애**가 발생할 수 있어, 모든 실제 소비자 종료·롤백 기간 완료 이후에만 별도 Revoker에서 시행.
+- [#61 Go 1.22.12 전체 CI](https://github.com/camem2442/keycli/actions/runs/42787409731) 성공은 해당 exact Tree의 source 게이트만 충족. 실제 공급자 계정·WIF·비용/수명/권한·호스트 서명 검증·토큰 저장을 운영 검증하지 않았다.
+
+Source: [Provider effects guide](https://github.com/camem2442/keycli/blob/feat/keycli-k10-06-provider-lifecycle-effects-20261110/docs/guides/provider-lifecycle-effects-v010.md). Release scope: `experimental/internal only` until live evidence and separate operator approval.

@@ -50,3 +50,14 @@ scope: read-only audit + proposed disposable pilot admission
 - Provider 쓰기/배포·토큰 발급·무료 요금제 전환은 이번 문서 범위에 없다.
 
 출처: [Workers Limits](https://developers.cloudflare.com/workers/platform/limits/) · [Workers Pricing](https://developers.cloudflare.com/workers/platform/pricing/) · [Worker Secrets](https://developers.cloudflare.com/workers/configuration/secrets/) · [K09-04B disposable plan](11-cloudflare-disposable-worker-pilot.md).
+
+## Free-only Admission 코드 — #59 (Billing Read 미보유 상태)
+
+[Draft #59](https://github.com/camem2442/keycli/pull/59)의 `internal/delivery/freegate`는 **미구현 운영 권한이 아닌 읽기 전용 판정**이다. 실제 계정 ID를 호스트에서 별도로 고정하고, 별도 보관된 Ed25519 Owner 공개키로 **24시간 이내의 Workers Free dashboard 증언**을 검증한 뒤, 신뢰된 provider GET으로 가져온 현재 Worker 목록이 서명 대상과 정확히 같을 때만 `OWNER_ATTESTED_SCOPED`를 반환한다. 결과는 항상 `authoritative=false`, `authorizes_execution=false`.
+
+- Development Infrastructure 계정에 기존 Worker **6개**를 조회했다. `Subscriptions` 및 `Billing Usage`는 403, `Entitlements`는 조회 성공/빈 목록, `default_usage_model=standard`. 이 값들은 계정이 Free인지, 남은 요청·과금 한도가 충분한지 증명하지 않는다. 신규 Pilot Worker 생성 없음.
+- Cloudflare 공식 Workers Free **100 Worker/account, 요청 100,000/day**는 정책 상한이며 계정의 실제 결제 계약과 당일 잔여량이 아님.
+- 별도로 Owner가 인증한 Free dashboard 증거/권한 한도/독립 Writer·정리 권한이 없는 현재 **실계정 파일럿은 HOLD**. `FreeGate`를 통과하더라도 새 `cloudflaredelivery.Run`을 자동으로 호출할 수 없고, 별도의 workspace-infra Goal/effect admission이 요구된다.
+- [#61 Go 1.22.12 CI](https://github.com/camem2442/keycli/actions/runs/42787409731)는 Gate의 합성 서명·틀린 계정/서명/비용/목록 테스트를 통과했다. 이것은 Cloudflare Free Plan proof가 아니다.
+
+[Gate implementation guide](https://github.com/camem2442/keycli/blob/feat/keycli-k09-freegate-owner-attestation-20261110/docs/guides/cloudflare-freegate-signed-pilot.md).

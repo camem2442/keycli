@@ -90,3 +90,12 @@ v0.9.3 OCI가 완료되지 않았다는 이유로 **소스-only** rotation core 
 - Script Version GET은 바인딩을, [Worker Version GET](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/get/)은 `annotations["workers/tag"]`를 공급한다. #55는 두 API의 version UUID 일치를 요구하고, 둘 중 한 API가 불가하면 효과를 `UNKNOWN_EFFECT`로 둔다.
 - #55 Go 1.23.2 집중 합성/race PASS, **#55 변경분에 대한 Go 1.22 whole module CI는 아직 NOT VERIFIED**. #54 기존 Go 1.22 성공은 #55 새 Blob의 증거가 아니다.
 - 순서: #47 → #48 → #50 → #55(기술 인수 후 반영). #49→#51→#52→#53은 별개 정적 키 회전 스택.
+
+## 2026-11-10 최종 Q123 통합 검증 — #58~#63
+
+- [KeyCLI 검증 전용 #61](https://github.com/camem2442/keycli/pull/61) **HEAD `2ce3ccb0908ca5ee6c685122f54a487318acda6a`**; [GitHub Actions #42787409731](https://github.com/camem2442/keycli/actions/runs/42787409731) Linux **Go 1.22.12 / `verify.sh --suite all` SUCCESS**, PR 테스트 병합 Tree SHA **`ac5c3d4a582d800ebb0996545df4a5ddacb3847b`** = 후보 HEAD Tree SHA. 이는 **소스 검증**이며 운영 실인수 아님.
+- 최초 #61 HEAD `09923fb6`의 Linux 실패 원인은 [#58](https://github.com/camem2442/keycli/pull/58) Provider identity 테스트의 상대 Journal 경로였다. [#62](https://github.com/camem2442/keycli/pull/62)는 실제 Journal이 요구하는 절대/개인 0700 임시 루트를 쓰도록 고쳤고 #61 최종 CI에 같은 Git blob을 넣었다.
+- [#59](https://github.com/camem2442/keycli/pull/59): Cloudflare Free-only **소유자 서명 + 고정 Account ID + 실제 Worker 목록**을 읽기 전용으로 검사. `authorizes_execution=false`이므로 이를 운영 쓰기 Grant로 사용하지 않는다.
+- [#60](https://github.com/camem2442/keycli/pull/60): GitHub 세대별 Actions Secret DELETE, Cloudflare Account Token POST/DELETE, OCI Vault Pending Update / Deprecated version 삭제 예약의 내부 API. [#63](https://github.com/camem2442/keycli/pull/63)은 Account Token 발급 시 **5분~24시간 만료 시각**을 필수화. 두 변경 모두 최종 #61 CI에 동일 Git blob으로 포함.
+- 권장 병합 검토 순서: **#47 → #48 → #50 → #55 → #59** (Cloudflare) 및 **#47 → #49 → #51 → #52 → #53 → #56 → #58 → #62 → #60 → #63** (Rotation). 후행 PR은 선행 소유 PR 병합 뒤 main 기준 재검증/정합성을 확인해야 한다. **#54·#57·#61은 DO NOT MERGE**. #46·workspace-infra #251은 별도 문서 PR.
+- 실제 KeyCLI Release/설치·실계정 Token 발급·폐기·Cloudflare Worker 생성/Deployment·OCI VM은 전혀 이루어지지 않았다. v0.10.0 **운영 자동 회전 완료가 아니라 내부 실험적 후보**이며, 신뢰 Host/Writer/발급자/폐기자, 비용/권한, Provider 원본 증거가 없으면 활성화 금지.
