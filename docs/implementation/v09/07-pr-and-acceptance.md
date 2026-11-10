@@ -20,7 +20,7 @@ scope: proposed-implementation-sequence
 | K09-04 | Cloudflare `versions secret` adapter·운영 비활성 버전 검증 없음 | NOT VERIFIED / 다음 독립 PR |
 | K09-05 이후 | OCI WIF·workspace-infra·rotation 운영 연결 없음 | NOT VERIFIED |
 
-#47의 `kc delivery status`는 **로컬 journal 조회**이며 provider 원격 관측/복구 CLI가 아니다. 실제 인증 callback과 GitHub Secret encrypted REST는 trust host 내 Go API이며 일반 CLI에 임의 Stage/Deploy 권한이 열린 것이 아니다. Journal은 root가 같은 협력 Writer를 보호하지만 cross-host 전역 lock은 제공하지 않는다. OpenAI WIF `expires_at` 응답 호환성 검증은 live pilot의 선행이다.
+#47의 `kc delivery status`는 **로컬 journal 조회**이며 provider 원격 관측/복구 CLI가 아니다. 실제 인증 callback과 GitHub Secret encrypted REST는 trust host 내 Go API이며 일반 CLI에 임의 Stage/Deploy 권한이 열린 것이 아니다. Journal은 root가 같은 협력 Writer를 보호하지만 cross-host 전역 lock은 제공하지 않는다. OpenAI WIF `expires_in`·`expires_at` 간 일관성 및 JWT 만료 상한 회귀는 live pilot의 선행이다. 공식 응답은 두 만료 필드를 포함한다.
 
 ## PR 분할 (단일 Writer, 하나씩 인수)
 

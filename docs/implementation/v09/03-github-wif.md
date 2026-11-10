@@ -9,7 +9,7 @@ scope: proposed-github-integration
 
 [KeyCLI PR #47](https://github.com/camem2442/keycli/pull/47) HEAD `e61beed`에는 `internal/identity/githubwif/exchange.go`, `internal/target/gh/rest.go`, `internal/delivery/githubdelivery/run.go`가 들어 있다. 합성 테스트와 GitHub-hosted Linux 단위·회귀 검증은 수행됐다. **실제 OpenAI 교환, 실제 GitHub Actions Secret 쓰기, 유효한 Owner 운영 허가는 NOT VERIFIED**다.
 
-공식 [OpenAI WIF 토큰 교환 응답](https://developers.openai.com/api/reference/workload-identity-federation)은 `expires_in`을 예시로 보여 주고 `expires_at`이 항상 반환된다고 명시하지 않는다. 후보 코드 `TokenResponse`는 `expires_at` 부재 시 실패한다. **첫 라이브 교환 전**, `expires_in`만 있는 공식 형태와 `expires_at` 포함 형태를 모두 합성 회귀해 호환 정책을 결정하라. 누락을 임의로 성공 처리하지 말고 현재 시간·외부 JWT 만료·최대 3600초를 함께 제한하라. 공식 GitHub API `X-GitHub-Api-Version: 2026-03-10`은 지원되는 버전이므로 과거 버전으로 일괄 되돌리지 않는다.
+**명세 정정(2026-11-10):** [OpenAI WIF token exchange 응답](https://developers.openai.com/api/reference/workload-identity-federation)은 `expires_in`과 `expires_at`을 **모두 포함한다고 명시**한다. PR #47의 `ExpiresAt` 필수 검사는 현재 공개 계약과 부합한다. 누락/불일치·음수 수명·외부 JWT 만료 초과·최대 3600초 초과는 계속 거부해야 한다. 라이브 전에는 공식 응답형태와 경계값을 합성 회귀하고, 실계정 성공 여부는 별도 검증한다. 공식 GitHub API `X-GitHub-Api-Version: 2026-03-10`은 지원되는 버전이므로 과거 버전으로 일괄 되돌리지 않는다.
 
 후속 확장은 별도 새 인증 서버/추가 Secret Store를 만들지 않고, #47의 권한 검증 callback·서명 검증된 provider 교환·기존 `journal`을 재사용한다. `ACKNOWLEDGED`는 실제 Secret 값이 독립 검증됐다는 뜻이 아니다.
 

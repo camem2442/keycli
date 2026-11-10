@@ -21,7 +21,8 @@ scope: design-only
 6. [06-rotation-and-recovery.md](06-rotation-and-recovery.md): 회전·상태 머신·재조정·복구
 7. [07-pr-and-acceptance.md](07-pr-and-acceptance.md): 최소 PR 시퀀스, 테스트·비용 게이트
 8. [08-mac-agent-prompt.md](08-mac-agent-prompt.md): Mac 로컬 코딩 에이전트 독립 실행 프롬프트
-9. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
+9. [09-v09x-to-v010-roadmap.md](09-v09x-to-v010-roadmap.md): 릴리스 의존성·중단 복구·v0.10 회전 도입 게이트
+10. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
 
 ## 정본 우선순위
 
