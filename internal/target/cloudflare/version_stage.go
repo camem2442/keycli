@@ -26,6 +26,7 @@ type VersionStageRequest struct {
 	Worker        string
 	Environment   string
 	SecretName    string
+	VersionTag    string // optional, host-bound operation correlation; visible metadata only
 	Env           []string
 }
 
@@ -43,6 +44,7 @@ var (
 	stageWorker     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	stageEnv        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 	stageSecret     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	stageTag        = regexp.MustCompile(`^kc-[A-Za-z0-9_-]{1,96}$`)
 	stageAccount    = regexp.MustCompile(`^[a-f0-9]{32}$`)
 	allowedStageEnv = map[string]bool{
 		"PATH": true, "HOME": true, "TMPDIR": true, "XDG_CONFIG_HOME": true,
@@ -78,6 +80,9 @@ func StageVersionSecret(ctx context.Context, req VersionStageRequest, load func(
 	bounded, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	args := []string{"versions", "secret", "put", req.SecretName, "--name", req.Worker, "--env", req.Environment, "--config", req.ConfigPath}
+	if req.VersionTag != "" {
+		args = append(args, "--tag", req.VersionTag)
+	}
 	cmd := exec.CommandContext(bounded, req.WranglerPath, args...)
 	cmd.Dir = req.WorkDirectory
 	cmd.Env = slices.Clone(req.Env)
@@ -99,6 +104,7 @@ func StageVersionSecret(ctx context.Context, req VersionStageRequest, load func(
 func validVersionStageRequest(r VersionStageRequest) bool {
 	if !stageAccount.MatchString(r.AccountID) || !stageWorker.MatchString(r.Worker) ||
 		!stageEnv.MatchString(r.Environment) || !stageSecret.MatchString(r.SecretName) ||
+		(r.VersionTag != "" && !stageTag.MatchString(r.VersionTag)) ||
 		!filepath.IsAbs(r.WranglerPath) || !filepath.IsAbs(r.ConfigPath) || !filepath.IsAbs(r.WorkDirectory) ||
 		filepath.Clean(r.WranglerPath) != r.WranglerPath || filepath.Clean(r.ConfigPath) != r.ConfigPath ||
 		filepath.Clean(r.WorkDirectory) != r.WorkDirectory {
