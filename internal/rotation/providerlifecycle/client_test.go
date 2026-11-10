@@ -65,13 +65,13 @@ func TestCloudflareTokenIssuerHasSingleScopedPolicyAndNoValueLeak(t *testing.T) 
 			t.Fatal("wrong CF issuer")
 		}
 		b, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(b), `"permission_groups":[{"id":"`+perm+`"}]`) || !strings.Contains(string(b), `"com.cloudflare.api.account.`+account+`":"*"`) || strings.Contains(string(b), secretValue) {
+		if !strings.Contains(string(b), `"permission_groups":[{"id":"`+perm+`"}]`) || !strings.Contains(string(b), `"com.cloudflare.api.account.`+account+`":"*"`) || !strings.Contains(string(b), `"expires_on":`) || strings.Contains(string(b), secretValue) {
 			t.Fatalf("unsafe token grant body %s", b)
 		}
 		return response(200, fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":"kc-rot-demo","value":%q}}`, token, secretValue)), nil
 	})
 	sinkCalls := 0
-	ret, err := c.CreateCloudflareAccountToken(context.Background(), authorized, account, "kc-rot-demo", perm, func(_ context.Context, b []byte) error {
+	ret, err := c.CreateCloudflareAccountToken(context.Background(), authorized, account, "kc-rot-demo", perm, time.Now().Add(2*time.Hour), func(_ context.Context, b []byte) error {
 		sinkCalls++
 		if string(b) != secretValue {
 			t.Fatal("incorrect value passed to trusted sink")
@@ -81,8 +81,11 @@ func TestCloudflareTokenIssuerHasSingleScopedPolicyAndNoValueLeak(t *testing.T) 
 	if err != nil || ret.CredentialID != token || strings.Contains(fmt.Sprint(ret), secretValue) || sinkCalls != 1 || count != 1 {
 		t.Fatalf("cf issue outcome: %+v %v", ret, err)
 	}
-	if _, err := c.CreateCloudflareAccountToken(context.Background(), denied, account, "kc-rot-demo", perm, func(context.Context, []byte) error { return nil }); err == nil || count != 1 {
+	if _, err := c.CreateCloudflareAccountToken(context.Background(), denied, account, "kc-rot-demo", perm, time.Now().Add(2*time.Hour), func(context.Context, []byte) error { return nil }); err == nil || count != 1 {
 		t.Fatal("denied issuer request executed")
+	}
+	if _, err := c.CreateCloudflareAccountToken(context.Background(), authorized, account, "kc-rot-demo", perm, time.Time{}, func(context.Context, []byte) error { return nil }); err == nil || count != 1 {
+		t.Fatal("issuer accepted an indefinite token")
 	}
 }
 func TestCloudflareTokenSinkFailureIsNotSafeToRetry(t *testing.T) {
@@ -91,7 +94,7 @@ func TestCloudflareTokenSinkFailureIsNotSafeToRetry(t *testing.T) {
 	c := clientFixture(t, func(*http.Request) (*http.Response, error) {
 		return response(200, fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":"kc-rot-demo","value":"once-only"}}`, id)), nil
 	})
-	_, err := c.CreateCloudflareAccountToken(context.Background(), authorized, account, "kc-rot-demo", id, func(context.Context, []byte) error { return errors.New("private store failed") })
+	_, err := c.CreateCloudflareAccountToken(context.Background(), authorized, account, "kc-rot-demo", id, time.Now().Add(2*time.Hour), func(context.Context, []byte) error { return errors.New("private store failed") })
 	if err == nil || strings.Contains(err.Error(), "once-only") {
 		t.Fatal("unsafe failure reporting")
 	}
