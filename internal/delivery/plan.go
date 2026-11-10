@@ -66,16 +66,19 @@ type SecretRef struct {
 }
 
 type TargetRef struct {
-	Repository          string `json:"repository,omitempty"`
-	Ref                 string `json:"ref,omitempty"`
-	WorkflowRef         string `json:"workflow_ref,omitempty"`
-	Environment         string `json:"environment,omitempty"`
-	AccountAlias        string `json:"account_alias,omitempty"`
-	Worker              string `json:"worker,omitempty"`
-	Destination         string `json:"destination,omitempty"`
-	TenancyAlias        string `json:"tenancy_alias,omitempty"`
-	InstanceAlias       string `json:"instance_alias,omitempty"`
-	IdentityDomainAlias string `json:"identity_domain_alias,omitempty"`
+	Repository            string  `json:"repository,omitempty"`
+	Ref                   string  `json:"ref,omitempty"`
+	WorkflowRef           string  `json:"workflow_ref,omitempty"`
+	Environment           string  `json:"environment,omitempty"`
+	AccountAlias          string  `json:"account_alias,omitempty"`
+	Worker                string  `json:"worker,omitempty"`
+	Destination           string  `json:"destination,omitempty"`
+	TenancyAlias          string  `json:"tenancy_alias,omitempty"`
+	InstanceAlias         string  `json:"instance_alias,omitempty"`
+	IdentityDomainAlias   string  `json:"identity_domain_alias,omitempty"`
+	Scope                 string  `json:"scope,omitempty"`
+	Organization          string  `json:"organization,omitempty"`
+	SelectedRepositoryIDs []int64 `json:"selected_repository_ids,omitempty"`
 }
 
 type WIFRef struct {
@@ -126,22 +129,23 @@ func BuildPlan(profiles Profiles, profileName string, metadata MetadataSnapshot)
 		}
 		plan.WIF = &WIFRef{
 			ProviderAlias: p.WIFProviderAlias, ServiceAccountAlias: p.ServiceAccountAlias,
-			Issuer: "https://token.actions.githubusercontent.com", Audience: p.Audience,
+			Issuer: githubOIDCIssuer, Audience: p.Audience,
 		}
 		plan.Unverified = append(plan.Unverified, "wif_mapping")
+	case githubSecret:
+		plan.Effect = p.Effect
+		ids := slices.Clone(p.SelectedRepositoryIDs)
+		slices.Sort(ids)
+		plan.Target = TargetRef{
+			Scope: p.Scope, Repository: p.Repository, Environment: p.Environment,
+			Organization: p.Organization, SelectedRepositoryIDs: ids, Destination: p.Destination,
+		}
+		plan.Unverified = append(plan.Unverified, "source_availability", "secret_write_scope")
 	case cloudflareWorkers:
 		plan.Effect = p.Effect
 		plan.Target = TargetRef{
 			AccountAlias: p.AccountAlias, Worker: p.Worker, Environment: p.Environment, Destination: p.Destination,
 		}
-		canonical := metadata.aliases.CanonicalName(p.Source)
-		if !labelPattern.MatchString(canonical) {
-			return DeliveryPlan{}, errors.New("invalid canonical delivery source name")
-		}
-		if metadata.evaluate != nil && !metadata.evaluate.Allowed(canonical) {
-			return DeliveryPlan{}, errors.New("delivery source denied by KeyCLI policy")
-		}
-		plan.Source = &SecretRef{Alias: p.Source, CanonicalName: canonical}
 		plan.Unverified = append(plan.Unverified, "source_availability", "active_deployment", "latest_uploaded_version")
 	case ociWIF:
 		plan.Effect = "workload-identity-exchange"
@@ -150,6 +154,16 @@ func BuildPlan(profiles Profiles, profileName string, metadata MetadataSnapshot)
 		}
 		plan.WIF = &WIFRef{ProviderAlias: p.WIFProviderAlias, ServiceAccountAlias: p.ServiceAccountAlias}
 		plan.Unverified = append(plan.Unverified, "issuer", "audience", "wif_mapping")
+	}
+	if p.Source != "" {
+		canonical := metadata.aliases.CanonicalName(p.Source)
+		if !labelPattern.MatchString(canonical) {
+			return DeliveryPlan{}, errors.New("invalid canonical delivery source name")
+		}
+		if metadata.evaluate != nil && !metadata.evaluate.Allowed(canonical) {
+			return DeliveryPlan{}, errors.New("delivery source denied by KeyCLI policy")
+		}
+		plan.Source = &SecretRef{Alias: p.Source, CanonicalName: canonical}
 	}
 	// Hash the versioned projection with plan_id empty. Its fields contain
 	// no time, local path, or mutable provider observation.
