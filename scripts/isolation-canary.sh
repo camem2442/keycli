@@ -69,6 +69,10 @@ check() {
   [[ "$status" == PASS ]] || fail=1
 }
 
+info() {
+  printf '%-38s %s\n' "$1" "$2"
+}
+
 # 1. The peer UID must not be able to read the file.
 if sudo -n -u "$PEER_USER" /bin/cat "$work/secret-canary" >"$work/peer.out" 2>"$work/peer.err"; then
   check cross_uid_read DENIED_UNEXPECTEDLY_ALLOWED
@@ -94,7 +98,7 @@ else
 fi
 
 # 4. Same-UID guard is application-level only; state it explicitly.
-check same_uid_boundary APPLICATION_LEVEL_ONLY
+info same_uid_boundary APPLICATION_LEVEL_ONLY
 
 if [[ "$fail" -ne 0 ]]; then
   echo "status=FAIL"

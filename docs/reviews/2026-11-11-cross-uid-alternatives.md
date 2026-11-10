@@ -5,6 +5,10 @@ owner: delivery
 
 # Cross-UID 검증 대안 조사 (Q2)
 
+> **후속(2026-11-11):** 사용자가 신규 Lima VM을 허용했고, `kc-isolation-20261111`에서
+> **실제 커널 UID로 PASS**했다([S1 영수증](2026-11-11-cross-uid-receipt.md)).
+> 아래 분석은 "Mac 로컬에서 계정 생성 없이 가능한가"에 대한 답으로 남긴다.
+
 질문: **별도 macOS 계정을 만들지 않고** 이 Mac에서 cross-UID 격리를 안전하게 검증할 수 있는가.
 
 결론: **없다.** 커널이 강제하는 UID 경계를 만들려면 다른 UID로 실행해야 하고, 그 권한이
@@ -31,7 +35,7 @@ owner: delivery
 | Keychain `-T` ACL | 항목별 앱 접근 제한(+ 사용자 프롬프트) | **부분** | Keychain 항목에만 적용. env/파일로 전달된 provider 토큰은 보호하지 못하고, 프롬프트 의존이라 자동 검증에 부적합 |
 | `security create-keychain` 임시 키체인 | 격리된 테스트 저장소 | **도구로는 유효** | 임시 파일 키체인 생성/삭제는 실제 사용자 키체인을 건드리지 않는다(실측: create/delete exit 0). 다만 UID 경계 증명은 아니다 |
 | Flip3 PRoot | 가상화된 UID | **부적합** | 커널 UID 격리가 아님(사용자 지적과 동일). writer 충돌·재시작 검증용으로만 |
-| Lima VM 신규 생성 | 진짜 Linux UID 경계 | **가능(권장)** | 관리자 권한 불필요. 단 이미지 다운로드(수백 MB)·디스크 필요. 이번 실행에서는 만들지 않음 |
+| Lima VM 신규 생성 | 진짜 Linux UID 경계 | **실행됨 (PASS)** | 이미지 ~600MB 다운로드, 8GiB sparse. 관리자 권한 불필요 |
 | 기존 `study-apps-ci` VM | Linux UID 경계 | **보류** | 다른 프로젝트 소유·운영 중. 사용은 소유자 승인 필요 |
 
 ## 실측으로 확인한 것
