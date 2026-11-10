@@ -66,6 +66,7 @@ func NewSecretRESTClient(token string) (*SecretRESTClient, error) {
 	return newSecretRESTClient(token, &http.Transport{
 		DialContext:         (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSNextProto:        map[string]func(string, *tls.Conn) http.RoundTripper{},
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     30 * time.Second,
 	})

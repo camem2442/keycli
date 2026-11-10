@@ -3,6 +3,7 @@ package githubwif
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -48,7 +49,8 @@ func (Credential) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, "[redac
 func (c Credential) ExpiresAt() time.Time     { return c.expires }
 
 // Authorize attaches the access token only to the public OpenAI API origin.
-// Callers must disable redirect following for authenticated requests.
+// Callers must use a transport that disables redirects and credential/header
+// logging for authenticated requests.
 func (c Credential) Authorize(req *http.Request) error {
 	if req == nil || req.URL == nil || req.URL.Scheme != "https" ||
 		req.URL.Host != "api.openai.com" || req.URL.User != nil ||
@@ -99,7 +101,11 @@ func NewExchange(contract Contract, mapping Mapping, requestURL, requestToken st
 	query.Set("audience", contract.Audience)
 	u.RawQuery = query.Encode()
 	httpClient := &http.Client{
-		Transport:     &http.Transport{ForceAttemptHTTP2: true},
+		Transport: &http.Transport{
+			// HTTP/2 debug can log authorization headers.
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSNextProto:    map[string]func(string, *tls.Conn) http.RoundTripper{},
+		},
 		Timeout:       15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
