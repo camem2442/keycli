@@ -32,6 +32,9 @@ func newTestStore(t *testing.T) Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
 	return Store{Root: filepath.Join(parent, "journal")}
 }
 
