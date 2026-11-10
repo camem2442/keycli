@@ -18,6 +18,9 @@ func TestDeliveryStatusDoesNotOpenApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(home, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", home)
 	parent := filepath.Join(home, ".kc")
 	if err := os.Mkdir(parent, 0700); err != nil {

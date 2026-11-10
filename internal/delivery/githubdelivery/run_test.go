@@ -3,6 +3,7 @@ package githubdelivery
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ func (fn writerFunc) PutSecretFrom(ctx context.Context, target gh.SecretRESTTarg
 func TestAdmissionAndUncertainGitHubWrite(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
 	store := journal.Store{Root: filepath.Join(root, "journal")}
