@@ -21,14 +21,18 @@ import (
 // Grant is a *host-verified* binding; constructing this struct does not grant
 // authority. The host must check its own real Goal/Claim and expiry first.
 type Grant struct {
-	PlanDigest           string
-	GrantDigest          string
-	AccountID            string
-	Worker               string
-	Environment          string
-	Destination          string
-	ExpectedActiveDigest string
-	ExpiresAt            time.Time
+	PlanDigest  string
+	GrantDigest string
+	// OriginalWriteGrantDigest is used only by read-only Reconcile: the
+	// exact digest persisted with the original write intent. It must not
+	// also serve as the new read-authorization digest.
+	OriginalWriteGrantDigest string
+	AccountID                string
+	Worker                   string
+	Environment              string
+	Destination              string
+	ExpectedActiveDigest     string
+	ExpiresAt                time.Time
 }
 
 type Authorize func(context.Context, string, delivery.DeliveryPlan) (Grant, error)

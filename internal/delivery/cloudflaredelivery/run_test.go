@@ -65,6 +65,12 @@ func fixture(t *testing.T) (delivery.DeliveryPlan, Grant, cloudflare.VersionStag
 func permit(g Grant) Authorize {
 	return func(context.Context, string, delivery.DeliveryPlan) (Grant, error) { return g, nil }
 }
+
+func permitRead(g Grant) Authorize {
+	g.OriginalWriteGrantDigest = g.GrantDigest
+	g.GrantDigest = strings.Repeat("b", 64)
+	return permit(g)
+}
 func testStore(t *testing.T) journal.Store {
 	t.Helper()
 	parent := t.TempDir()
@@ -173,7 +179,7 @@ func TestReconcileFindsTaggedVersionWithoutCallingWrangler(t *testing.T) {
 	remote.reads = 0
 	store := testStore(t)
 	seedUnknown(t, store, plan, grant)
-	result, err := reconcile(context.Background(), store, op, plan, permit(grant), remote)
+	result, err := reconcile(context.Background(), store, op, plan, permitRead(grant), remote)
 	if err != nil || result.State != journal.ObservedApplied || result.ProofDigest == "" || remote.reads != 1 {
 		t.Fatalf("reconcile %+v %v", result, err)
 	}
@@ -184,8 +190,28 @@ func TestReconcileUntrustedTagStaysUnknown(t *testing.T) {
 	remote.before = remote.after
 	store := testStore(t)
 	seedUnknown(t, store, plan, grant)
-	result, err := reconcile(context.Background(), store, op, plan, permit(grant), remote)
+	result, err := reconcile(context.Background(), store, op, plan, permitRead(grant), remote)
 	if !errors.Is(err, journal.ErrUnknownEffect) || result.State != journal.UnknownEffect {
 		t.Fatalf("unbound observation %+v %v", result, err)
+	}
+}
+
+func TestReconcileRequiresDistinctCurrentReadGrantAndExactOriginalWrite(t *testing.T) {
+	plan, writeGrant, _, remote := fixture(t)
+	remote.before = remote.after
+	store := testStore(t)
+	seedUnknown(t, store, plan, writeGrant)
+	if _, err := reconcile(context.Background(), store, op, plan, permit(writeGrant), remote); err == nil || remote.reads != 0 {
+		t.Fatalf("reused write approval accepted: %v, remote reads=%d", err, remote.reads)
+	}
+	wrongRead := writeGrant
+	wrongRead.OriginalWriteGrantDigest = strings.Repeat("c", 64)
+	wrongRead.GrantDigest = strings.Repeat("b", 64)
+	if _, err := reconcile(context.Background(), store, op, plan, permit(wrongRead), remote); err == nil || remote.reads != 0 {
+		t.Fatalf("mismatched old grant accepted: %v, remote reads=%d", err, remote.reads)
+	}
+	out, err := reconcile(context.Background(), store, op, plan, permitRead(writeGrant), remote)
+	if err != nil || out.State != journal.ObservedApplied || remote.reads != 1 {
+		t.Fatalf("distinct grant failed to reconcile: %+v, %v, reads=%d", out, err, remote.reads)
 	}
 }
