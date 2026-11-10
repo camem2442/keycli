@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type CloudflarePolicy struct {
@@ -23,16 +24,16 @@ type SecretSink func(context.Context, []byte) error
 
 // CreateCloudflareAccountToken uses a separately authenticated account-token
 // issuer (Account API Tokens Write). The host pins the allowed permission group.
-func (c Client) CreateCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, sink SecretSink) (Receipt, error) {
+func (c Client) CreateCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, expiresAt time.Time, sink SecretSink) (Receipt, error) {
 	if !accountID.MatchString(account) || !segment.MatchString(name) || !strings.HasPrefix(name, "kc-rot-") ||
-		!accountID.MatchString(permissionGroupID) || sink == nil {
+		!accountID.MatchString(permissionGroupID) || sink == nil || expiresAt.Before(time.Now().Add(5*time.Minute)) || expiresAt.After(time.Now().Add(24*time.Hour)) {
 		return Receipt{}, errors.New("invalid narrow Cloudflare issuer scope")
 	}
 	target := account + "/tokens/" + name + "/permission-group/" + permissionGroupID
 	if err := authorize(ctx, gate, "cloudflare", "create-account-token", target); err != nil {
 		return Receipt{}, err
 	}
-	body, _ := json.Marshal(map[string]any{"name": name, "policies": []any{map[string]any{
+	body, _ := json.Marshal(map[string]any{"name": name, "expires_on": expiresAt.UTC().Format(time.RFC3339), "policies": []any{map[string]any{
 		"effect": "allow", "resources": map[string]string{"com.cloudflare.api.account." + account: "*"},
 		"permission_groups": []any{map[string]string{"id": permissionGroupID}},
 	}}})
