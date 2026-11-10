@@ -18,15 +18,17 @@ OpenAI WIF와 Codex WIF는 조직·권한 경계가 다르므로 이 문서는 O
 
 ## 실제 인스턴스가 있을 때의 단계 (Owner 승인 후)
 
-1. `standard-vm`/OCI에서 지역·Compartment·인스턴스 OCID·소유한 OS 사용자·Instance Principal 가용성을 **별도 read-only** 검증. Instance metadata(169.254.169.254)는 VM 내부에서만 사용하며 결과 ID를 로그에 유출하지 않는다.
+1. WI-KC-01이 연결된 신뢰 호스트에서 인증 scope와 비용·예산을 결속한다. `standard-vm`/OCI에서 지역·Compartment·인스턴스 OCID·소유한 OS 사용자·Instance Principal 가용성을 별도 read-only로 검증한다. Instance metadata(169.254.169.254)는 VM 내부에서만 사용하며 결과 ID를 로그에 유출하지 않는다.
 2. 신뢰된 VM에서 OCI SDK `InstancePrincipalsSecurityTokenSigner`로 IDCS token exchange. `scope=urn:opc:idm:__myscopes__`. Identity Domain URL은 해당 테넌시 것으로 고정, 임의 대체 금지.
 3. 발급된 실제 IDCS JWT의 `iss` / `aud` / `sub_type` / `ipst_instance` / `domain_id` / `ca_ocid`를 **토큰을 출력하지 않는 신뢰된 프로브**에서 확인. `iss`가 글로벌 `https://identity.oraclecloud.com/`일 수 있고, `aud`는 Oracle 도메인 URI일 수 있다. OpenAI API URL로 audience를 임의 변경하지 않는다.
 4. OpenAI Platform WIF Provider: 정확한 `iss` + 발급 토큰 `aud` 중 하나. 필요 시 tenant-specific **Custom OIDC discovery URL** 사용; 미지원이면 Oracle 도메인 공개 JWKS 업로드 방법 검토. issuer와 discovery URL을 동일 문자열로 가정하지 않는다.
 5. Service account mapping은 가장 작은 단위인 실제 `ipst_instance` OCID를 우선하고, `domain_id`·`ca_ocid`·`sub_type=instance`를 결속한다. 여러 인스턴스 동시 승인할 이유가 있을 때만 compartment 범위로 확장.
-6. 공식 OpenAI SDK OCI WIF token-provider 경로를 사용. 401/403/발급 제한은 FAIL, 임의 static API key fallback 금지.
+6. 발급 또는 교환 전에 [공통 WIF 경로 선택](03-github-wif.md#wif-전송-경로-선택)을 적용한다. 공식 SDK를 우선 선택하고, 사전 확인된 기능 부재와 별도 허용 범위를 충족할 때 직접 WIF를 선택한다. 첫 인증 시도 이후 경로 전환 없이 결과를 기록한다.
 7. 실호스트와 provider가 서로 맞고 정확한 API 프로젝트에 비용이 기록되는지 별도 소액 파일럿(명시 승인)으로 관측. WIF가 사용 가능하다는 것과 무료 크레딧 사용은 별도 사실이다.
 
 ## standard-vm Runner G1~G7 결속
+
+기존에 허용된 VM에서의 OCI/OpenAI 인증과 임시 GitHub Runner 실운영은 별도 인수 범위다. Runner를 실제 사용한 경우 아래 의무를 추가한다.
 
 | Gate | 외부 관측 | 권한 경계 |
 |---|---|---|
@@ -50,7 +52,7 @@ OCI Vault는 WIF 불가한 별도 서비스에 필요할 때만 추가한다. �
 
 - OCI 시뮬레이터: signer 실패, audience 다름, instance ID 다름, tenancy/domain mismatch, credential leak 각각 거부.
 - VM 비존재 시 `auth probe --offline`은 `NOT VERIFIED`이며 원격 인증 완료를 주장하지 않는다.
-- 실제 OCI 인증은 사용자 별도 허가+Free gate+Runner G1~G7이 모두 필요. test result는 host-bound receipt로 보존.
+- 실제 OCI 인증은 exact VM에 대한 별도 권한·비용 gate와 신뢰 호스트 영수증으로 인수한다. 임시 Runner까지 실행하면 G1~G7을 각각 검증한다.
 - 임시 Runner의 종료는 WIF token·환경변수·디스크 잔여를 폐기할 때까지 완료가 아니다.
 
 ## 공식 출처

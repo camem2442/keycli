@@ -7,7 +7,7 @@ scope: design-only
 
 # KeyCLI v0.9 구현 패키지 — GitHub / Cloudflare / Oracle
 
-이 폴더는 **향후 구현 계약과 작업 지시**이며, v0.9 기능이 출시되거나 운영 환경에서 인수되었다는 증거가 아니다. 개별 문서의 명령 및 Go 패키지는 `PROPOSED`이고, 실제 `kc` v0.8.0의 명령과 혼동하지 않는다.
+이 폴더는 **향후 구현 계약과 작업 지시**이며, v0.9 기능이 출시되거나 운영 환경에서 인수되었다는 증거가 아니다. K09-01의 오프라인 Plan은 별도 소스 후보에서 개발한다. 이 패키지의 후속 명령과 Go 인터페이스는 제안이며 v0.8.0의 현행 CLI는 기존 계약을 따른다.
 
 ## 읽기 순서
 
@@ -35,7 +35,7 @@ scope: design-only
 | KeyCLI | v0.8.0 released, main `4c972d9` | 안전한 전달 Plan/Stage/Verify |
 | KeyCLI `kc push cloudflare` | 내부 `wrangler secret put` → 즉시 배포 | 비활성 버전 Stage 기본 |
 | `kc push --dry-run` | 현재 resolver가 먼저 비밀값 조회 | Plan 단계 값 조회 0회 |
-| GitHub | 제한된 `gh secret set` 및 `kc ci-guard` Draft #45 | 정확한 repo/env 선택 + OpenAI WIF |
+| GitHub | 제한된 `gh secret set` 및 `kc ci-guard` Draft #45 | repo/env/org 범위의 암호화 REST 전달 + OpenAI WIF |
 | OCI | standard-vm #7 Draft, 소스·합성 테스트 | Instance Principal + OpenAI WIF (별도 실제 인수) |
 | Cloudflare Development | 별도 이전·Auth Cutover 진행 중 | 기존 이전 작업과 같은 Worker 동시 변경 금지 |
 
@@ -43,7 +43,11 @@ scope: design-only
 
 ## 하나의 실제 운영 흐름
 
-`plan (값·원격 쓰기 없음) → workspace-infra admission → stage (대상별 effect) → verify (실제 관측) → 별도 Delivery 승인 → promotion → 관측 후 이전 키 폐기`.
+공통 시작은 `plan (값 조회·원격 호출 없음) → workspace-infra trusted host admission`이다. 이후 효과는 공급자별로 나뉜다.
+
+- Cloudflare는 비활성 버전 Stage → 원격 검증 → 별도 Delivery의 승격과 관측 → 필요한 회전의 이전 키 폐기를 거친다.
+- GitHub Actions Secret은 선택된 scope에 즉시 쓰고 실제 대상을 확인한다. 작업 중인 소비자에 영향을 줄 수 있으므로 전용 테스트 scope와 명시적 쓰기 권한을 사용한다.
+- GitHub/OCI WIF는 신뢰된 호스트에서 인증 교환을 검증한다. Secret Stage는 생략한다.
 
 KeyCLI의 `STAGED` 영수증은 절대 검증 PASS나 운영 배포 허가가 아니다. 외부 실행은 권한 없는 모델 생성 문자열이나 로컬 JSON만으로 허용하지 않는다.
 

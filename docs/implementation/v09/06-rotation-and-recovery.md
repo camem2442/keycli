@@ -7,7 +7,9 @@ scope: proposed-rotation-and-reconciliation
 
 ## 상태를 분리한다
 
-**Delivery operation:** `PLANNED → ADMITTED → INTENT_WRITTEN → STAGING → STAGED → VERIFYING → VERIFIED`. 이후 별도 workspace-infra Delivery가 `PROMOTED`를 기록할 수 있다. `PLANNED`는 정책·스키마 검사만 성공했다는 뜻이지 실 인증 PASS가 아니다.
+**Cloudflare Delivery operation:** `PLANNED → ADMITTED → INTENT_WRITTEN → STAGING → STAGED → VERIFYING → VERIFIED`. 이후 별도 workspace-infra Delivery가 `PROMOTED`를 기록할 수 있다. `PLANNED`는 로컬 정책·스키마 검사의 완료를 뜻한다.
+
+**공급자별 효과:** GitHub Actions Secret PUT은 즉시 반영되므로 원격 확인 후 즉시 쓰기의 결과를 기록한다. Cloudflare 비활성 `STAGED`와 별도 승격 전이는 Cloudflare에 적용한다. WIF는 인증 probe만 수행하며 Secret 쓰기 원장의 상태를 부여하지 않는다.
 
 **Credential generation:** `ISSUED → STAGED → ACTIVE → RETIRING → REVOKED`. WIF 구성은 장기 키 세대가 아니며, 단기 access token은 공급자/SDK가 갱신한다. WIF 키 회전과 일반 `kc rotate`를 동일한 작업으로 취급하지 않는다.
 
@@ -17,7 +19,7 @@ scope: proposed-rotation-and-reconciliation
 
 | 전이 | 조건 | 금지하는 자동 행동 |
 |---|---|---|
-| PLANNED → ADMITTED | trusted workspace host, exact target·HEAD·scope·budget | CLI `--approved` 문자열로 우회 |
+| PLANNED → ADMITTED | WI-KC-01 신뢰 호스트, exact target·HEAD/base·scope·budget | CLI `--approved` 문자열로 우회 |
 | ADMITTED → INTENT_WRITTEN | 사전 원장 durable + lock + provider identity | 원장 실패에도 원격 호출 |
 | INTENT_WRITTEN → STAGING | 중복 시도 없음, 원격 기준 일치, 필요한 Secret만 resolve | 전체 Vault 로드 |
 | STAGING → STAGED | 공급자 성공 + 동일 대상 remote state 관측 | CLI exit 0만 믿기 |
@@ -27,7 +29,7 @@ scope: proposed-rotation-and-reconciliation
 
 ## Operation ID와 기록
 
-`operation_id`는 새 의도별 고유 ID로 충돌하지 않도록 생성한다. 생성 시 고정된 `repo, exact SHA, provider account/resource/env, source alias, destination, requested effect, expected remote generation, host admission digest`를 **private journal**에 결속한다. 재실행은 같은 Operation ID를 요구하며, 동일 대상이라도 새 승인·다른 SHA·다른 generation이면 새로운 Operation으로 구분한다.
+`operation_id`는 새 의도별 고유 ID로 충돌하지 않도록 생성한다. 생성 시 고정된 `repo, exact SHA, provider account/resource/env, source alias, destination, requested effect, expected remote generation, host admission digest`를 **private journal**에 결속한다. 재조정은 원래 Operation ID로 수행한다. 새 승인·다른 SHA·다른 generation의 작업은 별도로 구분하되 같은 대상의 미해결 효과가 있으면 새 쓰기를 막는다.
 
 `~/.kc` 경로의 작업 원장은 0600, 부모 디렉터리 안전성·symlink·동시 쓰기 검사, 독점 잠금, fsync+atomic rename을 요구한다. 공개 receipt는 **비밀값, raw token, 값을 재식별하기 쉬운 해시, 실제 Vault 상태**가 아닌 작업 ID·target ref·remote version ID·source revision·status·policy digest 등 제한된 메타데이터만 가진다. 기존 `ledger.json`의 HMAC 원장은 출처/변경 감지를 유지하되 작업별 journal과 섞어 부정확한 '전송 성공'을 만들지 않는다.
 
@@ -37,7 +39,7 @@ scope: proposed-rotation-and-reconciliation
 2. `STAGING` 또는 네트워크 timeout: 운영 account/Worker/repo/instance의 실제 현재 상태를 읽고, **오직 동일 operation에 의해 생성된 새 버전/비밀**로 연결할 수 있을 때만 STAGED. 구분 불가면 UNKNOWN_EFFECT 유지.
 3. 원격 새 버전 확인됨 + 로컬 journal 저장 실패: journal 손실을 성공으로 숨기지 않고 원본 증거로 복구 및 owner 경고; 멱등성 증명 전 재호출 금지.
 4. 다중 대상 일부 성공: 대상별 결과로 PARTIAL, 이미 성공한 대상을 무조건 다시 쓰지 않음.
-5. 현재 활성 deployment가 계획 값에서 변경: STALE, 이전 계획 폐기/신규 계획 필요.
+5. Cloudflare의 활성 deployment/weight나 최신 업로드 버전이 승인된 작업의 사전 관측 기준에서 벗어나면 쓰기 전에는 `STALE`로 종료한다. 쓰기 뒤 기준 변경이나 후보의 인과관계가 불명확하면 `UNKNOWN_EFFECT`를 유지한다.
 6. Secret 내용을 공급자 GET이 반환하지 않는 경우: 이름·버전 존재만으로 값 일치 확정 불가. 기능적 최소권한 인증 프로브 또는 공급자 지원 증명을 이용; 미확인은 NOT VERIFIED.
 
 ## 회전 전략

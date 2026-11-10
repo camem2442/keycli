@@ -16,20 +16,20 @@ scope: proposed-cloudflare-staging
 
 ## Stage 단계의 정확한 프로토콜 (PROPOSED)
 
-1. `plan`: 계정 alias·Worker 이름·wrangler config·env·대상 비밀 이름 검증; 값 조회·Provider API·CLI 실행 없음. 완료를 PASS로 판단하지 않는다.
-2. `admit`: workspace-infra가 exact Worker/account/operation에 대해 제한된 쓰기 허가와 단일 Writer 소유권을 인수; 실제 Cloudflare credential 범위를 독립적으로 제한.
-3. `pre-observe`: Read API에서 현재 활성 deployment ID, 버전 및 각 weight, worker binding/required secrets 정보를 조회. 계정·리소스 신원이 다르면 중단. 조회 못하면 `NOT VERIFIED`.
-4. `write intent`: 예상 기준 버전, operation-id, source alias(값 없음), destination, auth scope, 계획 digest를 원장에 durable 기록. 잠금 오류면 원격 쓰기 금지.
-5. `stage`: bounded secret bytes를 stdin으로 `wrangler versions secret put/bulk` 실행. 인수 시 검증된 Wrangler 버전을 pin. `--name`, `--env`, `--config` 범위 정확성 및 CLI flag 지원 확인.
-6. `post-observe`: Cloudflare API에서 새 version ID와 실제 secret 이름 존재, 변경 전후 활성 배포·트래픽 가중치 **불변** 확인. 바뀌었으면 `BLOCKED/UNKNOWN_EFFECT`이며 절대 STAGED 확정 금지.
-7. `receipt`: provider가 보고한 version ID와 host-verified source 결속만 기록. secret value, raw token, vault 디렉터리, secret digest 출력 금지.
-8. `promotion`: 별도 workspace-infra Delivery/Owner가 최신 검증·권한·비용 게이트를 통과시킨 다음 `versions deploy`. KeyCLI는 promotion 실행권을 기본적으로 보유하지 않음.
+1. `plan`: 계정 alias·Worker·환경·source alias·대상 이름을 정적 검증한다. 값 조회·인증·Provider API·Wrangler 실행은 0회이며 실제 배포 기준과 권한은 미확인으로 남긴다.
+2. `admit`: WI-KC-01이 연결된 workspace-infra 신뢰 호스트가 exact Worker/account/operation과 Grant·비용·단일 writer를 결속한다. 실제 Cloudflare credential과 Wrangler config 범위도 확인한다.
+3. `pre-observe`: 활성 deployment ID/버전/weight와 최신 업로드 버전 ID를 별도 기준으로 읽는다. 계정·Worker·환경, 격리 바인딩, `preview_urls=false`와 `workers_dev=false`를 확인한다. 불일치 또는 미확인이면 쓰기를 막는다.
+4. `INTENT_WRITTEN`: 두 기준값, operation ID, source alias, destination, Grant와 Plan digest를 private journal에 durable 기록한다. 저장·잠금 실패 시 쓰기를 막는다.
+5. `stage`: 쓰기 직전 두 원격 기준과 preview 설정을 재조회한다. 일치하면 pin된 Wrangler의 `versions secret bulk`를 한 번 호출하며 bounded secret bytes는 stdin으로 전달한다. `--name`, `--env`, `--config`와 실행 CLI 버전을 고정한다.
+6. `post-observe`: API에서 새 후보가 이 작업의 최신 업로드 버전인지, 후보에 필요한 Secret 이름이 있는지 확인한다. 활성 deployment ID/버전/weight와 preview 설정은 그대로여야 한다. 쓰기 뒤 상태나 인과관계가 불명확하면 `UNKNOWN_EFFECT`로 보류한다.
+7. `receipt`: 공급자 version ID와 호스트가 확인한 source·대상·관측 결속을 기록한다. 값, raw token, Vault 디렉터리, 값 digest는 기록하지 않는다.
+8. `promotion`: workspace-infra의 별도 Delivery 효과가 fresh 검증·권한·비용과 정확한 활성 기준을 확인한 뒤 `versions deploy`를 실행한다.
 
 Wrangler CLI 출력은 안정된 증명 API로 가정하지 않는다. 버전 ID가 출력에서 파싱되더라도 실제 API GET으로 교차 확인한다. 원격 쓰기 타임아웃/결과 미기록은 성공 확정이 아니므로 반드시 `UNKNOWN_EFFECT`, 재시도 전에 관측한다.
 
 ## 다중 Secret / 동시 변경
 
-기존 동작처럼 `for secret { secret put }`을 반복하면 여러 version과 예상치 못한 활성 상태 변경을 야기한다. v0.9 Stage는 명시적 배열을 원자적인 **한 번의 bulk version 생성 시도**로 묶는다. Cloudflare 계정/Worker/환경 잠금을 작업 단위로 독점; 변경 중 다른 Agent나 기존 Auth Cutover가 Worker를 수정하면 `STALE`. Wrangler가 기대 base version을 CAS로 고정할 수 없다면 최신 상태를 재조회하고 동시 쓰기가 가능한 호스트에서는 운영 Stage를 거부한다.
+v0.9 Stage는 하나 또는 여러 Secret을 한 번의 bulk version 생성 시도로 묶는다. 계정/Worker/환경 단위의 협력 writer fence를 사용한다. Wrangler 경로에는 기대 기준값에 대한 공급자 CAS 보장이 없으므로, 쓰기 직전 재조회에서 활성 또는 최신 업로드 기준이 바뀌면 `STALE`로 종료한다. 외부 writer의 변경을 배제할 수 없으면 운영 Stage를 보류한다. Auth Cutover의 writer도 같은 대상에 포함한다.
 
 ## 기존 Development cutover와의 충돌 금지
 
@@ -47,9 +47,9 @@ Wrangler CLI 출력은 안정된 증명 API로 가정하지 않는다. 버전 ID
 | 확인 | 기대 |
 |---|---|
 | `plan` / `dry-run` | Keychain/Resolver 값 접근 0, wrangler 호출 0 |
-| 합성 Stage 단일 | `versions secret put`만 실행, `secret put/deploy` 0 |
+| 합성 Stage 단일 | `versions secret bulk` 1회, 일반 `secret put`과 배포 호출 0 |
 | 합성 Stage 다중 | `versions secret bulk` 1회, stdin JSON, 평문 파일 0 |
-| 원격 증거 | 새 version ID 관측, 활성 ID/weight 그대로 |
+| 원격 증거 | 새 최신 업로드 version ID와 작업 결속, 활성 deployment/버전/weight와 preview 설정 그대로 |
 | 동시 stage / wrong account | STALE 또는 BLOCKED, 새 effect 0 |
 | timeout 후 replay | GET/reconcile 선행, 무조건 재전송하지 않음 |
 | Version URL | 격리 리소스 또는 부작용 없는 진단만 |

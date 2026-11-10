@@ -19,6 +19,7 @@ scope: source-index
 
 - [workspace-infra Canonical Goal Verification](https://github.com/camem2442/workspace-infra/blob/main/docs/contracts/canonical-goal-pr-verification-v1.md)
 - [workspace-infra Common Verification](https://github.com/camem2442/workspace-infra/blob/main/docs/contracts/common-verification.md)
+- WI-KC-01과 별도 승격·rollback 후속 제안은 workspace-infra의 `docs/planning/keycli-v09-delivery-integration.md`에 둔다. 게시 전에는 [로컬 연동 계획](../../../../../workspace-infra/keycli-v09-delivery-integration/docs/planning/keycli-v09-delivery-integration.md)을 같은 Mac의 worktree에서 확인한다.
 - [workspace-infra CI Guard #239](https://github.com/camem2442/workspace-infra/pull/239) — 중복 방지 증거, 아직 곧바로 dispatch 권한 아님.
 - [workspace-infra Development Auth Cutover #230](https://github.com/camem2442/workspace-infra/pull/230) — 별개 Worker/Access/OAuth 이전.
 - [standard-vm Oracle Runner #7](https://github.com/camem2442/standard-vm/pull/7) — Draft / live 미인수. 브랜치의 `docs/oracle-runner.md`에 계획·G1~G7·읽기 전용 인스턴스 상태.
@@ -28,7 +29,7 @@ scope: source-index
 - OpenAI [WIF 공통](https://developers.openai.com/api/docs/guides/workload-identity-federation): API 서비스 계정 vs Codex 관리형 workspace 구분.
 - OpenAI [GitHub Actions WIF](https://developers.openai.com/api/docs/guides/workload-identity-federation/github-actions): issuer/audience/claims, job `id-token: write`, SDK subject-token-provider.
 - OpenAI [OCI WIF](https://developers.openai.com/api/docs/guides/workload-identity-federation/oracle-cloud): Instance Principal signer → IDCS token → OpenAI WIF; tenant discovery와 issuer 구분.
-- GitHub [OIDC reference](https://docs.github.com/en/actions/reference/security/oidc), [gh secret set](https://cli.github.com/manual/gh_secret_set).
+- GitHub [OIDC reference](https://docs.github.com/en/actions/reference/security/oidc), [Actions Secrets REST](https://docs.github.com/en/rest/actions/secrets), [gh secret set](https://cli.github.com/manual/gh_secret_set).
 - Cloudflare [Wrangler Workers commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/), [Secret doc](https://developers.cloudflare.com/workers/configuration/secrets/), [Versions & deployments](https://developers.cloudflare.com/workers/versions-and-deployments/).
 - Oracle [instance principals](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/callingservicesfrominstances.htm), [Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
 

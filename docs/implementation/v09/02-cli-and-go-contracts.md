@@ -5,26 +5,35 @@ scope: proposed-cli-and-go
 
 # v0.9 CLI / 설정 / Go 패키지 계약
 
-## 제안 CLI (아직 구현되지 않음)
+## K09-01 소스 후보와 후속 CLI 제안
+
+K09-01의 오프라인 Plan 진입점은 다음과 같다. `--profile`은 필수이며 TOML 테이블 이름을 정확히 선택한다. `--config`를 생략하면 `~/.config/kc/delivery.toml`을 읽는다.
 
 ```text
-kc delivery plan --profile cloudflare-dev [--json]
-kc delivery stage --profile cloudflare-dev --plan-id ID --authorization-file HOST_OWNED
+kc delivery plan --profile cloudflare_dev [--config DELIVERY_TOML] [--json]
+```
+
+아래 명령은 후속 제안이다.
+
+```text
+kc delivery stage --profile cloudflare_dev --plan-id ID --authorization-file HOST_OWNED
 kc delivery verify --operation-id ID [--remote-read]
 kc delivery status --operation-id ID [--json]
 kc delivery reconcile --operation-id ID [--remote-read]
-kc rotate plan --credential openai_worker --profile cloudflare-dev
+kc rotate plan --credential openai_worker --profile cloudflare_dev
 kc rotate prepare --rotation-id ID --authorization-file HOST_OWNED
 kc rotate finalize --rotation-id ID --authorization-file HOST_OWNED
-kc auth probe --profile github-openai [--offline]
-kc auth probe --profile oracle-openai [--offline]
+kc auth probe --profile github_openai [--offline]
+kc auth probe --profile oracle_ci [--offline]
 ```
 
-`plan`은 설정만 읽고, **Resolver.Get/List, Keychain, 플러그인, 실제 Secret, 원격 인증/쓰기**를 호출하지 않는다. 응답은 구체적인 대상·정책·기능 지원·미확인 상태만 표시한다. 확인 불가를 성공으로 출력하지 않는다. `--remote-read`는 별도 명시적 읽기 전용 단계이며 연결·인증이 필요하다. `stage`는 승인된 호스트에서 비밀값을 요청한 뒤 플랫폼별 adapter를 호출한다. 사람의 문자열 입력으로 임의 `authorization-file`을 만들 수 있어도 권한이 생기지 않는다. 실제 호스트 측 auth verifier가 그 파일/핸들을 서명 또는 불변 저장소와 결속하는 구현 전에는 운영에서 Stage 자체를 막는다.
+`plan`은 전달 설정과 KeyCLI의 유효 정책·별칭 메타데이터를 읽는다. Resolver 초기화·Get/List, Keychain, 플러그인, 비밀값 읽기, 원격 인증·호출을 실행하지 않는다. Plan ID는 시간·로컬 경로·원격 관측을 제외한 버전 고정 메타데이터에 결속된다. 정적 검증이 완료되어도 원격 대상·기능·실행 권한은 `NOT VERIFIED`이며 `authoritative`, `acceptance_claim`, `authorizes_execution`은 모두 false다. Cloudflare 활성 배포와 최신 업로드 버전은 이 단계의 미확인 항목이며 실제 기준값과 실행 권한은 이후 호스트 Admission과 원격 관측에서만 확보한다.
+
+`--remote-read`는 명시적 읽기 단계이며 대상에 결속된 연결·인증이 필요하다. 비밀값이 필요한 쓰기만 승인된 호스트에서 최소 범위로 해석한다. GitHub Actions Secret은 지정 scope에 즉시 반영되며 Cloudflare는 비활성 버전을 한 번 생성한다. GitHub/OCI WIF는 인증 교환을 probe하며 Secret 쓰기 단계가 없다. LIVE 인증·Stage는 workspace-infra의 신뢰 호스트가 대상·Plan·Grant·예산을 결속한 뒤 실행한다. `authorization-file`은 신뢰 호스트의 검증을 거치는 핸들이며 호출자가 작성한 파일로 권한을 부여할 수 없다.
 
 기존 `kc push`는 호환성을 유지하되, Cloudflare 즉시 배포 위험을 분명히 표시하고 **운영 Worker에서 별도 강제 승인 없이는 거부**하는 전환안을 제안한다. 변경은 기존 CLI 계약·테스트와 함께 버전별로 리뷰한다. `kc exec` / `get` / `ls`의 종료 코드·출력 의미를 바꾸지 않는다.
 
-## 제안 설정 스키마 (정본 config.toml과 별개)
+## K09-01 전달 프로필 스키마
 
 ```toml
 # ~/.config/kc/delivery.toml ; no credentials or raw private IDs in tracked repo
@@ -36,13 +45,14 @@ repository = "camem2442/workspace-infra"
 ref = "refs/heads/main"
 workflow_ref = "camem2442/workspace-infra/.github/workflows/ai-eval.yml@refs/heads/main"
 environment = "development"
+audience = "https://api.openai.com/v1"
 wif_provider_alias = "github-main"
 service_account_alias = "ci-eval"
 
 [profiles.cloudflare_dev]
 provider = "cloudflare-workers"
 account_alias = "development"
-worker = "ios-control-plane-staging"
+worker = "keycli-fixture-worker"
 source = "openai_worker"
 destination = "OPENAI_API_KEY"
 effect = "inactive-version"
@@ -53,14 +63,15 @@ provider = "oci-instance-wif"
 tenancy_alias = "oracle-personal"
 instance_alias = "oracle-a1-ci"
 identity_domain_alias = "oracle-personal-idcs"
+wif_provider_alias = "oracle-ci-wif"
 service_account_alias = "oracle-ci"
 ```
 
-구현 시 스키마를 엄격히 검증한다: 중복 프로필, 모호한 alias, 지원하지 않는 platform/effect, 비어 있는 scope, 내부 수집용 ID 누락, 환경/계정 혼동은 fail-closed. 사람이 소유한 로컬 config는 `0600`, repo에는 **합성 예제**만. ID·OCID·account 별칭은 실제 authenticated endpoint 조회 결과에 결속되어야 하며 문자열만 같다는 이유로 신뢰하지 않는다.
+스키마는 중복·모호한 프로필, 미지원 공급자·효과, 누락 필드와 해당 공급자 범위 밖의 필드를 거부한다. GitHub의 `audience`는 명시 입력이며 위 값은 합성 예제다. OCI는 `wif_provider_alias`를 요구하며 실제 issuer와 audience는 신뢰된 VM에서 확인한다. CLI는 1 MiB 이하의 일반 파일을 읽고 그룹이나 다른 사용자에게 권한이 열려 있으면 거부한다. 로컬 설정은 `chmod 600`으로 보관한다. 강제 KeyCLI 정책이 Cloudflare의 canonical source를 거부하면 Plan도 오류로 끝난다. 실제 계정·리소스 ID와 별칭의 결속은 인증된 공급자 조회에서 확인한다.
 
-원본 `source`와 원격 `destination`은 분리한다. 특히 GitHub `--repo OWNER/REPO`는 단일 저장소, `--org ORG --repos ...`는 조직 Secret에 접근할 저장소 집합이라는 차이를 반드시 지킨다. Cursor runtime Secret·Cloudflare Worker·Actions는 서로 다른 매핑 정책을 갖는다.
+Cloudflare의 원본 `source`와 원격 `destination`은 분리한다. GitHub의 repository·environment·organization Secret 쓰기는 K09-02 제안이며 각 scope의 검증과 REST 전달 절차는 별도로 정의한다. Cursor runtime Secret·Cloudflare Worker·Actions는 각자의 매핑 정책을 갖는다. [GitHub 전달 계약](03-github-wif.md)
 
-## Go 디렉터리 제안 (구현 전)
+## Go 디렉터리 제안
 
 ```text
 internal/delivery/
@@ -73,7 +84,7 @@ internal/delivery/
   reconcile.go         unknown effect -> provider remote observation
 internal/target/
   cloudflare/           version-only create + GET deployments; no deploy
-  gh/                   repo-scoped GitHub secret semantics
+  gh/                   scope-bound GitHub encrypted REST delivery
   cursor/               scoped runtime secret integration
 internal/identity/
   githubwif/            claim-contract probe; no token persistence
@@ -87,7 +98,7 @@ internal/cli/
   auth_probe.go
 ```
 
-권장 Go 개념형 인터페이스(컴파일 가능한 구현이 아님):
+K09-01은 `ParseProfiles([]byte) (Profiles, error)`, `NewMetadataSnapshot(config.Config, agent) (MetadataSnapshot, error)`, `BuildPlan(Profiles, name, MetadataSnapshot) (DeliveryPlan, error)`로 구성한다. 소스 후보 `bcbf5a5`의 `internal/delivery/plan.go`가 JSON v1 직렬화를 정의한다. 아래 타입은 후속 실행 경계의 개념형 인터페이스다.
 
 ```go
 type SecretRef struct { Name string }
@@ -97,11 +108,15 @@ type TargetRef struct {
 type DeliveryPlan struct {
     SchemaVersion int
     RequestID string
-    Source SecretRef
+    Source *SecretRef
     Target TargetRef
-    ExpectedActiveVersion string
-    PolicyDigest string
+    KeyCLIPolicyDigest string
     Authoritative bool // always false
+}
+type AuthorizedOperation struct {
+    Plan DeliveryPlan
+    Grant HostGrant
+    Baseline RemoteObservation
 }
 type TargetAdapter interface {
     Prepare(context.Context, AuthorizedOperation, SecretBytes) (EffectResult, error)
@@ -112,11 +127,11 @@ type HostAuthorizer interface {
 }
 ```
 
-`SecretBytes`는 로깅 금지, 장기 유지 금지. `HostGrant`는 CLI 인자/임의 JSON이 아니라 신뢰된 호스트에서 검증한 작업 권한을 표현한다. adapter의 `Prepare`는 절대 Cloudflare `versions deploy`나 GitHub Actions dispatch를 호출하지 않는다.
+`SecretBytes`는 로깅 금지, 장기 유지 금지. `HostGrant`는 CLI 인자/임의 JSON이 아니라 신뢰된 호스트에서 검증한 작업 권한을 표현한다. `AuthorizedOperation`의 원격 기준은 승인된 호스트에서 pre-observe 후 채운다. adapter의 `Prepare`는 절대 Cloudflare `versions deploy`나 GitHub Actions dispatch를 호출하지 않는다.
 
 ## 엄격한 operation journal
 
-쓰기 전 `PREPARED` intent를 fsync하고 원격 호출, 조회, 종료 상태를 순서대로 durable 기록. 저장은 권한 `0600`, 대상·작업별 idempotency/lock; CAS는 현재 provider 배포/인스턴스 상태와 정합해야 한다. 원격 쓰기 성공 후 로컬 저장 실패 시 성공 반환 금지 → `UNKNOWN_EFFECT`와 조회/재조정. 부분 다중 대상 쓰기에는 `PARTIAL`/`UNKNOWN_EFFECT`를 남기며 원자적 전체 성공을 주장하지 않는다. 전송값·원문 HMAC·토큰·키 길이 등은 공개 영수증에 기록하지 않는다.
+쓰기 전 `INTENT_WRITTEN`을 기록하고 파일과 부모 디렉터리를 fsync한다. 원격 호출, 조회, 종료 상태를 순서대로 durable 기록하고 원장 권한 `0600`과 대상별 잠금을 사용한다. 공급자가 제공하는 동시성 보장은 adapter별로 검증한다. 원격 결과를 로컬에 기록하지 못하면 `UNKNOWN_EFFECT`로 두고 조회·재조정한다. 다중 대상 작업은 개별 결과에 따라 `PARTIAL` 또는 `UNKNOWN_EFFECT`를 유지한다. 공개 영수증에는 전송값·원문 HMAC·토큰·키 길이를 넣지 않는다.
 
 ## 배포 및 호환성
 

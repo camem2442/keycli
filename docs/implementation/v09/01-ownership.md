@@ -31,8 +31,8 @@ WIF는 **OpenAI Platform API 프로젝트의 서비스 계정 매핑**을 우선
 
 ## 작업 권한과 신뢰 자료
 
-- KeyCLI plan / candidate receipt는 `authoritative=false`. 승인 가능한 사실은 검증된 실제 호스트·정확한 Git HEAD·해당 provider 최신 관측과 결합한 결과뿐이다.
-- 권한의 최소 단위는 `repository + head/base + operation + provider + target + env + budget + host + expiry`. 재사용 가능한 일반 승인 문자열은 금지.
+- KeyCLI plan / candidate receipt는 `authoritative=false`. 승인 가능한 사실은 검증된 실제 호스트·정확한 Git HEAD/base·해당 provider 최신 관측과 결합한 결과뿐이다. KeyCLI effective-policy digest와 workspace-infra verification-policy digest는 별도 pin으로 확인한다.
+- 호스트 Admission은 `repository + head/base + operation + provider + target + env + budget + host + expiry`를 결속한다. LIVE 인증·읽기·쓰기와 인수에 필요한 신뢰 호스트 연결은 WI-KC-01의 선행 범위다. 재사용 가능한 일반 승인 문자열은 금지한다.
 - Provider credentials가 유효해도 예약·Writer Claim·제품 검증 없는 remote mutation을 허용하지 않는다.
 - 원격 effect timeout은 실패 확정이 아닌 `UNKNOWN_EFFECT`. 새로운 작업을 실행하기 전 GET/조회/재조정.
 - Cloudflare 비활성 버전도 Version URL에서 기존 D1/R2/DO/KV에 접근할 수 있으므로 Staging 격리는 별도의 Worker/리소스를 사용한다.
@@ -40,5 +40,7 @@ WIF는 **OpenAI Platform API 프로젝트의 서비스 계정 매핑**을 우선
 ## 세 저장소의 인터페이스
 
 `workspace-infra` → (신뢰된 호스트의 제한된 OperationAuthorization) → `keycli delivery` → (metadata-only Receipt) → `workspace-infra`의 기존 canonical collector. OCI Runner 동작은 `standard-vm`이 수행하고 KeyCLI는 인증 방식·재료의 전달 여부만 다룬다.
+
+GitHub Secret 쓰기는 지정 scope에 즉시 반영되고, Cloudflare Stage는 비활성 후보를 생성한다. WIF probe는 단기 인증 교환만 수행한다.
 
 배포 효과가 발생하는 `versions deploy`, OCI 인스턴스 생성·기동/종료, GitHub workflow_dispatch·PR Ready/Merge는 KeyCLI의 `stage` 권한에 포함되지 않는다. 신규 `delivery` 패키지는 기존 CLI를 통해 운영권한을 우회하지 못하게 설계한다.

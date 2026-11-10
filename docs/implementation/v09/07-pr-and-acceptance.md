@@ -16,16 +16,16 @@ scope: proposed-implementation-sequence
 
 | PR | 저장소 | 소유 파일 후보 | 정확한 Gate |
 |---|---|---|---|
-| K09-01 | keycli | `internal/delivery/{plan,profiles}.go`, CLI plan, fake tests | Plan secret calls 0 / network 0 / explicit target |
-| K09-02 | keycli | GitHub adapter / WIF metadata·claim probes | GitHub repo/org scope 분리 / OIDC claim mismatch 거부 |
-| K09-03 | keycli | operation journal, reconcile, tests | fsync/lock/timeout/duplicate/STALE |
-| K09-04 | keycli | Cloudflare version-only adapter / fake wrangler | active deploy 불변 / bulk stdin / deploy 0 |
+| K09-01 | keycli | `internal/delivery/{plan,profiles}.go`, CLI plan, fake tests | 오프라인 `--config` + exact profile / secret calls 0 / network 0 |
+| K09-02 | keycli | GitHub adapter / WIF metadata·claim probes | GitHub repo/env/org 암호화 REST·즉시 쓰기 / WIF claim 불일치 거부 |
+| K09-03 | keycli | operation journal, reconcile, tests | INTENT_WRITTEN / fsync / target latch / timeout·STALE 재조정 |
+| K09-04 | keycli | Cloudflare version-only adapter / fake wrangler | active·latest·preview 확인 / bulk stdin / deploy 0 |
 | K09-05 | keycli | OCI WIF probe / fake IDCS signer | wrong audience/instance/tenancy deny |
-| WI-KC-01 | workspace-infra | trusted KeyCLI receipt consumer | authority false 유지, exact HEAD/host/proof |
-| SV-OCI-02 | standard-vm | #7 이후 WIF + Runner 한계 계약 | G1~G7, G4≠G6, live는 별도 허가 |
+| WI-KC-01 | workspace-infra | trusted KeyCLI receipt consumer | advisory authority false 유지 / LIVE 사전 신뢰 호스트·exact HEAD/base·대상·비용 결속 |
+| SV-OCI-02 | standard-vm | #7 이후 실제 Runner 수명 계약 | G1~G7, G4≠G6, live는 별도 허가 |
 | K09-06 | keycli | credential rotation coordinator | 이전 키 마지막 폐기 / 중단 복구 |
 
-K09-01~04를 v0.9.0 첫 릴리스 후보로 묶되, 릴리스 자체는 독립 승인. K09-05/WI/SV는 각 provider 운영 인수 전까지 기능 구현 PASS 이상을 주장하지 않는다. 기존 호스트에 설치된 v0.8.0, Cursor Cloud v0.7.2 pin은 해당 호스트 실제 인수 전까지 그대로 둔다.
+K09-01~04를 v0.9.0 첫 소스 릴리스 후보로 묶되, 릴리스 자체는 독립 승인한다. LIVE WIF probe와 대상 쓰기는 WI-KC-01의 호스트 trust 및 Admission 연동 이후에 수행한다. 승격·rollback은 workspace-infra의 별도 효과 실행기가 필요하다. K09-05/WI/SV의 구현 검증과 각 공급자의 실제 운영 인수는 분리한다. 기존 호스트의 v0.8.0과 Cursor Cloud v0.7.2 pin의 전환은 해당 호스트의 실제 인수 시 판단한다. [연동 계획 위치](SOURCES.md#인접-저장소-정본)
 
 ## 공통 테스트 매트릭스
 
@@ -33,9 +33,9 @@ K09-01~04를 v0.9.0 첫 릴리스 후보로 묶되, 릴리스 자체는 독립 �
 |---|---|---|---|
 | Local Plan | 정책·중복 alias·무권한·비밀 조회 없음 | Mac `kc doctor` + CLI fake | 불필요 |
 | GitHub WIF | issuer/audience/repository/ref/workflow_ref/env 실패 | pinned trusted Job 1턴 | WIF 설정 승인, 비용 gate |
-| GitHub Secret | repo vs org target, stdin, no key in argv | synthetic test repository | 명시 Repo mutation |
-| Cloudflare | wrong account, bulk single version, never deploy | disposable Worker, before/after active | 별도 staging effect 승인 |
-| Oracle | Instance Principal/JWT claim fake | 실제 OCI VM 확보 후 | Free envelope + VM/Job 승인 |
+| GitHub Secret | exact repo/env/org key·endpoint, sealed-box payload | 전용 테스트 scope의 즉시 쓰기와 읽기 관측 | 명시된 Secret mutation |
+| Cloudflare | wrong account, bulk single version, never deploy | 격리 Worker의 active/latest/preview 비교 | Stage, 승격, rollback 각각의 효과 권한 |
+| Oracle | Instance Principal/JWT claim fake | 허용된 OCI VM의 인증, Runner 사용 시 G1~G7 추가 | 인증·비용 및 실제 VM/Job 효과별 승인 |
 | Reconcile | unknown timeout, retry, concurrent lock | bounded single target | 새로운 효과 승인 불필요: read-only만 |
 | Rotation | candidate valid, old key still active | 단일 비운영 key + 두 consumer | revoke 별도 승인 |
 
