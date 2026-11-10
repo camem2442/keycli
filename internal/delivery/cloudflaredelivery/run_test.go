@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +65,24 @@ func fixture(t *testing.T) (delivery.DeliveryPlan, Grant, cloudflare.VersionStag
 func permit(g Grant) Authorize {
 	return func(context.Context, string, delivery.DeliveryPlan) (Grant, error) { return g, nil }
 }
+func testStore(t *testing.T) journal.Store {
+	t.Helper()
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return journal.Store{Root: filepath.Join(parent, "delivery-journal")}
+}
+
+func seedUnknown(t *testing.T, store journal.Store, plan delivery.DeliveryPlan, grant Grant) {
+	t.Helper()
+	intent := journal.Intent{OperationID: op, TargetDigest: digestTarget(grant), PlanDigest: plan.ID, GrantDigest: grant.GrantDigest}
+	_, err := store.Dispatch(intent, func() (journal.Observation, error) { return journal.Observation{}, journal.ErrUnknownEffect })
+	if !errors.Is(err, journal.ErrUnknownEffect) {
+		t.Fatalf("seed unknown: %v", err)
+	}
+}
+
 func TestRunBindsInactiveVersionAndJournal(t *testing.T) {
 	plan, grant, req, remote := fixture(t)
 	called := 0
@@ -78,7 +98,7 @@ func TestRunBindsInactiveVersionAndJournal(t *testing.T) {
 		}
 		return cloudflare.VersionStageResult{State: cloudflare.VersionAcknowledgedUnverified}, nil
 	}
-	result, err := run(context.Background(), journal.Store{}, op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) {
+	result, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) {
 		secretCalls++
 		return []byte("synthetic"), nil
 	}, req, remote, stage)
@@ -90,7 +110,7 @@ func TestRunDeniesInvalidPlanBeforeProviderOrSecret(t *testing.T) {
 	plan, grant, req, remote := fixture(t)
 	plan.ID = "wrong"
 	called := false
-	out, err := run(context.Background(), journal.Store{}, op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { called = true; return nil, nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+	out, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { called = true; return nil, nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
 		called = true
 		return cloudflare.VersionStageResult{}, nil
 	})
@@ -102,7 +122,7 @@ func TestRunBlocksUnboundHostTarget(t *testing.T) {
 	plan, grant, req, remote := fixture(t)
 	grant.AccountID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	stageCalled := false
-	_, err := run(context.Background(), journal.Store{}, op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { stageCalled = true; return nil, nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+	_, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { stageCalled = true; return nil, nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
 		stageCalled = true
 		return cloudflare.VersionStageResult{}, nil
 	})
@@ -129,7 +149,7 @@ func TestRunUnknownWhenDeploymentChangesOrVersionCannotBeBound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			plan, grant, req, remote := fixture(t)
 			tt.mutate(remote)
-			outcome, err := run(context.Background(), journal.Store{}, op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("synthetic"), nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+			outcome, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("synthetic"), nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
 				return cloudflare.VersionStageResult{State: cloudflare.VersionAcknowledgedUnverified}, nil
 			})
 			if !errors.Is(err, journal.ErrUnknownEffect) || outcome.Record.State != journal.UnknownEffect || outcome.VersionID != "" {
@@ -140,7 +160,7 @@ func TestRunUnknownWhenDeploymentChangesOrVersionCannotBeBound(t *testing.T) {
 }
 func TestRunUnknownOnWranglerFailure(t *testing.T) {
 	plan, grant, req, remote := fixture(t)
-	outcome, err := run(context.Background(), journal.Store{}, op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("synthetic"), nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+	outcome, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("synthetic"), nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
 		return cloudflare.VersionStageResult{State: cloudflare.VersionUnknownEffect}, errors.New("failed")
 	})
 	if !errors.Is(err, journal.ErrUnknownEffect) || outcome.Record.State != journal.UnknownEffect || remote.reads != 1 {
@@ -151,7 +171,9 @@ func TestReconcileFindsTaggedVersionWithoutCallingWrangler(t *testing.T) {
 	plan, grant, _, remote := fixture(t)
 	remote.before = remote.after
 	remote.reads = 0
-	result, err := reconcile(context.Background(), journal.Store{}, op, plan, permit(grant), remote)
+	store := testStore(t)
+	seedUnknown(t, store, plan, grant)
+	result, err := reconcile(context.Background(), store, op, plan, permit(grant), remote)
 	if err != nil || result.State != journal.ObservedApplied || result.ProofDigest == "" || remote.reads != 1 {
 		t.Fatalf("reconcile %+v %v", result, err)
 	}
@@ -160,7 +182,9 @@ func TestReconcileUntrustedTagStaysUnknown(t *testing.T) {
 	plan, grant, _, remote := fixture(t)
 	remote.tag = "kc-other"
 	remote.before = remote.after
-	result, err := reconcile(context.Background(), journal.Store{}, op, plan, permit(grant), remote)
+	store := testStore(t)
+	seedUnknown(t, store, plan, grant)
+	result, err := reconcile(context.Background(), store, op, plan, permit(grant), remote)
 	if !errors.Is(err, journal.ErrUnknownEffect) || result.State != journal.UnknownEffect {
 		t.Fatalf("unbound observation %+v %v", result, err)
 	}
