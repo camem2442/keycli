@@ -53,6 +53,17 @@ error as "do not execute".
 bridge passes `bridge.HostAuthorize()`; no existing call site was changed in this
 source candidate, so current behaviour is unchanged until a host wires it.
 
+## Isolation acceptance
+
+Application-level refusal (this package) is not OS isolation. The three evidence
+classes and their current status are recorded once in workspace-infra
+`docs/contracts/host-isolation-acceptance-v1.md`: application guard **PASS**,
+cross-UID isolation **NOT_VERIFIED**, cross-host fencing **PARTIAL**. A host that
+cannot show cross-UID isolation must keep `TRUSTED_HOST=SOURCE_PARTIAL`.
+
+`scripts/isolation-canary.sh` runs the cross-UID canary check (dry-run by default,
+synthetic values only, never the Keychain or a real provider token).
+
 ## Limits
 
 - A `Decision` is trusted only because it came from an in-process `Admitter`.
