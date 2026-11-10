@@ -1,0 +1,162 @@
+package effectgateway
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/camem2442/keycli/internal/delivery/journal"
+)
+
+// Gateway is the single effect boundary. Every field is a dependency the host
+// supplies; the gateway owns no storage of its own.
+type Gateway struct {
+	Claims   ClaimAuthority
+	Keys     KeyRing
+	Bridge   Authorizer
+	Journal  journal.Store
+	Provider Provider
+	Now      func() time.Time
+}
+
+func (g *Gateway) now() time.Time {
+	if g != nil && g.Now != nil {
+		return g.Now()
+	}
+	return time.Now()
+}
+
+func (g *Gateway) configured() bool {
+	return g != nil && g.Claims != nil && g.Keys != nil && g.Bridge != nil &&
+		g.Provider != nil && g.Journal.Root != ""
+}
+
+// Submit authenticates, authorises and executes exactly one intent.
+//
+// Order matters: signature, expiry, claim snapshot, host admission, durable
+// journal intent, effect-boundary re-check, provider call. Any failure before the
+// provider call leaves the journal at "no effect"; a failure during or after the
+// call latches UNKNOWN_EFFECT and is never retried here.
+func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
+	if !g.configured() {
+		return Receipt{}, ErrNotConfigured
+	}
+	if ctx == nil || ctx.Err() != nil {
+		return Receipt{Status: StatusNoEffect}, ErrAuthorityUnavail
+	}
+	now := g.now()
+	req := env.Request
+	if err := req.validate(now); err != nil {
+		return Receipt{}, err
+	}
+
+	key, err := g.Keys.Key(ctx, req.GoalID, req.Owner, req.Session, req.Generation)
+	if err != nil || !verifySignature(env, key) {
+		return Receipt{}, ErrUnauthenticated
+	}
+
+	claim, err := g.Claims.Snapshot(ctx, req.GoalID)
+	if err != nil {
+		return Receipt{}, fmt.Errorf("%w: %v", ErrAuthorityUnavail, err)
+	}
+	if err := checkClaim(claim, req, now); err != nil {
+		return Receipt{}, err
+	}
+
+	if err := g.Bridge.Authorize(ctx, req.Provider, req.Action, req.TargetDigest); err != nil {
+		return Receipt{}, fmt.Errorf("%w: %v", ErrAdmissionRejected, err)
+	}
+
+	calls := 0
+	intent := journal.Intent{
+		OperationID:  req.MutationID,
+		TargetDigest: req.TargetDigest,
+		PlanDigest:   req.PlanDigest,
+		GrantDigest:  req.GrantDigest,
+	}
+	record, err := g.Journal.Dispatch(intent, func() (journal.Observation, error) {
+		// Effect boundary: the claim is re-read immediately before the provider
+		// call. Failure here means no provider call happened, so the journal is
+		// settled as OBSERVED_NO_EFFECT with a gateway-local proof.
+		fresh, snapErr := g.Claims.Snapshot(ctx, req.GoalID)
+		if snapErr != nil {
+			return journal.Observation{State: journal.ObservedNoEffect,
+				ProofDigest: localNoEffectProof(req.MutationID, "authority-unavailable")}, nil
+		}
+		if claimErr := checkClaim(fresh, req, g.now()); claimErr != nil {
+			return journal.Observation{State: journal.ObservedNoEffect,
+				ProofDigest: localNoEffectProof(req.MutationID, "stale-claim")}, nil
+		}
+		calls++
+		result, applyErr := g.Provider.Apply(ctx, req)
+		if applyErr != nil {
+			return journal.Observation{}, applyErr
+		}
+		if result.ProofDigest == "" || !journal.ValidDigest(result.ProofDigest) {
+			return journal.Observation{}, errors.New("provider result has no usable proof digest")
+		}
+		switch result.State {
+		case StateAcknowledged:
+			return journal.Observation{State: journal.Acknowledged, ProofDigest: result.ProofDigest}, nil
+		case StateObservedNoEffect:
+			return journal.Observation{State: journal.ObservedNoEffect, ProofDigest: result.ProofDigest}, nil
+		default:
+			return journal.Observation{}, errors.New("provider result state is not recognised")
+		}
+	})
+
+	switch {
+	case errors.Is(err, journal.ErrDuplicate):
+		return Receipt{MutationID: req.MutationID, Status: StatusDuplicate, ProviderCalls: 0,
+			Note: "mutation already recorded; no provider call"}, nil
+	case errors.Is(err, journal.ErrTargetPending):
+		return Receipt{}, ErrTargetPending
+	case errors.Is(err, journal.ErrBusy):
+		return Receipt{}, ErrGatewayBusy
+	case errors.Is(err, journal.ErrUnknownEffect):
+		return Receipt{MutationID: req.MutationID, Status: StatusUnknown, ProviderCalls: calls,
+			OperationState: string(record.State), ProofDigest: record.ProofDigest,
+			Note: "unknown provider result; reconcile before any retry"}, nil
+	case err != nil:
+		return Receipt{}, err
+	}
+
+	status := StatusNoEffect
+	if record.State == journal.Acknowledged {
+		status = StatusApplied
+	}
+	return Receipt{MutationID: req.MutationID, Status: status, ProviderCalls: calls,
+		OperationState: string(record.State), ProofDigest: record.ProofDigest}, nil
+}
+
+func checkClaim(claim ClaimSnapshot, req Request, now time.Time) error {
+	if claim.GoalID != req.GoalID {
+		return ErrAuthorityUnavail
+	}
+	if claim.Generation != req.Generation {
+		return fmt.Errorf("%w: claim=%d request=%d", ErrStaleGeneration, claim.Generation, req.Generation)
+	}
+	if claim.Session != req.Session {
+		return ErrSessionMismatch
+	}
+	if claim.Owner != req.Owner {
+		return ErrOwnerMismatch
+	}
+	if claim.State != "ACTIVE" {
+		return ErrClaimNotActive
+	}
+	if !claim.LeaseExpiresAt.IsZero() && !now.Before(claim.LeaseExpiresAt) {
+		return ErrClaimLeaseExpired
+	}
+	return nil
+}
+
+// localNoEffectProof records a gateway-local fact ("no provider call was made").
+// It is not a provider observation and must never be read as one.
+func localNoEffectProof(mutationID, reason string) string {
+	sum := sha256.Sum256([]byte("effectgateway|no-effect|" + mutationID + "|" + reason))
+	return hex.EncodeToString(sum[:])
+}
