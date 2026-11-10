@@ -84,3 +84,12 @@ type ProviderRevoker interface {
 - [Cloudflare Account Token Create](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/)
 - [OCI Instance Principals](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/callingservicesfrominstances.htm)
 - [OCI Secret Versions](https://docs.oracle.com/en-us/iaas/Content/secret-management/Tasks/create-secret-version.htm)
+
+## 공급자별 최종 폐기 제약 갱신
+
+- **GitHub:** App installation token은 기본 1시간 유효한 단기 인증이므로 정적 키 회전 대상이 아니다. Actions Secret REST는 값을 다시 읽을 수 없으므로 새/기존 이름 병행·신뢰된 Job 기능 검증 필요. Secret 삭제는 외부 공급자의 원본 API 키 폐기가 아니다. [GitHub Docs](https://docs.github.com/en/rest/actions/secrets).
+- **Cloudflare:** Worker Secret의 비활성 버전과 계정 API Token은 별도 수명주기. 토큰 발급 권한/폐기 권한 분리, 이전 토큰 사용 소비자 전부 종료 전 Token Roll/Delete 금지.
+- **Oracle:** Instance Principal은 공급자가 인증서를 자동 회전한다. OCI Vault는 Pending→Current 승격이 가능하나, [ScheduleSecretVersionDeletion](https://docs.oracle.com/en-us/iaas/Content/secret-management/Tasks/delete-secret-version.htm) 요청이 수락되면 실제 삭제 예정 시점보다 앞서 그 버전에 대한 접근이 차단될 수 있다. 이 기간을 롤백 유예기간으로 사용하지 말 것.
+- **K10-04 P0:** `RevocationGrant.OldCredentialHandle`의 정규식·plan digest 검사는 **실제 공급자의 이전 키 ID임을 증명하지 않는다**. 실전 revoke 전 issuer가 발급한 불변 credential/version ID·tenant/target/generation을 독립 provider 관측·호스트 권한에 결속해야 한다. 불일치·미관측이면 HOLD.
+
+발급·소비자 검증·폐기 각각 별도의 권한을 갖는 호스트 Adapter로 구현하며 중앙 Vault·자동 전역 Sweep은 추가하지 않는다.

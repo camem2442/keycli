@@ -58,3 +58,12 @@ scope: disposable-Cloudflare-acceptance-plan-only
 - [Cloudflare List Deployments](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/)
 - [Cloudflare List Versions](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/)
 - [Cloudflare Get Version](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/)
+
+## #55의 단일 버전 2-GET 입증 추가 조건
+
+1. `GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}`에서 `secret_text` 바인딩 이름을 수집한다.
+2. `GET /accounts/{account_id}/workers/workers/{worker_id}/versions/{version_id}`에서 `annotations["workers/tag"]`를 읽고 **같은 version ID**인지 확인한다. 해당 API의 `worker_id`는 Worker ID 또는 이름을 허용하지만, Wrangler `--name`/`--env`가 계산한 실제 script_name과 동일하다는 가정은 라이브 검증 전 금지.
+3. 현재 #55는 Worker 이름을 worker_id 위치에 사용한다. 실제 이름·환경 불일치, Beta API 403, 태그 누락, ID 불일치는 `UNKNOWN_EFFECT` 유지. 재PUT·자동 배포 금지.
+4. 승인된 disposable Worker의 첫 Bootstrap 배포와 그 이후 `versions secret put`의 비활성 버전 생성은 **별개 승인**. Active deployment ID·traffic weights가 바뀌면 성공으로 인수하지 않으며 Secret 값을 읽어 볼 수 있다고 주장하지 않는다.
+
+공식: [Script version](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/) · [Worker version](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/get/).

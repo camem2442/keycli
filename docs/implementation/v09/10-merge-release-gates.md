@@ -83,3 +83,10 @@ v0.9.3 OCI가 완료되지 않았다는 이유로 **소스-only** rotation core 
 1. #50과 #53의 현재 정확한 HEAD에서 Go 1.22 whole module CI 또는 Mac/UTM Linux 검증; fake journal을 실제 원장으로 대체해 오프라인 재확인.
 2. 검증 결과가 요구 범위에 맞을 때만 #47 → (#48→#50) 및 (#49→#51→#52→#53)의 순차 통합을 판단.
 3. 비운영 provider 파일럿은 별도 승인: Cloudflare disposable Worker, GitHub test repo WIF/Secret, OCI 존재·Free gate. 운영 인수 미확정인 동안 키 회전/폐기 자동화 없음.
+
+## 후속 수정 — Cloudflare 태그 증명 #55
+
+- [PR #55](https://github.com/camem2442/keycli/pull/55)는 #50 위의 독립 Draft 수정이고 HEAD는 `87bc3a34224074fb060d2e41e5e81a2ee9ea1e98`. 기존 #50, #54의 HEAD는 변경하지 않았다.
+- Script Version GET은 바인딩을, [Worker Version GET](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/subresources/versions/methods/get/)은 `annotations["workers/tag"]`를 공급한다. #55는 두 API의 version UUID 일치를 요구하고, 둘 중 한 API가 불가하면 효과를 `UNKNOWN_EFFECT`로 둔다.
+- #55 Go 1.23.2 집중 합성/race PASS, **#55 변경분에 대한 Go 1.22 whole module CI는 아직 NOT VERIFIED**. #54 기존 Go 1.22 성공은 #55 새 Blob의 증거가 아니다.
+- 순서: #47 → #48 → #50 → #55(기술 인수 후 반영). #49→#51→#52→#53은 별개 정적 키 회전 스택.
