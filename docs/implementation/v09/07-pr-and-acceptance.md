@@ -12,6 +12,16 @@ scope: proposed-implementation-sequence
 - [workspace-infra #239](https://github.com/camem2442/workspace-infra/pull/239)는 read-only 중복 CI 분류, [#230](https://github.com/camem2442/workspace-infra/pull/230)은 독립 CF Auth Cutover. 중복 검증/배포 엔진 개발 금지.
 - [standard-vm #7](https://github.com/camem2442/standard-vm/pull/7)은 Oracle adapter Draft/source-only. 새 KeyCLI 코드가 OCI 인스턴스를 기동할 수 있는 권한을 가진 것으로 간주하지 않는다.
 
+## 구현 진행 스냅샷 — 설계와 실제 차이
+
+| 구간 | 실제 근거 | 판정 |
+|---|---|---|
+| K09-01~03 | [KeyCLI #47](https://github.com/camem2442/keycli/pull/47), HEAD `e61beed451a5807023975f8650a57aa525097070`; [Linux #42755608356](https://github.com/camem2442/keycli/actions/runs/42755608356) SUCCESS | 구현 후보·CI COMPLETE_SCOPED; 실제 WIF/Secret 쓰기 NOT VERIFIED |
+| K09-04 | Cloudflare `versions secret` adapter·운영 비활성 버전 검증 없음 | NOT VERIFIED / 다음 독립 PR |
+| K09-05 이후 | OCI WIF·workspace-infra·rotation 운영 연결 없음 | NOT VERIFIED |
+
+#47의 `kc delivery status`는 **로컬 journal 조회**이며 provider 원격 관측/복구 CLI가 아니다. 실제 인증 callback과 GitHub Secret encrypted REST는 trust host 내 Go API이며 일반 CLI에 임의 Stage/Deploy 권한이 열린 것이 아니다. Journal은 root가 같은 협력 Writer를 보호하지만 cross-host 전역 lock은 제공하지 않는다. OpenAI WIF `expires_at` 응답 호환성 검증은 live pilot의 선행이다.
+
 ## PR 분할 (단일 Writer, 하나씩 인수)
 
 | PR | 저장소 | 소유 파일 후보 | 정확한 Gate |
@@ -25,7 +35,7 @@ scope: proposed-implementation-sequence
 | SV-OCI-02 | standard-vm | #7 이후 WIF + Runner 한계 계약 | G1~G7, G4≠G6, live는 별도 허가 |
 | K09-06 | keycli | credential rotation coordinator | 이전 키 마지막 폐기 / 중단 복구 |
 
-K09-01~04를 v0.9.0 첫 릴리스 후보로 묶되, 릴리스 자체는 독립 승인. K09-05/WI/SV는 각 provider 운영 인수 전까지 기능 구현 PASS 이상을 주장하지 않는다. 기존 호스트에 설치된 v0.8.0, Cursor Cloud v0.7.2 pin은 해당 호스트 실제 인수 전까지 그대로 둔다.
+K09-01~03은 이미 하나의 Draft #47로 구현되었다. K09-04는 별도 PR에서 최소 안전 stage부터 구현한다. K09-01~04 묶음 릴리스 여부는 각 기능의 정확한 HEAD·회귀·Provider 증거와 별개로 결정한다. K09-05/WI/SV는 제품별 운영 인수 전까지 기능 구현 PASS 이상을 주장하지 않는다. 기존 호스트에 설치된 v0.8.0, Cursor Cloud v0.7.2 pin은 해당 호스트 실제 인수 전까지 그대로 둔다.
 
 ## 공통 테스트 매트릭스
 

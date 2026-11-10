@@ -7,7 +7,9 @@ scope: design-only
 
 # KeyCLI v0.9 구현 패키지 — GitHub / Cloudflare / Oracle
 
-이 폴더는 **향후 구현 계약과 작업 지시**이며, v0.9 기능이 출시되거나 운영 환경에서 인수되었다는 증거가 아니다. 개별 문서의 명령 및 Go 패키지는 `PROPOSED`이고, 실제 `kc` v0.8.0의 명령과 혼동하지 않는다.
+이 폴더는 v0.9 **설계와 구현 인수 경계**이며, 문서 자체가 운영 인수·출시의 증거가 아니다. KeyCLI `main`의 릴리스는 v0.8.0이다. K09-01~03은 [구현 Draft PR #47](https://github.com/camem2442/keycli/pull/47)의 후보 기능이며, K09-04~06 및 cross-repo 운영 연결은 `PROPOSED`다.
+
+**2026-11-10 최신 관측:** PR #47 HEAD `e61beed451a5807023975f8650a57aa525097070`, GitHub Actions [Linux Run #42755608356](https://github.com/camem2442/keycli/actions/runs/42755608356) 완료·SUCCESS (Go 1.22; 동일 HEAD). GitHub WIF/Secret의 **실계정 provider 성공은 NOT VERIFIED**, CI 통과가 본선 merge/배포를 승인하지 않는다. PR #47 실제 CLI는 `kc delivery plan`, `kc delivery status`, 오프라인 `kc auth probe`이고, WIF 교환·GitHub Secret REST는 **신뢰 호스트용 내부 Go API**다. `kc delivery stage` / `kc rotate`는 아직 구현되지 않았다.
 
 ## 읽기 순서
 
@@ -34,8 +36,8 @@ scope: design-only
 |---|---|---|
 | KeyCLI | v0.8.0 released, main `4c972d9` | 안전한 전달 Plan/Stage/Verify |
 | KeyCLI `kc push cloudflare` | 내부 `wrangler secret put` → 즉시 배포 | 비활성 버전 Stage 기본 |
-| `kc push --dry-run` | 현재 resolver가 먼저 비밀값 조회 | Plan 단계 값 조회 0회 |
-| GitHub | 제한된 `gh secret set` 및 `kc ci-guard` Draft #45 | 정확한 repo/env 선택 + OpenAI WIF |
+| `kc push --dry-run` | 기존 push 경로는 먼저 값을 조회. PR #47의 별도 delivery plan은 메타데이터 전용 | 기존 push는 유지, 새 stage/reconcile 안전경로 추가 |
+| GitHub | PR #47 K09-01~03 구현 후보·CI SUCCESS, 실제 인증/쓰기 NOT VERIFIED | 실제 계정·호스트 인수 + K09-04 연결 |
 | OCI | standard-vm #7 Draft, 소스·합성 테스트 | Instance Principal + OpenAI WIF (별도 실제 인수) |
 | Cloudflare Development | 별도 이전·Auth Cutover 진행 중 | 기존 이전 작업과 같은 Worker 동시 변경 금지 |
 

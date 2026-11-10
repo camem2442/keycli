@@ -5,6 +5,15 @@ scope: proposed-cloudflare-staging
 
 # Cloudflare Worker 시크릿 — stage ≠ deploy
 
+## K09-04 최소 구현 경계 (PR #47 이후)
+
+- 출발 소스는 [PR #47](https://github.com/camem2442/keycli/pull/47) `e61beed`를 **read-only**로 확인한다. #47은 `cloudflare-workers` 프로필을 검증할 수 있지만 **stage 명령/Cloudflare versions 전송기는 없다**.
+- 기존 `internal/delivery/{plan,profiles}.go`와 `internal/delivery/journal`을 재사용하고, `internal/delivery/cloudflaredelivery` (trusted host orchestration), `internal/target/cloudflare` (versions-only adapter), 선택된 `internal/cli` (read-only status 연결)을 최소 변경 후보로 삼는다. 새 Journal DB/권한 엔진/중앙 동기화 서비스는 만들지 않는다.
+- 제공 기능의 첫 단위는 **사람이 승인한 일회성 비운영 Worker의 단일 Secret stage**다. bulk는 동일 안전 조건을 만족하고 필요한 경우에만 두 번째 단위로 분리해도 된다. 운영 Worker, 기존 Development cutover Worker, MockTimer 계정은 범위 밖이다.
+- `journal.Store.Dispatch`는 **같은 Root의 협력 프로세스**에만 잠금을 제공한다. 원격 호스트까지 자동 분산 잠금이 된다고 가정하지 말고, `workspace-infra` 소유 Writer/Claim을 별도로 강제한다.
+- 첫 단위에서 `wrangler versions secret put`와 `versions deploy` 호출을 구분하는 가짜 Wrangler 테스트, 값 없는 journal, 실패·SIGKILL 후 `UNKNOWN_EFFECT`, 성공 직후 활성 deployment ID/traffic weight 불변 검증을 요구한다.
+- Cloudflare API 응답의 Secret 이름/Version 존재는 값의 동일성 증거가 아니다. 출력 포맷 파싱만으로 `VERIFIED`로 승격하지 않는다. 기능 검증은 안전한 일회성 Worker에서 별도 수행한다.
+
 ## 금지될 기존 경로
 
 현재 `internal/target/cloudflare/cloudflare.go`의 `Push`는 `wrangler secret put NAME`을 실행한다. 이 명령은 새 Worker Version을 **만들고 즉시 배포**한다. 기존 코드가 이미 운영 Worker를 안전하게 보호한다고 가정하지 않는다. v0.9는 새로운 `kc delivery stage`로 안전 경로를 추가하되, 구버전 `kc push cloudflare`에 운영 가드를 소급했다고 주장하지 않는다.

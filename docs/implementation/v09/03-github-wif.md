@@ -5,6 +5,14 @@ scope: proposed-github-integration
 
 # GitHub API / Actions / OpenAI WIF
 
+## K09-02 구현 스냅샷과 확인할 갭 (2026-11-10)
+
+[KeyCLI PR #47](https://github.com/camem2442/keycli/pull/47) HEAD `e61beed`에는 `internal/identity/githubwif/exchange.go`, `internal/target/gh/rest.go`, `internal/delivery/githubdelivery/run.go`가 들어 있다. 합성 테스트와 GitHub-hosted Linux 단위·회귀 검증은 수행됐다. **실제 OpenAI 교환, 실제 GitHub Actions Secret 쓰기, 유효한 Owner 운영 허가는 NOT VERIFIED**다.
+
+공식 [OpenAI WIF 토큰 교환 응답](https://developers.openai.com/api/reference/workload-identity-federation)은 `expires_in`을 예시로 보여 주고 `expires_at`이 항상 반환된다고 명시하지 않는다. 후보 코드 `TokenResponse`는 `expires_at` 부재 시 실패한다. **첫 라이브 교환 전**, `expires_in`만 있는 공식 형태와 `expires_at` 포함 형태를 모두 합성 회귀해 호환 정책을 결정하라. 누락을 임의로 성공 처리하지 말고 현재 시간·외부 JWT 만료·최대 3600초를 함께 제한하라. 공식 GitHub API `X-GitHub-Api-Version: 2026-03-10`은 지원되는 버전이므로 과거 버전으로 일괄 되돌리지 않는다.
+
+후속 확장은 별도 새 인증 서버/추가 Secret Store를 만들지 않고, #47의 권한 검증 callback·서명 검증된 provider 교환·기존 `journal`을 재사용한다. `ACKNOWLEDGED`는 실제 Secret 값이 독립 검증됐다는 뜻이 아니다.
+
 ## 두 인증을 별도로 취급
 
 - GitHub 자원(`gh`/`git`/PR/Actions) 접근은 Job의 `GITHUB_TOKEN`, 설치 범위 GitHub App 또는 제한 PAT 사용. 공개 저장소 `ls-remote` 성공은 인증 검증이 아니다.
