@@ -90,18 +90,23 @@ func (o *VersionRESTObserver) Observe(ctx context.Context, accountID, worker str
 	if !validWeights(current.Versions) {
 		return DeploymentSnapshot{}, errors.New("invalid Cloudflare active traffic distribution")
 	}
-	var versions []struct {
-		ID string `json:"id"`
+	// Cloudflare's Worker Versions List result is an object containing
+	// `items`, not a bare JSON array. Parse the documented envelope strictly.
+	var versions struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
 	}
 	if err := o.get(ctx, base+"/versions?page=1&per_page=100", &versions); err != nil {
 		return DeploymentSnapshot{}, err
 	}
-	if len(versions) == 0 || len(versions) > 100 {
-		return DeploymentSnapshot{}, errors.New("Cloudflare Worker versions unavailable")
+	if len(versions.Items) == 0 || len(versions.Items) >= 100 {
+		// A full page does not prove a complete version inventory.
+		return DeploymentSnapshot{}, errors.New("Cloudflare Worker versions unavailable or truncated")
 	}
-	ids := make([]string, 0, len(versions))
+	ids := make([]string, 0, len(versions.Items))
 	seen := map[string]bool{}
-	for _, v := range versions {
+	for _, v := range versions.Items {
 		id := strings.ToLower(v.ID)
 		if !versionUUID.MatchString(id) || seen[id] {
 			return DeploymentSnapshot{}, errors.New("invalid Cloudflare version identity")

@@ -38,7 +38,7 @@ func fixtureObserver(t *testing.T, fail string) *VersionRESTObserver {
 			}
 			return response(200, `{"success":true,"result":{"deployments":[{"id":"`+depFixture+`","versions":[{"version_id":"`+prevFixture+`","percentage":100}]}]}}`), nil
 		case strings.HasSuffix(req.URL.Path, "/versions"):
-			return response(200, `{"success":true,"result":[{"id":"`+newFixture+`"},{"id":"`+prevFixture+`"}]}`), nil
+			return response(200, `{"success":true,"result":{"items":[{"id":"`+newFixture+`"},{"id":"`+prevFixture+`"}]}}`), nil
 		case strings.Contains(req.URL.Path, "/versions/"):
 			return response(200, `{"success":true,"result":{"id":"`+newFixture+`","metadata":{"annotations":{"workers/tag":"kc-test1"}},"resources":{"bindings":[{"name":"OPENAI_API_KEY","type":"secret_text"}]}}}`), nil
 		default:
@@ -77,7 +77,7 @@ func TestVersionObserverRejectsUntrustedScopeAndTraffic(t *testing.T) {
 	}
 }
 func TestVersionObserverRejectsMalformedAndOversizedProviderResponse(t *testing.T) {
-	for _, reply := range []string{`{"success":false,"result":[]}`, `{"success":true,"result":null}`, `{"success":true,"result":"wrong"}`, `{garbage`, string(mustJSON(strings.Repeat("x", 1<<20+1)))} {
+	for _, reply := range []string{`{"success":false,"result":[]}`, `{"success":true,"result":null}`, `{"success":true,"result":"wrong"}`, `{"success":true,"result":[{"id":"11111111-1111-4111-8111-111111111111"}]}`, `{garbage`, string(mustJSON(strings.Repeat("x", 1<<20+1)))} {
 		o, e := newVersionRESTObserver("fixture", metadataTransport(func(*http.Request) (*http.Response, error) { return response(200, reply), nil }))
 		if e != nil {
 			t.Fatal(e)
