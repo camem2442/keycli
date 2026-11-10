@@ -106,6 +106,8 @@ func main() {
 	generation := flag.Int64("generation", 0, "claim generation")
 	ttl := flag.Duration("session-ttl", 15*time.Minute, "session key lifetime")
 	credential := flag.String("credential", "", "synthetic provider credential file the service owns (0600)")
+	lockReport := flag.Bool("lock-report", false, "print the provider lock report and exit")
+	providerKind := flag.String("provider", "synthetic", "provider adapter: synthetic|live")
 	failAfterApply := flag.Bool("fail-after-apply", false, "apply the effect, then fail (lost response)")
 	reconcile := flag.String("reconcile", "", "reconcile this mutation id and exit")
 	proof := flag.String("proof", "", "proof digest for -reconcile")
@@ -113,6 +115,18 @@ func main() {
 	planFlag := flag.String("plan", "", "plan digest (required for -reconcile)")
 	grantFlag := flag.String("grant", "", "grant digest (required for -reconcile)")
 	flag.Parse()
+
+	if *lockReport {
+		fmt.Println(effectgateway.ReportJSON())
+		return
+	}
+	if *providerKind == "live" {
+		if err := effectgateway.AllowRealProvider("kc-gateway"); err != nil {
+			log.Fatalf("provider refused: %v", err)
+		}
+	} else if *providerKind != "synthetic" {
+		log.Fatalf("unknown -provider %q", *providerKind)
+	}
 
 	if *journalPath == "" {
 		log.Fatal("-journal is required")
