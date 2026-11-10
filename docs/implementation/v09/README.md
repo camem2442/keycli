@@ -11,7 +11,7 @@ scope: design-only
 
 **2026-11-10 최신 관측:** PR #47 HEAD `e61beed451a5807023975f8650a57aa525097070`, GitHub Actions [Linux Run #42755608356](https://github.com/camem2442/keycli/actions/runs/42755608356) 완료·SUCCESS (Go 1.22; 동일 HEAD). GitHub WIF/Secret의 **실계정 provider 성공은 NOT VERIFIED**, CI 통과가 본선 merge/배포를 승인하지 않는다. PR #47 실제 CLI는 `kc delivery plan`, `kc delivery status`, 오프라인 `kc auth probe`이고, WIF 교환·GitHub Secret REST는 **신뢰 호스트용 내부 Go API**다. `kc delivery stage` / `kc rotate`는 아직 구현되지 않았다.
 
-## 읽기 순서
+K10-05는 [Draft #58](https://github.com/camem2442/keycli/pull/58)에서 GitHub/Cloudflare/Oracle 조회 Adapter를 추가했으며 Go 1.22 본선 및 실계정 인수는 미검증이다.\n\n## 읽기 순서
 
 1. [01-ownership.md](01-ownership.md): KeyCLI / workspace-infra / standard-vm 권한·신뢰 경계
 2. [02-cli-and-go-contracts.md](02-cli-and-go-contracts.md): 명령, 설정·검증, Go 인터페이스

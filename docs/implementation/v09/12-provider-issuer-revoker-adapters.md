@@ -93,3 +93,9 @@ type ProviderRevoker interface {
 - **K10-04 P0:** `RevocationGrant.OldCredentialHandle`의 정규식·plan digest 검사는 **실제 공급자의 이전 키 ID임을 증명하지 않는다**. 실전 revoke 전 issuer가 발급한 불변 credential/version ID·tenant/target/generation을 독립 provider 관측·호스트 권한에 결속해야 한다. 불일치·미관측이면 HOLD.
 
 발급·소비자 검증·폐기 각각 별도의 권한을 갖는 호스트 Adapter로 구현하며 중앙 Vault·자동 전역 Sweep은 추가하지 않는다.
+
+## K10-05 실제 Provider GET Observer — Draft #58
+
+[KeyCLI #58](https://github.com/camem2442/keycli/pull/58)은 [#56](https://github.com/camem2442/keycli/pull/56)의 기존 `rotation.VerifyOldCredential` 콜백에 연결되는 **읽기 전용** Go package `internal/rotation/provideridentity`를 추가한다. GitHub repository Actions Secret의 immutable repository/owner ID + 세대별 이름 + pinned created/updated 시간, Cloudflare Account Token의 정확한 계정/토큰 ID·status·issued_on·policy digest, OCI Vault management의 Secret/Compartment/Vault OCID와 `DEPRECATED` version number를 실제 GET API로 검사한다.
+
+**증거:** Go 1.23.2 격리 모듈(업스트림 #56 rotation 코드 동일 Git blob, journal은 테스트용 shim)에서 unit/race/vet/gofmt PASS. **Go 1.22 whole KeyCLI module, 실 공급자 인증·권한/응답 스키마·실제 폐기 NOT VERIFIED**. #57 CI는 새 #58 Blob을 포함하지 않는다. Cloudflare는 Account API Tokens Read가 필요하며 403이면 HOLD. Oracle의 Signer/tenancy assertion은 신뢰 호스트가 제공해야 한다. GitHub Secret GET은 값·DELETE CAS를 증명하지 않는다. 동일 UID 콜백·메타데이터 digest만으로 운영 Revoker가 승인됐다고 주장하지 않는다.
