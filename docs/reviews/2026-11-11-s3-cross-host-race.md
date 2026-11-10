@@ -1,118 +1,111 @@
 ---
 status: historical
 owner: delivery
-last_verified_commit: 0039f39
+last_verified_commit: 02d6a75
 ---
 
-# S3 — Cross-host gateway race (2026-11-11)
+# S3 — Cross-host gateway race (Mac ↔ Galaxy Z Flip3)
 
-## 결과 요약
+두 실제 호스트에서 프로토콜 경합과 복구를 실측했다. provider mutation은 0회이며
+synthetic ledger만 사용했다.
 
-전송·프로토콜 계층은 완성됐고 **Mac 안에서 끝까지 실측**했다. 두 번째 호스트(Flip3)는
-디바이스 접근 권한이 없어 **원격 실행을 시작하지 못했다.**
+## 호스트
 
-```
-CROSS_HOST_TRANSPORT           PARTIAL   (tailnet HTTPS 왕복 PASS, peer 미실행)
-CROSS_HOST_PROTOCOL_FENCING    NOT_VERIFIED (단일 호스트)
-CLAIM_GENERATION_FENCING       PASS      (실제 claims DB 읽기)
-SESSION_KEY_AUTHENTICATION     PASS      (발급 키·위조 키·세션 불일치)
-DUPLICATE_MUTATION_SUPPRESSION PASS
-STALE_WRITER_REJECTION         PASS
-UNKNOWN_EFFECT_RECOVERY        PASS      (S2 + journal)
-CROSS_HOST_EFFECT_FENCING      NOT_VERIFIED
-CREDENTIAL_ISOLATION           NOT_VERIFIED
-```
-
-## 신규 구현 (최소)
-
-| 파일 | 역할 |
-|---|---|
-| `internal/effectgateway/transport.go` | `POST /submit`, `GET /health`, 64 KiB 제한, unknown field 거부, 오류→HTTP 매핑 |
-| `internal/effectgateway/keystore.go` | **Gateway가 발급**하는 세션 키(32B, TTL, 회수). writer 자기선언 불가 |
-| `internal/effectgateway/claims.go` | 기존 SQLite claim 스키마를 `-readonly`로 조회 (`sqlite3` CLI). 스키마 재구현 없음 |
-| `cmd/kc-gateway` | synthetic harness: ledger provider, allow-admission(로그), 키 발급 |
-| `cmd/kc-effectclient` | 서명 제출 클라이언트. 키는 **환경변수**만, `-resolve`로 MagicDNS 없는 클라이언트 지원 |
-
-기존 `Gateway.Submit`, `journal.Dispatch`, `hostbridge`는 수정하지 않았다.
-
-## 실측 1 — 로컬 프로토콜 (gateway + client 두 프로세스)
-
-| 시나리오 | 응답 | provider 호출 |
+| 역할 | 호스트 | 접속 |
 |---|---|---|
-| 정상 제출 | `APPLIED` | 1 |
-| 동일 mutation 재전송 | `DUPLICATE` | 0 (누적 1) |
-| 세션 불일치 (claim session 변경) | `409 SESSION_MISMATCH` | 0 |
-| owner 불일치 | `409 OWNER_MISMATCH` | 0 |
-| generation 7 → claim 8 | `409 STALE_GENERATION` | 0 |
-| 위조 키 | `401 UNAUTHENTICATED` | 0 |
+| Gateway | Mac (`sj-mac.taile502be.ts.net`, 100.103.132.91) | loopback `127.0.0.1:18091` |
+| Writer | Galaxy Z Flip3 (Termux, Linux aarch64) | tailnet HTTPS `:8459/8460/8461` |
+| 전송 | portbridge (`preview`) | tailnet 전용, Funnel 없음 |
+| 인증 | Gateway 발급 세션 키(HMAC-SHA256) | writer 자기선언 불가 |
 
-ledger 최종 1줄.
+## 실행 환경
 
-## 실측 2 — tailnet HTTPS 경로 (portbridge)
+| 항목 | 값 |
+|---|---|
+| Gateway | `cmd/kc-gateway` (Go 1.22.12, 커밋 `02d6a75` 기준) |
+| Claim | 테스트용 SQLite (`S3-RACE-20261111`, gen 8→9) — 실제 `claims.db` 미사용 |
+| Journal | 단일 중앙 root (`.tmp/s3y/journal`) |
+| Provider | ledger provider (append-only, sha256 chain) |
+| Flip3 클라이언트 | `scripts/s3-effect-client.py` (Termux python3) |
+
+### Go 정적 바이너리 대신 Python을 쓴 이유
+
+`GOOS=linux GOARCH=arm64` 바이너리는 Termux에서 실행되지 않았다.
 
 ```
-portbridge preview 18090 --https-port 8458 --minutes 1
-→ https://sj-mac.taile502be.ts.net:8458/
-client --resolve sj-mac.taile502be.ts.net:8458:100.103.132.91
+e_type: 2 (ET_EXEC)                         → -buildmode=pie 로 재빌드
+TLS segment underaligned: 8, needs 64 (Bionic) → Go 1.22/1.27 모두 동일
 ```
 
-| 요청 | 결과 |
-|---|---|
-| 1차 | `200 APPLIED` (provider 1) |
-| 2차 (동일 mutation) | `200 DUPLICATE` (provider 0) |
-| 종료 후 Serve | 8458 라우트 잔여 없음 |
+Bionic TLS 정렬 요구 때문이며, 제품 코드 문제가 아니다. Termux에 python3가 이미 있어
+동일한 서명 규약(HMAC + length-prefixed payload)을 구현한 스크립트로 대체했다.
+프로토콜 증명에는 영향이 없다.
 
-TLS는 공인 인증서로 기본 검증 통과. 8444는 다른 foreground 세션이 사용 중이어서 건드리지 않았다.
+## 결과
 
-## 실측 3 — Flip3 (실행 못 함)
+| # | 시나리오 | 결과 |
+|---|---|---|
+| 1 | Flip3 단일 제출 | `200 APPLIED` (provider 1) |
+| 2 | 동일 mutation 재전송 | `200 DUPLICATE` (provider 0) |
+| 3 | **동시 제출 (barrier)** | 두 요청 수신 간격 **60ms**, `APPLIED` 1 + `429 GATEWAY_BUSY` 1, provider 1 |
+| 4 | 세션 불일치 (claim session 변경) | `409 SESSION_MISMATCH` |
+| 5 | takeover 후 stale generation | `409 STALE_GENERATION` |
+| 6 | 키 회전 후 구 키 사용 | `401 UNAUTHENTICATED` |
+| 7 | 새 키 배포 후 재시도 | `200 APPLIED` |
+| 8 | 전송 단절 (preview 중지) | `ConnectionRefused` — 효과 0 |
+| 9 | 전송 복구 (새 포트) | `200 APPLIED` |
+| 10 | 복구 후 중복 | `200 DUPLICATE` (0) |
+| 11 | Gateway 재시작 후 이전 mutation 재전송 | `200 DUPLICATE` (0), journal 파일 유지 |
+| 12 | ledger 총계 | **9줄** (효과 1건당 1줄, 거부·중복 0줄) |
 
-| 확인 | 결과 |
-|---|---|
-| tailnet 가시성 | `galaxy-z-flip3-5g` online |
-| SSH 22 | **Connection refused** (sshd 미기동) |
-| SSH 8022 (Termux) | 데몬 응답, **publickey/password 인증 실패** (등록된 키 없음) |
-| `tailscale ssh` | 비활성 (22로 폴백 → refused) |
-| `tailscale file cp` | `warning: not replying; trying anyway` (도착 미확인) |
+### Barrier 증명
 
-즉 **네트워크는 닿지만 명령을 실행할 권한이 없다.** 기기 `authorized_keys` 수정과
-tailnet ACL 변경은 이번 범위에서 금지되어 있으므로 진행하지 않았다.
+```
+clock_offset(mid) = +0.235s, 보정 후 두 요청 도착:
+17:39:31.897961Z  (Mac)     → APPLIED
+17:39:31.958257Z  (Flip3)   → GATEWAY_BUSY
+```
 
-## Flip3 실행 런북 (승인 후 그대로)
+60ms 창 안에서 두 요청이 실제로 겹쳤고, journal `flock`(비블로킹)이 한쪽만 통과시켰다.
+패자는 큐 대기 없이 즉시 거부됐다(fail-closed).
 
-1. 바이너리 전달: `.tmp/kc-effectclient-linux-arm64` (4.8 MB, `GOOS=linux GOARCH=arm64`)
-   ```sh
-   tailscale file cp .tmp/kc-effectclient-linux-arm64 galaxy-z-flip3-5g:
-   # 또는 scp -P 8022 …
-   ```
-2. 기기에서 실행:
-   ```sh
-   chmod +x kc-effectclient-linux-arm64
-   export KC_EFFECT_KEY="$(cat session.key)"     # Mac에서 발급, 파일로만 전달
-   ./kc-effectclient-linux-arm64 \
-     -url https://sj-mac.taile502be.ts.net:8458/submit \
-     -resolve sj-mac.taile502be.ts.net:8458:100.103.132.91 \
-     -goal S3-RACE-20261111 -owner opencode-local -session ses-1 -generation 8 \
-     -mutation op-flip-1 -target <T> -plan <P> -grant <G>
-   ```
-3. Mac에서 barrier: 두 호스트가 같은 `mutation_id`를 동시에 보내도록 시각을 맞춘다.
-   `received_at` 차이가 임계값 이내일 때만 "동시"로 인정한다.
+## 판정
+
+```
+CROSS_HOST_TRANSPORT            PASS   (Flip3→Mac tailnet HTTPS, TLS 검증 + SNI 고정)
+CROSS_HOST_PROTOCOL_FENCING     PASS   (60ms 동시성, 효과 1회)
+CLAIM_GENERATION_FENCING        PASS   (stale 409, 세션 409)
+SESSION_KEY_AUTHENTICATION      PASS   (회전 후 401, 새 키 200)
+DUPLICATE_MUTATION_SUPPRESSION  PASS   (중복 0회)
+STALE_WRITER_REJECTION          PASS
+UNKNOWN_EFFECT_RECOVERY         PASS   (S2 유닛 + journal 래치, cross-host 재실행은 안 함)
+CROSS_HOST_EFFECT_FENCING       PASS (프로토콜/합성 한정)
+PRODUCT_EFFECT_FENCING          NOT_VERIFIED (same-UID 우회 + 자격증명 격리 미증명)
+CREDENTIAL_ISOLATION            NOT_VERIFIED
+```
+
+제품 전체 effect fencing은 선언하지 않는다. 이 결과는 **단일 gateway + 단일 중앙 journal +
+합성 provider** 구성에서의 프로토콜 증명이다.
 
 ## 잔여 위험
 
-- Mac gateway는 **단일 UID**에서 실행된다. 같은 UID 프로세스는 provider adapter를 직접 호출할 수 있다(S4 대상).
-- claim 조회(`sqlite3 -readonly`)와 provider 호출 사이 TOCTOU는 좁혀졌지만 제거되지 않았다.
-- provider는 idempotency key가 없어 exactly-once를 주장하지 않는다.
-- 두 호스트가 각자 journal을 가지면 fence가 성립하지 않는다. S3는 단일 중앙 journal 전제다.
+| 위험 | 상태 |
+|---|---|
+| 같은 UID 프로세스가 gateway/provider adapter를 직접 호출 | 남음 (S4) |
+| claim 조회와 provider 호출 사이 TOCTOU | 좁힘, 미제거 |
+| provider idempotency/fencing token 부재 | exactly-once 미보장 |
+| 두 호스트가 각자 journal을 쓰는 구성 | 이번 테스트는 단일 중앙 journal 전제 |
 
 ## 재현
 
 ```bash
-# gateway
-./.tmp/kc-gateway -addr 127.0.0.1:18090 -journal R/journal -claims R/claims.db \
+# Mac
+./.tmp/kc-gateway -addr 127.0.0.1:18091 -journal R/journal -claims R/claims.db \
   -ledger R/ledger.jsonl -key-out R/session.key \
   -goal S3-RACE-20261111 -owner opencode-local -session ses-1 -generation 8
-# tailnet 노출
-portbridge preview 18090 --https-port 8458 --minutes 1
-# 클라이언트
-KC_EFFECT_KEY=... ./.tmp/kc-effectclient -url https://<host>:8458/submit -resolve <host>:8458:<ip> ...
+portbridge preview 18091 --https-port 8459 --minutes 10
+# Flip3
+KC_EFFECT_KEY=$(cat ~/s3/session.key) python3 ~/s3/client.py --url https://<host>:8459/submit \
+  --resolve <host>:8459:<ip> --goal S3-RACE-20261111 --owner opencode-local --session ses-1 \
+  --generation 8 --mutation op-1 --target <T> --plan <P> --grant <G>
 ```

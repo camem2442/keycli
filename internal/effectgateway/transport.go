@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -49,6 +50,9 @@ func (g *Gateway) Handler(timeout time.Duration) http.Handler {
 			return
 		}
 
+		log.Printf("submit received mutation=%s owner=%s session=%s generation=%d at=%s",
+			env.Request.MutationID, env.Request.Owner, env.Request.Session, env.Request.Generation,
+			time.Now().UTC().Format(time.RFC3339Nano))
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		receipt, err := g.Submit(ctx, env)
