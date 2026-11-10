@@ -40,10 +40,11 @@ type ledgerEntry struct {
 }
 
 type ledgerProvider struct {
-	mu   sync.Mutex
-	path string
-	seq  int
-	prev string
+	mu             sync.Mutex
+	path           string
+	seq            int
+	prev           string
+	failAfterApply bool
 }
 
 func (l *ledgerProvider) Apply(_ context.Context, req effectgateway.Request) (effectgateway.EffectResult, error) {
@@ -70,6 +71,10 @@ func (l *ledgerProvider) Apply(_ context.Context, req effectgateway.Request) (ef
 	}
 	if err := f.Sync(); err != nil {
 		return effectgateway.EffectResult{}, err
+	}
+	if l.failAfterApply {
+		// The provider applied the effect; the response is "lost".
+		return effectgateway.EffectResult{}, fmt.Errorf("simulated lost response")
 	}
 	return effectgateway.EffectResult{State: effectgateway.StateAcknowledged, ProofDigest: entry.Hash}, nil
 }
@@ -100,14 +105,40 @@ func main() {
 	session := flag.String("session", "", "claim session id")
 	generation := flag.Int64("generation", 0, "claim generation")
 	ttl := flag.Duration("session-ttl", 15*time.Minute, "session key lifetime")
+	credential := flag.String("credential", "", "synthetic provider credential file the service owns (0600)")
+	failAfterApply := flag.Bool("fail-after-apply", false, "apply the effect, then fail (lost response)")
+	reconcile := flag.String("reconcile", "", "reconcile this mutation id and exit")
+	proof := flag.String("proof", "", "proof digest for -reconcile")
+	targetFlag := flag.String("target", "", "target digest (required for -reconcile)")
+	planFlag := flag.String("plan", "", "plan digest (required for -reconcile)")
+	grantFlag := flag.String("grant", "", "grant digest (required for -reconcile)")
 	flag.Parse()
 
-	if *journalPath == "" || *claimsPath == "" || *ledger == "" || *keyOut == "" || *goal == "" ||
-		*owner == "" || *session == "" || *generation < 1 {
+	if *journalPath == "" {
+		log.Fatal("-journal is required")
+	}
+	if *reconcile == "" && (*claimsPath == "" || *ledger == "" || *keyOut == "" || *goal == "" ||
+		*owner == "" || *session == "" || *generation < 1) {
 		log.Fatal("journal, claims, ledger, key-out, goal, owner, session and generation are required")
 	}
 	if err := os.MkdirAll(*journalPath, 0o700); err != nil {
 		log.Fatalf("journal: %v", err)
+	}
+
+	if *reconcile != "" {
+		if *proof == "" || *targetFlag == "" || *planFlag == "" || *grantFlag == "" || *journalPath == "" {
+			log.Fatal("-reconcile requires -proof, -target, -plan, -grant and -journal")
+		}
+		store := journal.Store{Root: *journalPath}
+		intent := journal.Intent{OperationID: *reconcile, TargetDigest: *targetFlag, PlanDigest: *planFlag, GrantDigest: *grantFlag}
+		record, err := store.Reconcile(intent, func(current journal.Record) (journal.Observation, error) {
+			return journal.Observation{State: journal.ObservedApplied, ProofDigest: *proof}, nil
+		})
+		if err != nil {
+			log.Fatalf("reconcile: %v", err)
+		}
+		fmt.Printf("reconciled %s state=%s\n", record.OperationID, record.State)
+		return
 	}
 
 	claims := effectgateway.SQLiteCLIClaims{DBPath: *claimsPath}
@@ -129,12 +160,23 @@ func main() {
 		log.Fatalf("write key: %v", err)
 	}
 
+	if *credential != "" {
+		info, statErr := os.Stat(*credential)
+		if statErr != nil {
+			log.Fatalf("credential: %v", statErr)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			log.Fatalf("credential must not be group/world accessible: %o", info.Mode().Perm())
+		}
+		log.Printf("credential readable by service uid only (mode=%o size=%d)", info.Mode().Perm(), info.Size())
+	}
+
 	gw := &effectgateway.Gateway{
 		Claims:   claims,
 		Keys:     ring,
 		Bridge:   &allowAdmission{},
 		Journal:  journal.Store{Root: *journalPath},
-		Provider: &ledgerProvider{path: *ledger},
+		Provider: &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
 	}
 	server := &http.Server{
 		Addr:              *addr,
