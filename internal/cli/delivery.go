@@ -20,7 +20,7 @@ import (
 func newDeliveryCmd() *cobra.Command {
 	group := &cobra.Command{
 		Use:   "delivery",
-		Short: "Plan scoped credential delivery",
+		Short: "Plan scoped credential delivery and inspect operations",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -40,7 +40,7 @@ func newDeliveryCmd() *cobra.Command {
 	plan.Flags().StringVar(&path, "config", "", "Delivery TOML file (default ~/.config/kc/delivery.toml)")
 	plan.Flags().BoolVar(&asJSON, "json", false, "Emit metadata JSON (v1)")
 	_ = plan.MarkFlagRequired("profile")
-	group.AddCommand(plan)
+	group.AddCommand(plan, newDeliveryStatusCmd())
 	return group
 }
 
