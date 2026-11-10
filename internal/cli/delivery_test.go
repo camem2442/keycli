@@ -98,15 +98,15 @@ func TestDeliveryDiscoveryNeverOpensApp(t *testing.T) {
 	}
 }
 
-func TestReadDeliveryConfigRejectsPublicAndSpecialFiles(t *testing.T) {
+func TestReadPrivateDeliveryInputRejectsPublicAndSpecialFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "delivery.toml")
 	if err := os.WriteFile(path, []byte("schema_version = 1"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readDeliveryConfig(path); err == nil {
+	if _, err := readPrivateDeliveryInput(path, "delivery configuration"); err == nil {
 		t.Fatal("delivery config readable by other users accepted")
 	}
-	if _, err := readDeliveryConfig("/dev/null"); err == nil {
+	if _, err := readPrivateDeliveryInput("/dev/null", "delivery configuration"); err == nil {
 		t.Fatal("special file accepted")
 	}
 	if err := os.Chmod(path, 0600); err != nil {
@@ -115,7 +115,7 @@ func TestReadDeliveryConfigRejectsPublicAndSpecialFiles(t *testing.T) {
 	if err := os.Truncate(path, 1<<20+1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readDeliveryConfig(path); err == nil {
+	if _, err := readPrivateDeliveryInput(path, "delivery configuration"); err == nil {
 		t.Fatal("oversized delivery config accepted")
 	}
 }

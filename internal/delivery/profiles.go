@@ -13,6 +13,7 @@ import (
 
 const (
 	githubWIF         = "github-actions-wif"
+	githubSecret      = "github-actions-secret"
 	cloudflareWorkers = "cloudflare-workers"
 	ociWIF            = "oci-instance-wif"
 )
@@ -22,30 +23,34 @@ type Profiles struct {
 }
 
 type profile struct {
-	Provider            string `toml:"provider"`
-	Repository          string `toml:"repository"`
-	Ref                 string `toml:"ref"`
-	WorkflowRef         string `toml:"workflow_ref"`
-	Environment         string `toml:"environment"`
-	Audience            string `toml:"audience"`
-	WIFProviderAlias    string `toml:"wif_provider_alias"`
-	ServiceAccountAlias string `toml:"service_account_alias"`
-	AccountAlias        string `toml:"account_alias"`
-	Worker              string `toml:"worker"`
-	Source              string `toml:"source"`
-	Destination         string `toml:"destination"`
-	Effect              string `toml:"effect"`
-	TenancyAlias        string `toml:"tenancy_alias"`
-	InstanceAlias       string `toml:"instance_alias"`
-	IdentityDomainAlias string `toml:"identity_domain_alias"`
+	Provider              string  `toml:"provider"`
+	Repository            string  `toml:"repository"`
+	Ref                   string  `toml:"ref"`
+	WorkflowRef           string  `toml:"workflow_ref"`
+	Environment           string  `toml:"environment"`
+	Audience              string  `toml:"audience"`
+	WIFProviderAlias      string  `toml:"wif_provider_alias"`
+	ServiceAccountAlias   string  `toml:"service_account_alias"`
+	AccountAlias          string  `toml:"account_alias"`
+	Worker                string  `toml:"worker"`
+	Source                string  `toml:"source"`
+	Destination           string  `toml:"destination"`
+	Effect                string  `toml:"effect"`
+	TenancyAlias          string  `toml:"tenancy_alias"`
+	InstanceAlias         string  `toml:"instance_alias"`
+	IdentityDomainAlias   string  `toml:"identity_domain_alias"`
+	Scope                 string  `toml:"scope"`
+	Organization          string  `toml:"organization"`
+	SelectedRepositoryIDs []int64 `toml:"selected_repository_ids"`
 }
 
 var (
-	labelPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
-	repoPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$`)
-	workerPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
-	envNamePattern  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-	workflowPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+\.ya?ml$`)
+	labelPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+	organizationPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
+	repoPattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$`)
+	workerPattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	envNamePattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	workflowPattern     = regexp.MustCompile(`^[A-Za-z0-9_.-]+\.ya?ml$`)
 )
 
 // ParseProfiles accepts only version 1 and rejects fields outside the selected
@@ -110,6 +115,32 @@ func (p profile) validate(fields []string) error {
 			!labelPattern.MatchString(p.Environment) || !validAudience(p.Audience) ||
 			!labelPattern.MatchString(p.WIFProviderAlias) || !labelPattern.MatchString(p.ServiceAccountAlias) {
 			return fmt.Errorf("invalid GitHub repository, ref, workflow, environment, audience, or WIF alias")
+		}
+	case githubSecret:
+		if p.Effect != "immediate-secret-update" || !labelPattern.MatchString(p.Source) ||
+			!envNamePattern.MatchString(p.Destination) ||
+			strings.HasPrefix(strings.ToUpper(p.Destination), "GITHUB_") {
+			return fmt.Errorf("invalid GitHub Secret source, destination, or effect")
+		}
+		allowed = "scope source destination effect"
+		switch p.Scope {
+		case "repository":
+			allowed += " repository"
+			if !validRepository(p.Repository) {
+				return fmt.Errorf("repository Secret requires an exact repository")
+			}
+		case "environment":
+			allowed += " repository environment"
+			if !validRepository(p.Repository) || !labelPattern.MatchString(p.Environment) {
+				return fmt.Errorf("environment Secret requires an exact repository and environment")
+			}
+		case "organization":
+			allowed += " organization selected_repository_ids"
+			if !organizationPattern.MatchString(p.Organization) || !validRepositoryIDs(p.SelectedRepositoryIDs) {
+				return fmt.Errorf("organization Secret requires an exact organization and unique selected repository IDs")
+			}
+		default:
+			return fmt.Errorf("unsupported GitHub Secret scope")
 		}
 	case cloudflareWorkers:
 		allowed = "account_alias worker environment source destination effect"
@@ -179,4 +210,18 @@ func validWorkflowRef(repository, ref, workflow string) bool {
 func validAudience(audience string) bool {
 	return len(audience) > 0 && len(audience) <= 512 &&
 		!strings.ContainsFunc(audience, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
+}
+
+func validRepositoryIDs(ids []int64) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
 }

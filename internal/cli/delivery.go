@@ -52,14 +52,7 @@ func runDeliveryPlan(out io.Writer, name, path string, asJSON bool) error {
 	if err != nil {
 		return errors.New("cannot locate KeyCLI home directory")
 	}
-	if path == "" {
-		path = filepath.Join(home, ".config", "kc", "delivery.toml")
-	}
-	data, err := readDeliveryConfig(path)
-	if err != nil {
-		return err
-	}
-	profiles, err := delivery.ParseProfiles(data)
+	profiles, err := loadDeliveryProfiles(path)
 	if err != nil {
 		return err
 	}
@@ -109,21 +102,36 @@ func runDeliveryPlan(out io.Writer, name, path string, asJSON bool) error {
 	return err
 }
 
-func readDeliveryConfig(path string) ([]byte, error) {
+func loadDeliveryProfiles(path string) (delivery.Profiles, error) {
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return delivery.Profiles{}, errors.New("cannot locate KeyCLI home directory")
+		}
+		path = filepath.Join(home, ".config", "kc", "delivery.toml")
+	}
+	data, err := readPrivateDeliveryInput(path, "delivery configuration")
+	if err != nil {
+		return delivery.Profiles{}, err
+	}
+	return delivery.ParseProfiles(data)
+}
+
+func readPrivateDeliveryInput(path, description string) ([]byte, error) {
 	const maxBytes = 1 << 20
 	// Opening a named pipe must not block before we can reject its type.
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, errors.New("cannot open delivery configuration")
+		return nil, fmt.Errorf("cannot open %s", description)
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("delivery configuration must be a regular file with no group or other access (use chmod 600)")
+		return nil, fmt.Errorf("%s must be a regular file with no group or other access (use chmod 600)", description)
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil || len(data) > maxBytes {
-		return nil, errors.New("cannot read delivery configuration within 1 MiB")
+		return nil, fmt.Errorf("cannot read %s within 1 MiB", description)
 	}
 	return data, nil
 }

@@ -34,6 +34,7 @@ func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
 	// need the application graph, after Cobra has selected the command.
 	a := &app.App{}
 	delivery := newDeliveryCmd()
+	auth := newAuthCmd()
 	root := &cobra.Command{
 		Use:          "kc",
 		Short:        "keycli — personal secrets CLI",
@@ -69,7 +70,7 @@ func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
 	root.AddCommand(newPolicyCmd(a))
 	root.AddCommand(newWireCmd(a))
 	root.AddCommand(newInteractiveCmd(a))
-	root.AddCommand(newMCPCmd(a), delivery)
+	root.AddCommand(newMCPCmd(a), delivery, auth)
 	// A malformed policy glob must not brick diagnostics. Reads still fail
 	// closed: every command outside the diagnostic set reports the error and
 	// exits non-zero, and the policy middleware denies everything.
@@ -78,7 +79,7 @@ func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
 		case "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 			return nil
 		}
-		if cmd == delivery || cmd.Parent() == delivery {
+		if cmd == delivery || cmd.Parent() == delivery || cmd == auth || cmd.Parent() == auth {
 			return nil
 		}
 		loaded, err := openApp(cmd.Context())
