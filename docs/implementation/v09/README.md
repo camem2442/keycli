@@ -26,7 +26,8 @@ scope: design-only
 11. [11-cloudflare-disposable-worker-pilot.md](11-cloudflare-disposable-worker-pilot.md): 실제 개발계정 단일 disposable Worker의 안전한 Pilot·정리
 12. [12-provider-issuer-revoker-adapters.md](12-provider-issuer-revoker-adapters.md): GitHub·Cloudflare·Oracle의 발급·소비자 검증·폐기 경계
 13. [13-20261110-ci-and-cloudflare-audit.md](13-20261110-ci-and-cloudflare-audit.md): #57 Go 1.22 exact-head CI, Development 계정 읽기 전용 감사·운영 HOLD
-14. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
+14. [14-free-only-pilot-without-billing-read.md](14-free-only-pilot-without-billing-read.md): Billing Read 403 환경에서 Free-only Pilot의 조건부 비용·권한 게이트
+15. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
 
 ## 정본 우선순위
 
