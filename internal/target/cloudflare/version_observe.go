@@ -140,11 +140,12 @@ func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker,
 	if o == nil || o.client == nil || !stageAccount.MatchString(accountID) || !stageWorker.MatchString(worker) || !versionUUID.MatchString(versionID) {
 		return VersionMetadata{}, errors.New("invalid version lookup target")
 	}
+	// The Script Version API exposes resources/bindings but does NOT
+	// contractually expose workers/tag under metadata. Fetch the annotation
+	// from the Worker Version API and require the same immutable version ID.
+	// A provider that cannot answer both reads is NOT a verified Stage.
 	var result struct {
-		ID       string `json:"id"`
-		Metadata struct {
-			Annotations map[string]string `json:"annotations"`
-		} `json:"metadata"`
+		ID        string `json:"id"`
 		Resources struct {
 			Bindings json.RawMessage `json:"bindings"`
 		} `json:"resources"`
@@ -153,7 +154,17 @@ func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker,
 		return VersionMetadata{}, err
 	}
 	if !strings.EqualFold(result.ID, versionID) {
-		return VersionMetadata{}, errors.New("Cloudflare version detail identity mismatch")
+		return VersionMetadata{}, errors.New("Cloudflare script version identity mismatch")
+	}
+	var tagged struct {
+		ID          string            `json:"id"`
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := o.get(ctx, "/accounts/"+accountID+"/workers/workers/"+worker+"/versions/"+versionID, &tagged); err != nil {
+		return VersionMetadata{}, err
+	}
+	if !strings.EqualFold(tagged.ID, versionID) || tagged.Annotations["workers/tag"] == "" {
+		return VersionMetadata{}, errors.New("Cloudflare worker version tag identity unavailable")
 	}
 	var bindings []struct {
 		Name string `json:"name"`
@@ -171,7 +182,7 @@ func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker,
 		}
 	}
 	slices.Sort(names)
-	return VersionMetadata{ID: strings.ToLower(result.ID), Tag: result.Metadata.Annotations["workers/tag"], BindingNames: names}, nil
+	return VersionMetadata{ID: strings.ToLower(result.ID), Tag: tagged.Annotations["workers/tag"], BindingNames: names}, nil
 }
 
 func (o *VersionRESTObserver) get(ctx context.Context, path string, dst any) error {
