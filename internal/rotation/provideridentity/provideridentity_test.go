@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -238,8 +240,9 @@ func TestReaderRejectsSignerURLMutationAndNoAuthentication(t *testing.T) {
 }
 
 // The observer signature is directly consumable by the existing K10-04 host
-// callback. This is a synthetic integration; the local module's journal is a
-// test shim, NOT a persisted KeyCLI journal or real provider attestation.
+// callback. This is a synthetic provider transport; the real KeyCLI Journal
+// requires an absolute private test directory. Neither outcome authenticates
+// a real provider or authorizes live revocation.
 var _ rotation.VerifyOldCredential = (GitHubRepositorySecret{}).Verify
 var _ rotation.VerifyOldCredential = (CloudflareAccountToken{}).Verify
 var _ rotation.VerifyOldCredential = (OracleVaultVersion{}).Verify
@@ -282,7 +285,15 @@ func TestGitHubProviderReadBindsFinalizeWithoutRevokerOnDrift(t *testing.T) {
 			sum := sha256.Sum256(metadata)
 			oldProof := hex.EncodeToString(sum[:])
 			revoked := 0
-			record, err := rotation.Finalize(context.Background(), journal.Store{Root: "unused-synthetic-journal"}, "test-operation", p, activation, consumers, now,
+			parent, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(parent, 0700); err != nil {
+				t.Fatal(err)
+			}
+			store := journal.Store{Root: filepath.Join(parent, "journal")}
+			record, err := rotation.Finalize(context.Background(), store, "test-operation", p, activation, consumers, now,
 				func(context.Context, rotation.PreparationPlan, rotation.ActivationEvidence) error { return nil },
 				func(context.Context, rotation.PreparationPlan, rotation.ConsumerEvidence) error { return nil },
 				func(context.Context, string, rotation.PreparationPlan, rotation.RetirementDecision) (rotation.RevocationGrant, error) {
