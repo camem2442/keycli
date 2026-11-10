@@ -39,8 +39,19 @@ func fixtureObserver(t *testing.T, fail string) *VersionRESTObserver {
 			return response(200, `{"success":true,"result":{"deployments":[{"id":"`+depFixture+`","versions":[{"version_id":"`+prevFixture+`","percentage":100}]}]}}`), nil
 		case strings.HasSuffix(req.URL.Path, "/versions"):
 			return response(200, `{"success":true,"result":{"items":[{"id":"`+newFixture+`"},{"id":"`+prevFixture+`"}]}}`), nil
-		case strings.Contains(req.URL.Path, "/versions/"):
-			return response(200, `{"success":true,"result":{"id":"`+newFixture+`","metadata":{"annotations":{"workers/tag":"kc-test1"}},"resources":{"bindings":[{"name":"OPENAI_API_KEY","type":"secret_text"}]}}}`), nil
+		case strings.Contains(req.URL.Path, "/workers/workers/") && strings.Contains(req.URL.Path, "/versions/"):
+			if fail == "beta-forbidden" {
+				return response(403, `{}`), nil
+			}
+			if fail == "beta-wrong-id" {
+				return response(200, `{"success":true,"result":{"id":"`+prevFixture+`","annotations":{"workers/tag":"kc-test1"}}}`), nil
+			}
+			if fail == "beta-no-tag" {
+				return response(200, `{"success":true,"result":{"id":"`+newFixture+`"}}`), nil
+			}
+			return response(200, `{"success":true,"result":{"id":"`+newFixture+`","annotations":{"workers/tag":"kc-test1"}}}`), nil
+		case strings.Contains(req.URL.Path, "/workers/scripts/") && strings.Contains(req.URL.Path, "/versions/"):
+			return response(200, `{"success":true,"result":{"id":"`+newFixture+`","metadata":{"source":"wrangler"},"resources":{"bindings":[{"name":"OPENAI_API_KEY","type":"secret_text"}]}}}`), nil
 		default:
 			t.Fatalf("unplanned URL: %s", req.URL.String())
 			return nil, nil
@@ -60,6 +71,16 @@ func TestVersionObserveReadsDeploymentAndVersion(t *testing.T) {
 	v, e := o.GetVersion(context.Background(), accountFixture, "fixture-worker", newFixture)
 	if e != nil || v.ID != newFixture || v.Tag != "kc-test1" || len(v.BindingNames) != 1 || v.BindingNames[0] != "OPENAI_API_KEY" {
 		t.Fatalf("invalid version: %+v %v", v, e)
+	}
+}
+func TestVersionTagNeedsIndependentWorkerVersionAPIProof(t *testing.T) {
+	for _, scenario := range []string{"beta-forbidden", "beta-wrong-id", "beta-no-tag"} {
+		t.Run(scenario, func(t *testing.T) {
+			_, err := fixtureObserver(t, scenario).GetVersion(context.Background(), accountFixture, "fixture-worker", newFixture)
+			if err == nil {
+				t.Fatalf("accepted unverified Worker Version tag: %s", scenario)
+			}
+		})
 	}
 }
 func TestVersionObserverRejectsUntrustedScopeAndTraffic(t *testing.T) {
