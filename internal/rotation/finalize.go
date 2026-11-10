@@ -16,7 +16,8 @@ import (
 type RevocationGrant struct {
 	PlanDigest          string
 	GrantDigest         string
-	OldCredentialHandle string // opaque, exact existing provider credential identity
+	OldCredentialHandle string // provider-specific immutable identifier, see VerifyOldCredential
+	OldIdentityDigest   string // independently observed provider identity bound to this grant
 	EvidenceDigest      string // binds the exact current verified consumer/activation evidence
 	ExpiresAt           time.Time
 }
@@ -30,8 +31,8 @@ type RevokeOldGeneration func(context.Context, Generation, string) (journal.Obse
 func Finalize(ctx context.Context, store journal.Store, operationID string, plan PreparationPlan,
 	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
 	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
-	authorizeRevoker AuthorizeRevocation, revoke RevokeOldGeneration) (journal.Record, error) {
-	if authorizeRevoker == nil || revoke == nil || operationID == "" || ctx.Err() != nil || now.Before(time.Now().Add(-30*time.Second)) || now.After(time.Now().Add(30*time.Second)) {
+	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeOldGeneration) (journal.Record, error) {
+	if authorizeRevoker == nil || verifyOld == nil || revoke == nil || operationID == "" || ctx.Err() != nil || now.Before(time.Now().Add(-30*time.Second)) || now.After(time.Now().Add(30*time.Second)) {
 		return journal.Record{}, errors.New("credential revocation host authorization missing")
 	}
 	_, decision, err := Attest(ctx, plan, activation, consumers, now, verifyActivation, verifyConsumer)
@@ -49,11 +50,19 @@ func Finalize(ctx context.Context, store journal.Store, operationID string, plan
 	proofDigest := hex.EncodeToString(sum[:])
 	grant, err := authorizeRevoker(ctx, operationID, plan, decision)
 	if err != nil || grant.PlanDigest != plan.ID || !digestPattern.MatchString(grant.GrantDigest) ||
-		!namePattern.MatchString(grant.OldCredentialHandle) || grant.EvidenceDigest != proofDigest || !time.Now().Before(grant.ExpiresAt) || ctx.Err() != nil {
+		!namePattern.MatchString(grant.OldCredentialHandle) || grant.EvidenceDigest != proofDigest || !digestPattern.MatchString(grant.OldIdentityDigest) || !time.Now().Before(grant.ExpiresAt) || ctx.Err() != nil {
 		return journal.Record{}, errors.New("separate provider revocation grant not admitted")
 	}
 	ctx, cancel := context.WithDeadline(ctx, grant.ExpiresAt)
 	defer cancel()
+	// An opaque handle echoed by the revoker grant is not a provider identity.
+	// The independently trusted host must verify the *actual old* resource ID
+	// and its provider/account/secret/version before any journal effect.
+	identity, err := verifyOld(ctx, plan, grant.OldCredentialHandle)
+	if err != nil || validOldCredentialIdentity(plan, grant.OldCredentialHandle, identity, time.Now()) != nil ||
+		revocationIdentityDigest(identity) != grant.OldIdentityDigest || ctx.Err() != nil {
+		return journal.Record{}, errors.New("old credential provider identity not verified")
+	}
 	intent := journal.Intent{OperationID: operationID, TargetDigest: targetDigest(plan), PlanDigest: plan.ID, GrantDigest: grant.GrantDigest}
 	return store.Dispatch(intent, func() (journal.Observation, error) {
 		obs, err := revoke(ctx, plan.Old, grant.OldCredentialHandle)
