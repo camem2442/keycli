@@ -61,7 +61,7 @@ type ProviderRevoker interface {
 
 ### 우선 해결할 설계 gap
 
-- #50 Cloudflare `Reconcile`은 read-only 재승인 시 반환되는 `GrantDigest`를 **기존 쓰기 Intent의 `GrantDigest`로도 사용**한다. 새 read-only Grant가 다른 digest를 발급하면 journal intent matching이 실패한다. `OriginalWriteGrantDigest`와 `ReadAuthorizationDigest`를 분리해 새 Read Grant를 신뢰된 Host가 발급·검증하는 후속 계약을 만든다. 기존 write 기록의 digest를 read grant로 위장하지 않는다.
+- **소스 보정됨, 운영 미검증:** #50 Cloudflare `Reconcile`은 새 Read Grant의 `GrantDigest`와 이전 Write Intent의 `OriginalWriteGrantDigest`를 분리하도록 수정됐다. [통합 #54 Go1.22 CI #42766965145](https://github.com/camem2442/keycli/actions/runs/42766965145)는 두 식별자 불일치/재사용 거부 회귀를 포함해 SUCCESS. 실제 호스트의 독립 Grant 발급·서명 검증·cross-host Writer Claim은 아직 미연결.
 - Cloudflare `GET versions/{id}`의 metadata annotations/tag가 실제 공급자에서 안정적으로 나오는지 **미검증**. 응답에 없으면 `UNKNOWN_EFFECT` 유지, tag 검증을 제거하지 않는다.
 - #53 `RevocationGrant.OldCredentialHandle`은 실제 provider token ID/Secret version ID와 기존 generation의 관계를 소유자 Host가 **독립적으로** 검증해야 한다. 합성 테스트에서 일치한 값만으로 revoker를 활성화하지 않는다.
 - 재전송 미확정/동일 Target 다른 원장 Root/unknown consumers/후퇴한 Claim generation/비용·만료 불명은 모두 HOLD.

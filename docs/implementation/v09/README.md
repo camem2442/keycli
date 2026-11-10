@@ -7,7 +7,7 @@ scope: design-only
 
 # KeyCLI v0.9 구현 패키지 — GitHub / Cloudflare / Oracle
 
-이 폴더는 v0.9 **설계와 구현 인수 경계**이며, 문서 자체가 운영 인수·출시의 증거가 아니다. KeyCLI `main`의 릴리스는 v0.8.0이다. K09-01~03은 [구현 Draft PR #47](https://github.com/camem2442/keycli/pull/47)의 후보 기능이며, K09-04~06 및 cross-repo 운영 연결은 `PROPOSED`다.
+이 폴더는 v0.9 **설계와 구현 인수 경계**이며, 문서 자체가 운영 인수·출시의 증거가 아니다. KeyCLI `main`의 릴리스는 v0.8.0이다. K09-01~03은 [구현 Draft PR #47](https://github.com/camem2442/keycli/pull/47)의 후보 기능이며, K09-04A/B와 K10-01~04는 [Draft #48~#53](https://github.com/camem2442/keycli/pull/53)의 소스 후보이고 실제 Cloudflare/OCI 공급자 및 cross-repo 운영 인수는 `NOT VERIFIED`다.
 
 **2026-11-10 최신 관측:** PR #47 HEAD `e61beed451a5807023975f8650a57aa525097070`, GitHub Actions [Linux Run #42755608356](https://github.com/camem2442/keycli/actions/runs/42755608356) 완료·SUCCESS (Go 1.22; 동일 HEAD). GitHub WIF/Secret의 **실계정 provider 성공은 NOT VERIFIED**, CI 통과가 본선 merge/배포를 승인하지 않는다. PR #47 실제 CLI는 `kc delivery plan`, `kc delivery status`, 오프라인 `kc auth probe`이고, WIF 교환·GitHub Secret REST는 **신뢰 호스트용 내부 Go API**다. `kc delivery stage` / `kc rotate`는 아직 구현되지 않았다.
 

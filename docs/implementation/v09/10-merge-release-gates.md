@@ -14,6 +14,13 @@ scope: source/CI evidence and prospective release decision
 - **남은 인수:** #50 read-only `Reconcile`의 새 GrantDigest와 옛 Intent GrantDigest 구분, Workers Version metadata tag 제공 여부, `--name/--env` 실 대상, 실제 Provider 토큰/비용 및 #251 host authority. CI SUCCESS는 운영 효과·신뢰 호스트 허가가 아니다. 
 - 추가 절차: [Cloudflare disposable pilot](11-cloudflare-disposable-worker-pilot.md) · [GitHub/Cloudflare/OCI issuer-revoker adapter](12-provider-issuer-revoker-adapters.md).
 
+## 두 번째 Go 1.22 회귀 검증과 owning PR 수정 (2026-11-10)
+
+- 통합 Draft [#54](https://github.com/camem2442/keycli/pull/54) 새 HEAD `76fb6afdb389ea22833d9f84cd160485878b166a`; GitHub Actions [#42766965145](https://github.com/camem2442/keycli/actions/runs/42766965145), **Go 1.22.12 / `./verify.sh --suite all` SUCCESS**.
+- `cloudflaredelivery.Reconcile`에 **별도 읽기 승인 `GrantDigest`와 과거 쓰기 `OriginalWriteGrantDigest`**를 분리했다. 재사용된 쓰기 승인·틀린 원장 원본 digest는 거부하고, 새로운 읽기 승인이 정확한 과거 Intent에만 결속될 때 관측한다.
+- 원래 소유 [#50](https://github.com/camem2442/keycli/pull/50)에도 Go1.22 검증에 사용된 동일 Git blob 3개를 적용해 HEAD `378b59e615de5ca11d46223cc459afc5d8080a44`가 됐다. #50 현재 HEAD 자체에 새 hosted CI는 없으므로 **exact-HEAD CI는 NOT VERIFIED**. #54 통합 검증은 #50 구현의 참고 증거이며 PR 병합 승인으로 자동 전환되지 않는다.
+- Cloudflare Version GET tag/binding, Wrangler `--name/--env`의 실제 Worker mapping, provider write receipt, free budget 및 기존 Development cutover Writer 충돌은 **여전히 실제 인수 전 BLOCKED/NOT VERIFIED**.
+
 ## 기준 증거 (2026-11-10)
 
 | PR | HEAD | 선행 브랜치 | CI 및 제품 상태 |
