@@ -42,12 +42,12 @@ K10은 CLI·실 인수가 끝날 때 v0.10.0으로 올리는 편이 릴리스 �
 | R1 | 소스 landing 병합 승인 | 사용자 명시 승인 (이번 범위 밖) | **HOLD** |
 | R2 | landing PR CI green | 기존 #61 증거는 코드 동등 범위 재사용, PR test merge Tree를 후보 Tree와 대조 | 재사용 가능 / PR 시 재확인 |
 | R3 | 문서 suite | `verify.sh --suite docs` 로컬 ok | **PASS (local)** |
-| R4 | 릴리스 산출물 | `scripts/lifecycle.sh release` → kc 4타깃 + keycli-linux-amd64 + SHA256SUMS | **PASS (local, 서명 없음)** |
+| R4 | 릴리스 산출물 | `scripts/lifecycle.sh release` → kc 4타깃 + keycli-linux-amd64 + SHA256SUMS | 산출물 생성 PASS(local) / MCP 실행 단계는 Linux CI 전용 **NOT_VERIFIED** |
 | R5 | mac-smoke | 실 Mac·실 keychain 필요 | **NOT VERIFIED (미실행)** |
 | R6 | 설치 pin 갱신 | `~/.local/bin/kc` 교체 | **HOLD** |
 | R7 | 릴리스 노트 | CLI 계약 v1 필드 추가 여부 확인(추가=호환) | 작성 필요 |
 
-주의: R4는 로컬 산출물 생성까지만 확인한다. 태그·GitHub Release 생성은
+주의: macOS에서는 `verify-mcp-binary.sh`가 Linux 바이너리를 실행할 수 없어(exit 126) release suite 전체는 Linux CI에서만 성립한다. R4는 로컬 산출물 생성까지만 확인한다. 태그·GitHub Release 생성은
 `RELEASE=not_authorized`이므로 수행하지 않는다.
 
 ## v0.10.0 선행 작업 (별도 Goal)

@@ -116,3 +116,17 @@ PATH="$GR/bin:$PATH" GOTOOLCHAIN=local CGO_ENABLED=0 TMPDIR="$PWD/.tmp" \
 - 실제 provider mutation·Keychain·`~/.kc`·설치 바이너리 변경은 여전히 0회다.
 - `TRUSTED_HOST`는 `SOURCE_PARTIAL` 유지: 호스트 프로세스가 자격증명을 실제로 격리해야
   운영 인수가 성립한다.
+
+## 2026-11-10 직렬 실행 S0–S6 후속 결과
+
+| Phase | 결과 | 근거 |
+|---|---|---|
+| S0 | PASS — `origin/main` `4c972d98`, 후보 Tree `ee735340`, PR/브랜치 미게시, Claim/Grant 불변 | 이 디렉터리 |
+| S0 (정정) | `tooling/keycli_policy_receipt.py`는 `e079647c`에 **존재** | 이전 "부재"는 diverged 공유 worktree(`99657d1`) 오판 |
+| S1 | **HOLD** — `KEYCLI-V010-LANDING-PUBLISH-20261110` Grant 0건 | [landing-pr-handoff.md](landing-pr-handoff.md) |
+| S2 | WI-KC-01 22 + WI-KC-02 52(48+4) 테스트, H17–H30, nullable budget 수정 | infra `b99824a` |
+| S2 (Go) | hostbridge 20 테스트(실 journal H20/H21/H22/H23/H28) | keycli `e401112` |
+| S3 | OCI WIF 16 테스트(source-only) | keycli `7f19eb8` |
+| S4 | 읽기 전용 감사 **NOT_VERIFIED** (승인된 계정 접근 없음, GET 0회) | [cloudflare-free-pilot-prescreen.md](cloudflare-free-pilot-prescreen.md) |
+| S5 | 5개 provider 효과 전부 **NOT_AUTHORIZED** | [provider-operating-gate-s5.md](provider-operating-gate-s5.md) |
+| S6 | RC 증거·릴리스 매트릭스, release suite 정정 | [rc-evidence-2026-11-10.md](rc-evidence-2026-11-10.md) |
