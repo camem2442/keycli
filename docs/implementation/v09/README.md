@@ -23,7 +23,9 @@ scope: design-only
 8. [08-mac-agent-prompt.md](08-mac-agent-prompt.md): Mac 로컬 코딩 에이전트 독립 실행 프롬프트
 9. [09-v09x-to-v010-roadmap.md](09-v09x-to-v010-roadmap.md): 릴리스 의존성·중단 복구·v0.10 회전 도입 게이트
 10. [10-merge-release-gates.md](10-merge-release-gates.md): 최신 #46~#53 실제 PR/CI/릴리스 의존성과 운영 인수
-11. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
+11. [11-cloudflare-disposable-worker-pilot.md](11-cloudflare-disposable-worker-pilot.md): 실제 개발계정 단일 disposable Worker의 안전한 Pilot·정리
+12. [12-provider-issuer-revoker-adapters.md](12-provider-issuer-revoker-adapters.md): GitHub·Cloudflare·Oracle의 발급·소비자 검증·폐기 경계
+13. [SOURCES.md](SOURCES.md): 기존 정본·상태 증거·공식 API 출처
 
 ## 정본 우선순위
 

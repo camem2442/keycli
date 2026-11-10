@@ -7,6 +7,13 @@ scope: source/CI evidence and prospective release decision
 
 # v0.9.x → v0.10.0 — 실제 PR 의존성 및 릴리스 게이트
 
+## Go 1.22 실제 통합 CI 갱신 (2026-11-10 15:06 KST)
+
+- **추가 증거:** [통합 Draft #54](https://github.com/camem2442/keycli/pull/54) HEAD `778207e385dcad0eda3541176e07ef9694481827`; GitHub Actions [#42766043060](https://github.com/camem2442/keycli/actions/runs/42766043060)에서 **Go 1.22.12 Linux / `./verify.sh --suite all` SUCCESS**. 소스는 #47 기반에 #48→#50과 #49→#53 전체를 결합한 17개 파일이다. #54는 **DO NOT MERGE** 검증 브랜치이며 통합 CI는 동일 HEAD에서 수행됐음.
+- **확인·수정한 회귀:** Cloudflare Worker Versions List REST의 응답은 `result.items`이지만 원래 #50은 `result` 배열을 기대. 공식 스키마 파싱과 역행 fixture 거부를 추가해 #54에서 전체 검증 후 [소유 PR #50](https://github.com/camem2442/keycli/pull/50)에도 동일 Git blob 두 개를 적용했다. 수정 #50 HEAD `adcf80ed98f2b6ed2836a6947ee44d33768be3ee`, 해당 새 HEAD 자체의 독립 CI는 아직 없음.
+- **남은 인수:** #50 read-only `Reconcile`의 새 GrantDigest와 옛 Intent GrantDigest 구분, Workers Version metadata tag 제공 여부, `--name/--env` 실 대상, 실제 Provider 토큰/비용 및 #251 host authority. CI SUCCESS는 운영 효과·신뢰 호스트 허가가 아니다. 
+- 추가 절차: [Cloudflare disposable pilot](11-cloudflare-disposable-worker-pilot.md) · [GitHub/Cloudflare/OCI issuer-revoker adapter](12-provider-issuer-revoker-adapters.md).
+
 ## 기준 증거 (2026-11-10)
 
 | PR | HEAD | 선행 브랜치 | CI 및 제품 상태 |
