@@ -38,6 +38,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  TMPDIR: /home/runner/keycli-pr02-tmp
   REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
   WORKFLOW_SHA: ${{ github.workflow_sha }}
 
