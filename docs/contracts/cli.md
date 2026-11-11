@@ -36,6 +36,7 @@ status: implemented
 | `kc doctor [--json]` | 백엔드·config·identity 출처(`KC_KEY`/`receiver.key`/`kc.age`)·PATH `kc` 충돌·키체인·클립보드·git helper (값 미출력). JSON `kc_age`는 `env`/`file`/`keychain`/`missing`/`locked`/`blocked`, `identity_path`는 file일 때만 |
 | `kc delivery plan --profile NAME [--config PATH] [--json]` | GitHub Actions WIF·Cloudflare 비활성 버전·OCI WIF의 오프라인 계획. [설정과 출력](../guides/delivery-plan.md) |
 | `kc auth probe --profile NAME --offline --claims PATH [--config PATH] [--json]` | GitHub Actions WIF의 합성 claim을 로컬에서 비교. [입력 형식](../guides/delivery-plan.md#github-actions-wif-합성-claim-검사) |
+| `kc auth wif-check --registration PATH --registration-sha256 SHA256` | 등록된 GitHub Actions 또는 OCI 호스트의 OpenAI 모델 조회를 한 번 실행하고 메타데이터 영수증 출력. [호스트 등록과 실행](../guides/wif-host-check.md) |
 | `kc push cursor\|gh\|cloudflare [NAME...] [--repos …] [--worker W --worker-env E --wrangler-config PATH]` | 플랫폼 시크릿에 직접 등록 ([전송 계약](transfer.md)) |
 | `kc export NAME... --to KEY\|--to-github USER\|--format dotenv` | 암호화 번들 또는 클립보드용 dotenv |
 | `kc import [--force]` | stdin의 age 번들을 저장소에 추가. 번들은 만료를 싣지 않으며, **기존 이름을 덮어쓰려 하면 거부**한다(`--force` 필요). 성공 시 "no expiry" 경고를 stderr에 남긴다 |
