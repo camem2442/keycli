@@ -68,6 +68,23 @@ func TestGatewayPythonDurableAuthority(t *testing.T) {
 	})
 }
 
+func TestGatewayPythonAuthorityCLI(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux borrowed flock proof required")
+	}
+	t.Run("current", func(t *testing.T) {
+		runGatewayPythonAuthority(t, "authority_cli.py", "current", effectgateway.Receipt{
+			Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged),
+			ProviderCalls: 1, AuthoritySettlement: effectgateway.SettlementDone,
+		}, true)
+	})
+	t.Run("restart-unknown", func(t *testing.T) {
+		runGatewayPythonAuthority(t, "authority_cli.py", "restart-unknown", effectgateway.Receipt{
+			Status: effectgateway.StatusUnknown, OperationState: string(journal.UnknownEffect),
+		}, true)
+	})
+}
+
 func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected effectgateway.Receipt, pinPID bool) {
 	t.Helper()
 	infra := os.Getenv("KEYCLI_TEST_WORKSPACE_INFRA")
@@ -115,13 +132,20 @@ func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected eff
 		Config  string                      `json:"config"`
 		Binding hostbridge.AuthorityBinding `json:"binding"`
 	}
-	if err := json.NewDecoder(stdout).Decode(&ready); err != nil {
+	decoder := json.NewDecoder(stdout)
+	if err := decoder.Decode(&ready); err != nil {
 		t.Fatalf("Python Authority did not become ready: %v", err)
 	}
 	runGatewayProcessSubmit(t, dir, ready.DB, ready.Config, ready.Binding, expected, mode == "lost-admission-reply", func(pid int) {
 		if pinPID {
 			if _, err := fmt.Fprintln(stdin, pid); err != nil {
 				t.Fatal(err)
+			}
+			if filename == "authority_cli.py" {
+				var peerPinned bool
+				if err := decoder.Decode(&peerPinned); err != nil || !peerPinned {
+					t.Fatalf("activated Authority CLI did not receive the gateway PID: %v", err)
+				}
 			}
 			return
 		}

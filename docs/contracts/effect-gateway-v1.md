@@ -177,8 +177,9 @@ must identify the exact bound mutation and its `RUNNING` reservation before
 Go opens a dispatch. `DUPLICATE` stops before the journal callback or any
 provider call. Both responses carry `authorizes_execution: false`.
 The verifier must support the version 2 method for guarded execution.
-The Python `serve` command currently supplies advisory Authority only. The
-guarded receiver needs a host-provisioned reservation and verification runtime.
+The Python `serve` command enables the guarded runtime with an owner-private
+Linux service configuration, an inherited guarded listener and a trusted
+observer. Its default configuration serves advisory Authority.
 
 An unconfirmed reservation returns HTTP 503 `RESERVATION_UNKNOWN` before
 dispatch. An exact resubmission that finds the prior reservation returns
@@ -250,3 +251,6 @@ reader, persisted admission decisions, and the guarded Authority runtime.
 It reconstructs Authority from disk between reservation, execution and
 settlement. The dropped-verdict case keeps the dispatch and reservation
 unresolved after reconstruction.
+`TestGatewayPythonAuthorityCLI` exercises the real Linux `serve` command
+and starts a fresh service process over the same decisions, journal and
+SQLite database. It verifies both settled and unresolved outcomes after restart.
