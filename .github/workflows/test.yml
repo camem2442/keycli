@@ -12,8 +12,14 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest_sha: ${{ steps.bundle.outputs.manifest_sha }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -28,7 +34,9 @@ jobs:
           CGO_ENABLED: "0"
         run: python3 scripts/verify-release-contract.py
       - name: Set synthetic release identity
+        id: identity
         run: |
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
             echo "RELEASE_VERSION=v0.10.0-rc.999"
             echo "SOURCE_SHA=$(git rev-parse HEAD)"
@@ -71,3 +79,29 @@ jobs:
           mv /tmp/keycli-release-contract/downloaded dist
           bash scripts/release-contract.sh verify-bundle
           bash scripts/release-contract.sh verify-binary amd64
+
+  linux-arm64-release:
+    needs: linux
+    runs-on: ubuntu-24.04-arm
+    env:
+      RELEASE_VERSION: v0.10.0-rc.999
+      SOURCE_SHA: ${{ needs.linux.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.linux.outputs.source_sha }}
+      RELEASE_CHANNEL: rc
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      MANIFEST_SHA: ${{ needs.linux.outputs.manifest_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.linux.outputs.source_sha }}
+      - name: Download synthetic release bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Verify downloaded arm64 release binaries
+        run: |
+          set -euo pipefail
+          bash scripts/release-contract.sh verify-bundle
+          bash scripts/release-contract.sh verify-binary arm64
