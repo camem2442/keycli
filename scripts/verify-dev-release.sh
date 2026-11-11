@@ -83,7 +83,32 @@ if (cd "$WORK/assets" && { command -v sha256sum >/dev/null 2>&1 && sha256sum -c 
   check checksums PASS
 else
   check checksums FAIL; tail -3 "$WORK/sha.log"
+  echo '{"status":"BLOCK","reason":"checksum-failed"}'
+  exit 3
 fi
+
+# Every binary that will be executed must have exactly one checksum entry.
+listed_once() {
+  awk -v name="$1" '
+    {
+      digest = substr($0, 1, 64)
+      separator = substr($0, 65, 2)
+      filename = substr($0, 67)
+      if (filename == name || filename == "./" name) {
+        count++
+        if (digest !~ /^[[:xdigit:]]+$/ || (separator != "  " && separator != " *")) invalid = 1
+      }
+    }
+    END { exit !(count == 1 && !invalid) }
+  ' "$WORK/assets/SHA256SUMS"
+}
+for asset in "$HOST_ASSET" "$GATEWAY_ASSET"; do
+  if [[ -f "$WORK/assets/$asset" ]] && ! listed_once "$asset"; then
+    check checksums "FAIL (missing or duplicate entry for $asset)"
+    echo '{"status":"BLOCK","reason":"asset-not-bound"}'
+    exit 3
+  fi
+done
 
 # 2. host asset must exist
 if [[ -f "$WORK/assets/$HOST_ASSET" ]]; then
@@ -118,10 +143,43 @@ if [[ -f "$WORK/assets/$HOST_ASSET" ]]; then
   fi
 fi
 
-# 4. gateway asset (optional): provider effects must be locked
-if [[ -f "$WORK/assets/$GATEWAY_ASSET" && -x "$WORK/assets/$GATEWAY_ASSET" ]]; then
-  report="$("$WORK/assets/$GATEWAY_ASSET" -lock-report 2>&1 || true)"
-  if [[ "$report" == *'"provider_enabled":false'* ]]; then check provider_lock PASS; else check provider_lock "FAIL ($report)"; fi
+# 4. downloaded assets may lack executable permissions; test a private copy.
+if [[ -f "$WORK/assets/$GATEWAY_ASSET" ]]; then
+  gateway="$WORK/gateway"
+  if cp "$WORK/assets/$GATEWAY_ASSET" "$gateway" && chmod 700 "$gateway"; then
+    report="$(env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report 2>&1)"
+    locked_status=$?
+    enabled_report="$(KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report 2>&1)"
+    enabled_status=$?
+    valid_lock_report() {
+      python3 -c 'import json, sys
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate key")
+        result[key] = value
+    return result
+try:
+    report = json.load(sys.stdin, object_pairs_hook=unique_object)
+except (ValueError, TypeError):
+    sys.exit(1)
+valid = (isinstance(report, dict) and type(report.get("schema_version")) is int
+         and report.get("schema_version") == 1
+         and report.get("channel") in ("dev", "rc")
+         and report.get("requires_env") is True and report.get("unlocked") is False
+         and report.get("provider_enabled") is False)
+sys.exit(0 if valid else 1)' <<<"$1"
+    }
+    if [[ "$locked_status" -eq 0 && "$enabled_status" -eq 0 ]] &&
+       valid_lock_report "$report" && valid_lock_report "$enabled_report"; then
+      check provider_lock PASS
+    else
+      check provider_lock "FAIL (gateway lock check failed)"
+    fi
+  else
+    check provider_lock "FAIL (gateway copy or chmod failed)"
+  fi
 else
   note provider_lock "SKIP (gateway asset not published)"
 fi

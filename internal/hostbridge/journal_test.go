@@ -3,6 +3,7 @@ package hostbridge
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -17,8 +18,14 @@ import (
 
 func testStore(t *testing.T) journal.Store {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "journal")
-	return journal.Store{Root: root}
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return journal.Store{Root: filepath.Join(parent, "journal")}
 }
 
 func testIntent() journal.Intent {
@@ -185,8 +192,8 @@ func TestH28ForgedCallbackCannotAuthorizeAnotherTarget(t *testing.T) {
 // evidence of the first writer's state.
 func TestH23SeparateJournalRootsAreNotShared(t *testing.T) {
 	intent := testIntent()
-	first := journal.Store{Root: filepath.Join(t.TempDir(), "journal-a")}
-	second := journal.Store{Root: filepath.Join(t.TempDir(), "journal-b")}
+	first := testStore(t)
+	second := testStore(t)
 
 	if _, err := first.Dispatch(intent, func() (journal.Observation, error) { return ack(), nil }); err != nil {
 		t.Fatalf("first dispatch: %v", err)

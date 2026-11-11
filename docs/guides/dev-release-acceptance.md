@@ -64,7 +64,8 @@ existing_install_unchanged         PASS
 {"status":"PASS","tag":"v0.10.0-dev.1","host_asset":"kc-darwin-arm64"}
 ```
 
-부정 통제: 자산 1바이트 변조 → `checksums FAIL`, `{"status":"FAIL"}`, exit 3.
+현재 스크립트는 체크섬 실패 또는 실행할 자산의 체크섬 항목 누락·중복을 확인하면
+바이너리 실행 전에 `BLOCK`과 exit 3을 반환한다.
 
 ## 게시 후 필수 확인
 
@@ -75,10 +76,10 @@ existing_install_unchanged         PASS
 
 ## Gateway 자산 정책
 
-현재 워크플로는 `kc-gateway`를 게시하지 않는다. 게시하려면:
+PR-02 후보 워크플로는 Linux amd64·arm64 Gateway를 포함한다. Linux에서 해당 자산이
+있으면 다운로드 파일의 임시 복사본을 실행해 기본 환경과 `KC_PROVIDER_EFFECTS=enabled`
+환경 모두에서 잠금 보고서를 검사한다. macOS용 Gateway 자산은 포함되지 않으며,
+이전 릴리스와 같이 해당 호스트의 Gateway 자산이 없는 경우 검사 결과는 `SKIP`이다.
 
-- 별도 빌드 job + `SHA256SUMS` 항목 추가
-- 서비스 기동 smoke (`systemd` unit 없이 `-lock-report` + `/health`)
-- `-provider live`가 거부되는지 확인
-
-그 전까지 dev.1은 **CLI 중심 개발 릴리스**로 표기한다.
+워크플로의 다운로드 산출물 검사와 실제 서비스 기동·운영 인수는 각각 별도의 증거로
+기록한다.
