@@ -93,13 +93,14 @@ func actionIntent(req Request) journal.Intent {
 
 func TestGatewayFinalizeChecksIdentityAndAuthorityBeforeRevocation(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		drift, denied bool
-		want          []string
+		name                    string
+		drift, denied, restored bool
+		want                    []string
 	}{
 		{name: "approved", want: []string{"identity", "fence", "revoke"}},
 		{name: "different identity", drift: true, want: []string{"identity"}},
 		{name: "denied at execution", denied: true, want: []string{"identity", "fence"}},
+		{name: "old generation restored", restored: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -172,10 +173,24 @@ func TestGatewayFinalizeChecksIdentityAndAuthorityBeforeRevocation(t *testing.T)
 				t.Fatal(err)
 			}
 			h.gw.RotationActions = rotationResolverFunc(func(context.Context, Request) (RotationAction, error) { return action, nil })
+			if tc.restored {
+				stage, rollback := actionIntent(req), actionIntent(req)
+				stage.OperationID, rollback.OperationID = "prior-stage", "restore-old"
+				if _, err := rotation.SaveSession(h.gw.Journal, rotation.SessionSnapshot{}, rotation.Session{
+					Version: 1, Plan: plan, OldIdentityDigest: rotation.RevocationIdentityDigest(identity), Stage: stage, Rollback: &rollback,
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := h.gw.Journal.Dispatch(rollback, func() (journal.Observation, error) {
+					return journal.Observation{State: journal.Acknowledged, ProofDigest: testPlan}, nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			envelope := Sign(req, []byte(testKey))
 			receipt, err := h.gw.Submit(ctx, envelope)
 			wantStatus, wantProviderCalls := StatusApplied, 1
-			if tc.drift || tc.denied {
+			if tc.drift || tc.denied || tc.restored {
 				wantStatus, wantProviderCalls = StatusNoEffect, 0
 			}
 			if err != nil || receipt.Status != wantStatus || receipt.ProviderCalls != wantProviderCalls || !slices.Equal(calls, tc.want) {
