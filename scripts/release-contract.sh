@@ -91,20 +91,40 @@ verify_binary() {
   local arch="$1" cli="dist/kc-linux-$1" gateway="dist/kc-gateway-linux-$1"
   local expected="$RELEASE_VERSION ($SOURCE_SHA)"
   chmod +x "$cli" "$gateway"
-  [[ "$("$cli" --version)" == "kc version $expected" ]] || fail "unexpected CLI version or commit"
-  [[ "$("$gateway" --version)" == "$expected" ]] || fail "unexpected gateway version or commit"
+  local actual
+  actual="$("$cli" --version)" || fail "CLI version command failed"
+  [[ "$actual" == "kc version $expected" ]] || fail "unexpected CLI version or commit"
+  actual="$("$gateway" --version)" || fail "gateway version command failed"
+  [[ "$actual" == "$expected" ]] || fail "unexpected gateway version or commit"
   if [[ "$arch" == amd64 ]]; then
     chmod +x dist/keycli-linux-amd64
-    [[ "$(dist/keycli-linux-amd64 --version)" == "kc version $expected" ]] || fail "unexpected legacy CLI identity"
+    actual="$(dist/keycli-linux-amd64 --version)" || fail "legacy CLI version command failed"
+    [[ "$actual" == "kc version $expected" ]] || fail "unexpected legacy CLI identity"
   fi
   bash "$(dirname "$0")/verify-mcp-binary.sh" "$cli" "kc version $expected"
 
   local channel="$RELEASE_CHANNEL" enabled=false
   if [[ "$channel" == operational ]]; then enabled=true; fi
   check_lock() {
-    jq -e --arg channel "$channel" --argjson enabled "$1" \
-      '.schema_version == 1 and .channel == $channel and .requires_env == true
-       and .unlocked == $enabled and .provider_enabled == $enabled' >/dev/null
+    python3 -c 'import json, sys
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate key")
+        result[key] = value
+    return result
+try:
+    report = json.load(sys.stdin, object_pairs_hook=unique_object)
+except (ValueError, TypeError):
+    sys.exit(1)
+enabled = sys.argv[2] == "true"
+valid = (isinstance(report, dict) and type(report.get("schema_version")) is int
+         and report.get("schema_version") == 1 and report.get("channel") == sys.argv[1]
+         and report.get("requires_env") is True and report.get("unlocked") is enabled
+         and report.get("provider_enabled") is enabled)
+sys.exit(0 if valid else 1)' "$channel" "$1"
   }
   env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report | check_lock false
   KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report | check_lock "$enabled"

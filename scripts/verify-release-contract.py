@@ -326,6 +326,30 @@ class ReleaseContractTests(unittest.TestCase):
                                         package], cwd=ROOT, check=True)
                     self.contract("verify-binary", arch, RELEASE_VERSION=version)
                     self.contract("verify-binary", arch, fails=True, RELEASE_VERSION=VERSION)
+                    fake_gateway = dist / f"kc-gateway-linux-{arch}"
+                    locked = '{"schema_version":1,"channel":"rc","requires_env":true,"unlocked":false,"provider_enabled":false}'
+                    unlocked = '{"schema_version":1,"channel":"rc","requires_env":true,"unlocked":true,"provider_enabled":true}'
+                    duplicate = '{"schema_version":1,"channel":"rc","requires_env":true,"unlocked":false,"provider_enabled":true,"provider_enabled":false}'
+
+                    def fake_gateway_script(version_exit, reports):
+                        lock_output = "\n".join(f"echo '{report}'" for report in reports)
+                        fake_gateway.write_text(
+                            f"#!/bin/sh\ncase \"$1\" in\n"
+                            f"  --version) echo '{version} ({commit})'; exit {version_exit} ;;\n"
+                            f"  -lock-report) {lock_output}; exit 0 ;;\n"
+                            "  -provider) echo 'provider effects are locked' >&2; exit 1 ;;\n"
+                            "  *) exit 2 ;;\nesac\n"
+                        )
+
+                    fake_gateway_script(0, [locked])
+                    self.contract("verify-binary", arch, RELEASE_VERSION=version)
+                    fake_gateway_script(7, [locked])
+                    self.contract("verify-binary", arch, fails=True, RELEASE_VERSION=version)
+                    fake_gateway_script(0, [unlocked, locked])
+                    self.contract("verify-binary", arch, fails=True, RELEASE_VERSION=version)
+                    fake_gateway_script(0, [duplicate])
+                    self.contract("verify-binary", arch, fails=True, RELEASE_VERSION=version)
+
 
 
 if __name__ == "__main__":
