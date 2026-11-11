@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +38,14 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 		{"revoked", "GRANT_NOT_REGISTERED"},
 		{"reservation-mismatch", "MUTATION_BINDING_MISMATCH"},
 		{"journal-mismatch", "JOURNAL_INTENT_MISMATCH"},
-		{"unheld-descriptor", "WRITER_LOCK_NOT_INHERITED"},
+		{"unheld-descriptor", "WRITER_LOCK_NOT_SHARED"},
+		{"wrong-request-binding", "MUTATION_BINDING_MISMATCH"},
+		{"wrong-reply-binding", errGuardedReply.Error()},
+		{"wrong-reply-id", errGuardedReply.Error()},
+		{"duplicate-reply-field", errGuardedReply.Error()},
+		{"lost-reply", errGuardedNoReply.Error()},
+		{"stalled-reply", errGuardedTimeout.Error()},
+		{"wrong-peer", errGuardedPeer.Error()},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			h := newHarness(t)
@@ -86,10 +92,18 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 			done := make(chan error, 1)
 			go func() { done <- runLocalAuthorityFixture(listener, binding, "admission only") }()
 
+			verifierPath := filepath.Join(filepath.Dir(socketPath), "guard.sock")
+			verifier := command("serve_guarded", stateRoot, h.root, tc.mode, verifierPath)
+			events := processEvents(t, verifier)
+			if err := verifier.Start(); err != nil {
+				t.Fatal(err)
+			}
+			expectProcessEvent(t, events, "verifier-ready")
+
 			a := localFixtureAuthority(t, socketPath, uint32(os.Geteuid()), reg, h.gw.Now)
 			var guard journal.DispatchGuard
 			var outcome string
-			a.verifyBoundExecution = func(_ context.Context, got hostbridge.AuthorityBinding, live journal.DispatchGuard) error {
+			a.verifyBoundExecution = func(ctx context.Context, got hostbridge.AuthorityBinding, live journal.DispatchGuard) error {
 				guard = live
 				if got != binding {
 					t.Fatalf("verifier received different binding: %+v", got)
@@ -122,13 +136,29 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 						defer separate.Close()
 						lock = separate
 					}
-					cmd := command("verify", stateRoot, h.root, tc.mode)
-					cmd.ExtraFiles = []*os.File{lock}
-					raw, err := cmd.Output()
-					if err != nil {
-						t.Fatalf("bound Python verification failed: %v", err)
+					pid := verifier.Process.Pid
+					if tc.mode == "wrong-peer" {
+						pid++
 					}
-					outcome = strings.TrimSpace(string(raw))
+					if tc.mode == "wrong-request-binding" {
+						got.Operation = "other-operation"
+					}
+					var exchangeErr error
+					outcome, exchangeErr = exchangeGuardedExecution(ctx, verifierPath, uint32(os.Geteuid()), pid, got, lock)
+					if errors.Is(exchangeErr, errGuardedTimeout) {
+						_ = verifier.Process.Kill()
+					}
+					waitErr := verifier.Wait()
+					if exchangeErr != nil {
+						outcome = exchangeErr.Error()
+						if waitErr != nil && !errors.Is(exchangeErr, errGuardedTimeout) {
+							t.Fatalf("verifier exited after %v: %v", exchangeErr, waitErr)
+						}
+						return exchangeErr
+					}
+					if waitErr != nil {
+						t.Fatalf("verifier did not finish: %v", waitErr)
+					}
 					if outcome != "approved" {
 						return errors.New("synthetic execution denied")
 					}
