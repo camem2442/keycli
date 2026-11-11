@@ -121,6 +121,7 @@ jobs:
         with:
           go-version-file: source/go.mod
           cache-dependency-path: source/go.sum
+          cache: ${{ !inputs.use_utm_runner }}
       - name: Ensure ripgrep
         run: |
           if ! command -v rg >/dev/null; then
@@ -168,6 +169,7 @@ jobs:
         with:
           go-version-file: source/go.mod
           cache-dependency-path: source/go.sum
+          cache: ${{ !inputs.use_utm_runner }}
       - name: Build the selected source once
         id: build
         run: |
