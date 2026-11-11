@@ -18,6 +18,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
+	"github.com/camem2442/keycli/internal/version"
 )
 
 func main() {
@@ -27,6 +28,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("kc-effectclient", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	showVersion := flags.Bool("version", false, "print the build version and source commit")
 	mode := flags.String("mode", "operational", "operational or synthetic")
 	config := flags.String("config", "", "protected operational gateway origin configuration")
 	keyFile := flags.String("key-file", "", "protected operational session key file")
@@ -52,6 +54,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return 64
+	}
+	if *showVersion && len(args) == 1 {
+		fmt.Fprintln(stdout, version.String())
+		return 0
 	}
 	if flags.NArg() != 0 || req.GoalID == "" || req.MutationID == "" || req.Owner == "" ||
 		req.Session == "" || req.Generation < 1 {
