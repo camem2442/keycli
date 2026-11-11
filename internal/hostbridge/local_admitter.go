@@ -133,7 +133,7 @@ func (a *LocalAdmitter) exchange(ctx context.Context, method string, binding Aut
 	if a == nil || ctx == nil || ctx.Err() != nil {
 		return fail()
 	}
-	if !binding.valid() {
+	if !binding.Valid() {
 		return authorityReply{}, ErrBindingMismatch
 	}
 	ctx, cancel := context.WithTimeout(ctx, localDeadline)
@@ -186,7 +186,8 @@ func (a *LocalAdmitter) exchange(ctx context.Context, method string, binding Aut
 	return reply, err
 }
 
-func (b AuthorityBinding) valid() bool {
+// Valid reports whether every projected field can be represented in the v1 protocol.
+func (b AuthorityBinding) Valid() bool {
 	return wireIdentifier.MatchString(b.GoalID) && wireOperation.MatchString(b.MutationID) &&
 		wireOperation.MatchString(b.Operation) && b.WriterGeneration > 0 &&
 		hostID.MatchString(b.Owner) && wireIdentifier.MatchString(b.Session) &&

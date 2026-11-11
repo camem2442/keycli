@@ -49,8 +49,8 @@ func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, 
 		reg.CanonicalTarget == "" || strings.ContainsRune(reg.CanonicalTarget, 0) {
 		return nil, hostbridge.ErrBindingMismatch
 	}
-	target := hostbridge.TargetDigest(reg.Provider, reg.ProviderOperation, reg.CanonicalTarget)
-	if target != req.TargetDigest || reg.PlanDigest != req.PlanDigest || reg.GrantDigest != req.GrantDigest {
+	binding := reg.authorityBinding()
+	if !binding.Valid() || binding.TargetDigest != req.TargetDigest || reg.PlanDigest != req.PlanDigest || reg.GrantDigest != req.GrantDigest {
 		return nil, hostbridge.ErrBindingMismatch
 	}
 	now := a.Now
@@ -60,13 +60,19 @@ func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, 
 	return &localBoundAuthority{
 		admitter: a.Admitter,
 		now:      now,
-		binding: hostbridge.AuthorityBinding{
-			GoalID: id.GoalID, MutationID: id.MutationID, WriterGeneration: id.WriterGeneration,
-			Owner: id.WriterOwner, Session: id.WriterSession, Provider: reg.Provider,
-			Operation: id.OperationID, ResourceDigest: reg.ResourceDigest, TargetDigest: target,
-			PlanDigest: reg.PlanDigest, GrantDigest: reg.GrantDigest,
-		},
+		binding:  binding,
 	}, nil
+}
+
+func (reg RegisteredOperation) authorityBinding() hostbridge.AuthorityBinding {
+	id := reg.Identity
+	return hostbridge.AuthorityBinding{
+		GoalID: id.GoalID, MutationID: id.MutationID, WriterGeneration: id.WriterGeneration,
+		Owner: id.WriterOwner, Session: id.WriterSession, Provider: reg.Provider,
+		Operation: id.OperationID, ResourceDigest: reg.ResourceDigest,
+		TargetDigest: hostbridge.TargetDigest(reg.Provider, reg.ProviderOperation, reg.CanonicalTarget),
+		PlanDigest:   reg.PlanDigest, GrantDigest: reg.GrantDigest,
+	}
 }
 
 type localBoundAuthority struct {

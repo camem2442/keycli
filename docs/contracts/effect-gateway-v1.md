@@ -14,7 +14,7 @@ It reuses, without rewriting:
 | Existing piece | Use |
 |---|---|
 | `internal/delivery/journal` | durable intent, duplicate/target-pending latch, `UNKNOWN_EFFECT`, reconcile |
-| `internal/hostbridge` | `Authorize(provider, operation, target)` admission before any effect |
+| `internal/hostbridge` | fixed local Authority socket, with an exact bound intent and a final execution check |
 | `goal_execution_store.SqliteClaimStore` (Python) | claim generation/session/lease — consumed through `ClaimAuthority`, not re-implemented |
 
 ## Request
@@ -88,7 +88,46 @@ operation-bound proof can close it.
 4. **Cross-host.** This is a single-process gateway on one host. A second host with
    its own journal root is not fenced (`CROSS_HOST_EFFECT_FENCING=NOT_VERIFIED`).
 
-## Not in scope
+## Configuring the local Authority client
 
-Provider adapters, transport, host IPC server, key provisioning, claim store
-wiring. Those are host responsibilities; the gateway only defines the seam.
+Start `kc-gateway` with `-authority-config /absolute/path/authority.json` and
+its existing claim, session, journal, and ledger flags. This selects local
+Authority admission for every submission. An explicitly empty or invalid
+configuration aborts startup before key issuance. The legacy invocation
+without this flag still runs the synthetic ledger harness. The live adapter
+remains unavailable, and the Authority-configured invocation refuses the
+synthetic reconcile and lost-response flags.
+
+The host supervisor creates the configuration from trusted registration data.
+Use a regular, single-link file with mode `0600` owned by the gateway's
+effective UID. The file is limited to 64 KiB and is read once at startup;
+restart to change a registration or the endpoint. All path components must
+be absolute, clean and free of symlinks. Ancestors must belong to root, the
+gateway UID, or (for the socket) the pinned service UID. Shared writable
+ancestors require the sticky bit; the immediate parent cannot be shared
+writable. On macOS the config file and directory checks also reject extended
+ACL entries that can grant access. A socket that already exists at startup
+must be an owner-only Unix socket owned by the pinned UID. Each exchange
+checks the socket and authenticates the connected kernel peer independently.
+
+The JSON document contains exactly `v` (integer `1`), `socket_path`,
+`socket_uid` (numeric), and a nonempty `registrations` array. Each entry
+contains exactly these fields:
+
+| Fields | Meaning |
+|---|---|
+| `goal_id`, `mutation_id` | Exact registration lookup key; duplicates are rejected |
+| `operation`, `writer_generation`, `owner`, `session` | Registered operation and the writer claim bound to this mutation |
+| `provider`, `provider_operation`, `canonical_target` | Host-owned inputs used to compute the writer's target digest |
+| `resource_digest`, `plan_digest`, `grant_digest` | Host-supplied 64-character lowercase hex bindings |
+
+A writer cannot supply the socket, registry, or raw canonical target. Both
+Authority calls use the same per-submission binding. Authority v1 replies,
+including synthetic execution observations, have
+`authorizes_execution: false`; the configured gateway therefore cannot
+dispatch an effect with v1. The Go client does not yet call `finish`. If an
+Authority implementation creates a `RUNNING` mutation on `admit`, the
+gateway's local `OBSERVED_NO_EFFECT` journal entry does not settle that
+Authority reservation. A separately reviewed execution-authorizing protocol
+and shared journal and mutation settlement are required before enabling
+provider execution.

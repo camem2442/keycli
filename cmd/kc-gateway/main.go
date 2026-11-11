@@ -1,10 +1,6 @@
-// Command kc-gateway runs the synthetic single effect gateway for S3 acceptance.
-//
-// It is a test harness, not a product entry point:
-//   - the provider is a local append-only ledger (no network, no credentials),
-//   - admission is a logged allow-check (the real HostBridge is covered by S2),
-//   - the session key is issued here, bound to the verified claim, and written to
-//     -key-out (0600) for out-of-band delivery to the writer host.
+// Command kc-gateway serves the effect gateway. With -authority-config, it
+// uses the host's protected registry and fixed local Authority endpoint. The
+// legacy synthetic harness uses an allow fixture and a local ledger provider.
 package main
 
 import (
@@ -120,6 +116,7 @@ func main() {
 	targetFlag := flag.String("target", "", "target digest (required for -reconcile)")
 	planFlag := flag.String("plan", "", "plan digest (required for -reconcile)")
 	grantFlag := flag.String("grant", "", "grant digest (required for -reconcile)")
+	authorityConfig := flag.String("authority-config", "", "absolute path to the protected host Authority configuration")
 	flag.Parse()
 
 	if *showVersion {
@@ -137,6 +134,28 @@ func main() {
 		log.Fatal("live provider adapter is unavailable")
 	} else if *providerKind != "synthetic" {
 		log.Fatalf("unknown -provider %q", *providerKind)
+	}
+
+	// An explicitly supplied empty value is a configuration error, not an
+	// invitation to fall back to synthetic admission.
+	var useLocalAuthority bool
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "authority-config" {
+			useLocalAuthority = true
+		}
+	})
+	var authority effectgateway.Authority
+	if useLocalAuthority {
+		if *reconcile != "" || *failAfterApply {
+			log.Fatal("-authority-config cannot be combined with synthetic reconcile or lost-response simulation")
+		}
+		local, err := effectgateway.LoadLocalAuthority(*authorityConfig)
+		if err != nil {
+			log.Fatal(err)
+		}
+		authority = local
+	} else {
+		authority = &allowAdmission{}
 	}
 
 	if *journalPath == "" {
@@ -199,7 +218,7 @@ func main() {
 	gw := &effectgateway.Gateway{
 		Claims:    claims,
 		Keys:      ring,
-		Authority: &allowAdmission{},
+		Authority: authority,
 		Journal:   journal.Store{Root: *journalPath},
 		Provider:  &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
 	}
