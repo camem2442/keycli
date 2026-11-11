@@ -59,20 +59,22 @@ func openOperationalDirectory(path string, create bool) (*os.File, error) {
 		return nil, errPrivateFile
 	}
 	defer parent.Close()
-	if create {
+	flags := unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	fd, err := unix.Openat(int(parent.Fd()), name, flags, 0)
+	if errors.Is(err, os.ErrNotExist) && create {
 		var st unix.Stat_t
 		if unix.Fstat(int(parent.Fd()), &st) != nil || st.Uid != uid {
 			return nil, errPrivateFile
 		}
-		err := unix.Mkdirat(int(parent.Fd()), name, 0700)
+		err = unix.Mkdirat(int(parent.Fd()), name, 0700)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, errPrivateFile
 		}
 		if parent.Sync() != nil {
 			return nil, errPrivateFile
 		}
+		fd, err = unix.Openat(int(parent.Fd()), name, flags, 0)
 	}
-	fd, err := unix.Openat(int(parent.Fd()), name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, errPrivateFile
 	}

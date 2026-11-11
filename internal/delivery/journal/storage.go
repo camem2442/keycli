@@ -51,17 +51,22 @@ func (s Store) open(create bool) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parentInfo.Uid != uint32(os.Geteuid()) || parentInfo.Mode&0022 != 0 {
+	uid := uint32(os.Geteuid())
+	if (parentInfo.Uid != uid && parentInfo.Uid != 0) || parentInfo.Mode&0022 != 0 {
 		return nil, errors.New("unsafe delivery journal parent")
 	}
 	name := parts[len(parts)-1]
-	if create {
-		err := unix.Mkdirat(int(parent.Fd()), name, 0700)
+	dir, err := openDirectory(int(parent.Fd()), name)
+	if errors.Is(err, os.ErrNotExist) && create {
+		if parentInfo.Uid != uid {
+			return nil, errors.New("delivery journal must be provisioned under a root-owned parent")
+		}
+		err = unix.Mkdirat(int(parent.Fd()), name, 0700)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("create delivery journal: %w", err)
 		}
+		dir, err = openDirectory(int(parent.Fd()), name)
 	}
-	dir, err := openDirectory(int(parent.Fd()), name)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound
 	}
@@ -72,7 +77,7 @@ func (s Store) open(create bool) (*os.File, error) {
 	if err == nil && (info.Uid != uint32(os.Geteuid()) || info.Mode&07777 != 0700) {
 		err = errors.New("delivery journal must be owned by this user with mode 0700")
 	}
-	if err == nil && create {
+	if err == nil && create && parentInfo.Uid == uid {
 		err = parent.Sync()
 	}
 	if err != nil {
