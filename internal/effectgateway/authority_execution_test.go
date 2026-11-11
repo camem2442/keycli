@@ -93,12 +93,6 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 				State: "ACTIVE", LeaseExpiresAt: now.Add(30 * time.Second),
 			}
 			listener, socketPath := authoritySocket(t)
-			done := make(chan error, 1)
-			go func() {
-				err := runLocalAuthorityFixtureAt(listener, binding, "guarded", now)
-				_ = listener.Close()
-				done <- err
-			}()
 
 			verifierPath := filepath.Join(filepath.Dir(socketPath), "guard.sock")
 			verifier := command("serve_guarded", stateRoot, h.root, tc.mode, verifierPath, req.ExpiresAt.Format(time.RFC3339Nano))
@@ -131,6 +125,13 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 				return EffectResult{State: StateAcknowledged, ProofDigest: req.PlanDigest}, nil
 			})
 
+			// Measure Authority response time after the Python verifier is ready.
+			done := make(chan error, 1)
+			go func() {
+				err := runLocalAuthorityFixtureAt(listener, binding, "guarded", now)
+				_ = listener.Close()
+				done <- err
+			}()
 			receipt, err := h.gw.Submit(ctx, Sign(req, []byte(testKey)))
 			if fixtureErr := <-done; fixtureErr != nil {
 				t.Fatal(fixtureErr)
