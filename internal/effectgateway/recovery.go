@@ -45,6 +45,9 @@ func (g *Gateway) Reconcile(ctx context.Context, operationID string) (journal.Re
 	if g == nil || g.Journal.Root == "" || g.RecoveryAuthority == nil || g.RecoveryObserver == nil {
 		return journal.Record{}, ErrNotConfigured
 	}
+	if ctx == nil || ctx.Err() != nil {
+		return journal.Record{}, ErrAuthorityUnavail
+	}
 	return g.Journal.ReconcileBound(operationID, func(record journal.Record) (journal.Observation, error) {
 		binding := *record.Binding
 		grant, err := g.RecoveryAuthority.AuthorizeRecovery(ctx, binding)

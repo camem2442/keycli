@@ -119,7 +119,7 @@ func (a FinalizeAction) readIdentity(ctx context.Context) (VerifiedOldCredential
 	// An opaque handle echoed by the revoker grant is not a provider identity.
 	identity, err := a.verifyOld(ctx, clonePreparationPlan(a.plan), a.grant.OldCredentialHandle)
 	if err != nil || validOldCredentialIdentity(a.plan, a.grant.OldCredentialHandle, identity, time.Now()) != nil ||
-		revocationIdentityDigest(identity) != a.grant.OldIdentityDigest || !actionCurrent(ctx, a.grant.ExpiresAt) {
+		RevocationIdentityDigest(identity) != a.grant.OldIdentityDigest || !actionCurrent(ctx, a.grant.ExpiresAt) {
 		return VerifiedOldCredential{}, fmt.Errorf("old credential provider identity not verified: %w", ErrActionNotCurrent)
 	}
 	return identity, nil

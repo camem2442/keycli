@@ -90,7 +90,7 @@ func TestFinalizeActionUsesCallerDispatch(t *testing.T) {
 			action, err := NewFinalizeAction(ctx, "finalize-action", plan, activation, consumers, now, verifyActivationOK, verifyConsumerOK,
 				func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
 					return RevocationGrant{PlanDigest: plan.ID, GrantDigest: digest, OldCredentialHandle: handle,
-						OldIdentityDigest: revocationIdentityDigest(fixtureOldCredential(plan, handle)),
+						OldIdentityDigest: RevocationIdentityDigest(fixtureOldCredential(plan, handle)),
 						EvidenceDigest:    hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Minute)}, nil
 				},
 				func(_ context.Context, p PreparationPlan, handle string) (VerifiedOldCredential, error) {

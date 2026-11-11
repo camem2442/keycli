@@ -32,7 +32,7 @@ func TestFinalizeReverifiesAndRequiresDistinctGrant(t *testing.T) {
 			if d.Status != RetirementCandidate || d.AuthorizesRevocation {
 				t.Fatal("unsafe decision")
 			}
-			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: revocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: digest, ExpiresAt: time.Now().Add(time.Minute)}, nil
+			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: RevocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: digest, ExpiresAt: time.Now().Add(time.Minute)}, nil
 		}, fixtureIdentityVerifier, func(ctx context.Context, old Generation, handle string) (journal.Observation, error) {
 			called++
 			if handle != cloudflareOldHandle() || old.Number != 1 {
@@ -51,7 +51,7 @@ func TestFinalizeRejectsForgedGrantBeforeEffect(t *testing.T) {
 	called := false
 	_, err := Finalize(context.Background(), rotationStore(t), "rev", p, activationFixture(now), evidenceFixture(now), now, verifyActivationOK, verifyConsumerOK,
 		func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
-			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: revocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: "invalid", ExpiresAt: time.Now().Add(time.Minute)}, nil
+			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: RevocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: "invalid", ExpiresAt: time.Now().Add(time.Minute)}, nil
 		},
 		fixtureIdentityVerifier,
 		func(context.Context, Generation, string) (journal.Observation, error) {
@@ -75,7 +75,7 @@ func TestFinalizeUnknownRevokeMustNotAutoRetry(t *testing.T) {
 	sum := sha256.Sum256(b)
 	result, err := Finalize(context.Background(), rotationStore(t), "rev", p, activation, consumers, now, verifyActivationOK, verifyConsumerOK,
 		func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
-			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: revocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Minute)}, nil
+			return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("e", 64), OldCredentialHandle: cloudflareOldHandle(), OldIdentityDigest: RevocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle())), EvidenceDigest: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Minute)}, nil
 		},
 		fixtureIdentityVerifier,
 		func(context.Context, Generation, string) (journal.Observation, error) {
