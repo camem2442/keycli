@@ -116,6 +116,12 @@ jobs:
         with:
           go-version-file: source/go.mod
           cache-dependency-path: source/go.sum
+      - name: Ensure ripgrep
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ripgrep
+          fi
       - name: Unit and policy regression
         env:
           CGO_ENABLED: "0"

@@ -71,6 +71,22 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
+    def test_policy_scan_fails_closed_on_scan_error(self):
+        fake_bin = self.repo / "bin"
+        fake_bin.mkdir()
+        fake_rg = fake_bin / "rg"
+        fake_rg.write_text("#!/bin/sh\nexit \"$FAKE_RG_STATUS\"\n")
+        fake_rg.chmod(0o755)
+        for status, expected_success in (("1", True), ("0", False), ("2", False), ("127", False)):
+            with self.subTest(status=status):
+                result = subprocess.run(
+                    ["bash", str(ROOT / "verify.sh"), "--suite", "policy"],
+                    cwd=ROOT,
+                    env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "FAKE_RG_STATUS": status},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode == 0, expected_success, result.stderr)
+
     def test_workflow_uses_one_source_and_uploaded_bundle(self):
         jobs = dict(re.findall(r"^  ([a-z-]+):\n(.*?)(?=^  [a-z-]+:\n|\Z)",
                                WORKFLOW.read_text().split("\njobs:\n", 1)[1], re.M | re.S))
