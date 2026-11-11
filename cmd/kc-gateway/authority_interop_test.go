@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -48,6 +49,23 @@ func TestGatewayPythonGuardedExecution(t *testing.T) {
 			runGatewayPythonAuthority(t, "authority_guarded.py", tc.name, tc.receipt, true)
 		})
 	}
+}
+
+func TestGatewayPythonDurableAuthority(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux borrowed flock proof required")
+	}
+	t.Run("current", func(t *testing.T) {
+		runGatewayPythonAuthority(t, "authority_durable.py", "current", effectgateway.Receipt{
+			Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged),
+			ProviderCalls: 1, AuthoritySettlement: effectgateway.SettlementDone,
+		}, true)
+	})
+	t.Run("lost-reply", func(t *testing.T) {
+		runGatewayPythonAuthority(t, "authority_durable.py", "lost-reply", effectgateway.Receipt{
+			Status: effectgateway.StatusUnknown, OperationState: string(journal.UnknownEffect),
+		}, true)
+	})
 }
 
 func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected effectgateway.Receipt, pinPID bool) {

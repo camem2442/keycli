@@ -245,3 +245,8 @@ The fixture corroborates acknowledgment against a separate synthetic provider
 ledger and checks no-effect evidence under the same lock. It also verifies that
 unavailable observation keeps the reservation open, and a lost `finish` reply
 can leave a completed reservation with an unconfirmed Gateway receipt.
+On Linux, `TestGatewayPythonDurableAuthority` uses the protected Go journal
+reader, persisted admission decisions, and the guarded Authority runtime.
+It reconstructs Authority from disk between reservation, execution and
+settlement. The dropped-verdict case keeps the dispatch and reservation
+unresolved after reconstruction.
