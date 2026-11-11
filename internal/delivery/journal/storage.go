@@ -214,6 +214,10 @@ func writeNamedRecordSync(dir *os.File, destination string, record Record, syncD
 	if err != nil {
 		return err
 	}
+	return writeNamedBytes(dir, destination, data, syncDirectory)
+}
+
+func writeNamedBytes(dir *os.File, destination string, data []byte, syncDirectory func(*os.File) error) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
