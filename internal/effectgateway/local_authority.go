@@ -153,3 +153,24 @@ func (a *localBoundAuthority) executionExpiry() time.Time {
 func (a *localBoundAuthority) executionCurrent() bool {
 	return a.execution == nil || a.now().Before(a.executionExpiry())
 }
+
+// finish runs after the durable Go journal write and lock release. Authority
+// reads its own outcome evidence and independently locks before closing SQLite.
+func (a *localBoundAuthority) finish(ctx context.Context, state journal.State) string {
+	var expected string
+	switch state {
+	case journal.Acknowledged:
+		expected = SettlementDone
+	case journal.ObservedNoEffect:
+		expected = SettlementFailed
+	default:
+		return ""
+	}
+	// Once the terminal journal record is durable, let the bounded IPC finish
+	// even if the submitting client has disconnected.
+	settlement, err := a.admitter.Finish(context.WithoutCancel(ctx), a.binding)
+	if err != nil || settlement.State != expected {
+		return SettlementUnconfirmed
+	}
+	return expected
+}

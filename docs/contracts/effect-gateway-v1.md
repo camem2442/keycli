@@ -218,6 +218,15 @@ and additional fields are invalid. Each frame is limited to 64 KiB.
   reconciliation. A verifier with an uncertain outcome must never send
   `DENIED`.
 
+After a terminal Go journal write and lock release, the guarded Gateway
+sends v1 `finish` with the exact mutation binding. Authority reacquires the
+journal lock and uses its own outcome evidence. The request carries neither
+an outcome nor a proof supplied by the caller. Confirmed `ACKNOWLEDGED` and
+`OBSERVED_NO_EFFECT` results produce `authority_settlement` values `DONE`
+and `FAILED`, respectively. A denied, invalid, or lost `finish` response
+produces `UNCONFIRMED` while preserving the Go journal outcome and provider
+call count. The Gateway sends no `finish` for `UNKNOWN_EFFECT`.
+
 `TestGatewayBoundPythonExecution` composes the normal Go dispatch path with
 a synthetic Python verifier and provider callback. It exercises the live
 Unix descriptor transfer, kernel peer credentials, reservation and journal
@@ -232,3 +241,7 @@ PR-04 `admit` handler. The receiver borrows the Go journal lock for verification
 The test checks the exact SQLite reservation and execution claim, budget spend,
 and Go journal outcome. A dropped admission reply and retry leave one unclaimed
 reservation and no Go dispatch.
+The fixture corroborates acknowledgment against a separate synthetic provider
+ledger and checks no-effect evidence under the same lock. It also verifies that
+unavailable observation keeps the reservation open, and a lost `finish` reply
+can leave a completed reservation with an unconfirmed Gateway receipt.

@@ -131,13 +131,20 @@ type Provider interface {
 
 // Receipt is the writer-visible outcome. It never claims provider truth.
 type Receipt struct {
-	MutationID     string `json:"mutation_id"`
-	Status         string `json:"status"`
-	ProviderCalls  int    `json:"provider_calls"`
-	OperationState string `json:"operation_state,omitempty"`
-	ProofDigest    string `json:"proof_digest,omitempty"`
-	Note           string `json:"note,omitempty"`
+	MutationID          string `json:"mutation_id"`
+	Status              string `json:"status"`
+	ProviderCalls       int    `json:"provider_calls"`
+	OperationState      string `json:"operation_state,omitempty"`
+	ProofDigest         string `json:"proof_digest,omitempty"`
+	AuthoritySettlement string `json:"authority_settlement,omitempty"`
+	Note                string `json:"note,omitempty"`
 }
+
+const (
+	SettlementDone        = "DONE"
+	SettlementFailed      = "FAILED"
+	SettlementUnconfirmed = "UNCONFIRMED"
+)
 
 const (
 	maxRequestTTL = 10 * time.Minute

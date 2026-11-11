@@ -158,7 +158,8 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		}
 	}
 	var record journal.Record
-	if local, ok := bound.(*localBoundAuthority); ok {
+	local, _ := bound.(*localBoundAuthority)
+	if local != nil {
 		// Use the protected registration projection that was sent to Authority.
 		record, err = g.Journal.DispatchBound(intent, local.binding, func(guard journal.DispatchGuard) (journal.Observation, error) {
 			return effect(func() error { return local.verifyAtDispatch(ctx, guard) }, local.executionCurrent)
@@ -191,8 +192,13 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if record.State == journal.Acknowledged {
 		status = StatusApplied
 	}
+	var settlement string
+	if local != nil && local.execution != nil {
+		settlement = local.finish(ctx, record.State)
+	}
 	return Receipt{MutationID: req.MutationID, Status: status, ProviderCalls: calls,
-		OperationState: string(record.State), ProofDigest: record.ProofDigest, Note: noEffectCode}, nil
+		OperationState: string(record.State), ProofDigest: record.ProofDigest,
+		AuthoritySettlement: settlement, Note: noEffectCode}, nil
 }
 
 func authorityError(err error) error {

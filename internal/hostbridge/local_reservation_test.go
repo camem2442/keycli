@@ -157,7 +157,7 @@ func TestReserveUnix(t *testing.T) {
 			}
 			done := make(chan error, 1)
 			go func() {
-				done <- serveReservationFixture(listener, binding, tc.mode)
+				done <- serveAuthorityMutationFixture(listener, binding, "admit", tc.mode)
 			}()
 
 			result, err := client.Reserve(context.Background(), binding)
@@ -186,7 +186,7 @@ func TestReserveUnix(t *testing.T) {
 	}
 }
 
-func serveReservationFixture(listener *net.UnixListener, binding AuthorityBinding, mode string) error {
+func serveAuthorityMutationFixture(listener *net.UnixListener, binding AuthorityBinding, method, mode string) error {
 	conn, err := listener.AcceptUnix()
 	if err != nil {
 		return err
@@ -203,10 +203,18 @@ func serveReservationFixture(listener *net.UnixListener, binding AuthorityBindin
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return err
 	}
-	if req.Version != 1 || req.Method != "admit" || req.AuthorityBinding != binding || len(req.RequestID) != 32 {
-		return fmt.Errorf("unexpected reservation request")
+	canonical, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if string(canonical) != string(payload) || req.Version != 1 || req.Method != method || req.AuthorityBinding != binding || len(req.RequestID) != 32 {
+		return fmt.Errorf("unexpected Authority mutation request")
 	}
 	reply := reservationFixtureReply(req)
+	if method == "finish" {
+		reply.Reason, reply.AdmissionDigest = "FINISHED", nil
+		reply.MutationState = ptr("DONE")
+	}
 	switch mode {
 	case "LOST":
 		return nil
@@ -214,7 +222,9 @@ func serveReservationFixture(listener *net.UnixListener, binding AuthorityBindin
 		reply.RequestID = "mismatched"
 	case "DUPLICATE":
 		reply.Reason, reply.MutationState, reply.AdmissionDigest = "DUPLICATE", ptr("DONE"), nil
-	case "GRANT_CHANGED", "BUDGET_UNVERIFIED", "AUTHORITY_UNAVAILABLE":
+	case "FAILED":
+		reply.MutationState = ptr("FAILED")
+	case "GRANT_CHANGED", "BUDGET_UNVERIFIED", "AUTHORITY_UNAVAILABLE", "UNRESOLVED_EFFECT", "JOURNAL_DB_MISMATCH", "NOT_RUNNING":
 		reply = authorityReply{authorityAdvisory: authorityAdvisory{
 			Version: 1, RequestID: req.RequestID, Status: "BLOCKED", Reason: mode, AuthorityBinding: binding,
 		}}

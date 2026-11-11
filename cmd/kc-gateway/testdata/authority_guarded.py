@@ -1,4 +1,4 @@
-"""Exercise preview, reservation, and guarded execution over Unix sockets."""
+"""Exercise preview, reservation, guarded execution, and finish over Unix sockets."""
 import fcntl
 import json
 import os
@@ -15,16 +15,17 @@ from test_keycli_gateway_authority import FixtureMutationJournal
 from tooling.keycli_guarded_execution import serve_connection
 
 
-class AdmissionJournal(FixtureMutationJournal):
-    def __init__(self, snapshot, lock_path):
+class GatewayJournal(FixtureMutationJournal):
+    def __init__(self, snapshot, journal_root, ledger_path):
         super().__init__(snapshot)
-        self.lock_path = lock_path
+        self.root = journal_root
+        self.ledger_path = ledger_path
         self.lock_identity = None
 
     @contextmanager
     def locked(self, *, deadline):
         with super().locked(deadline=deadline):
-            fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+            fd = os.open(self.root / ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
             try:
                 info = os.fstat(fd)
                 assert stat.S_ISREG(info.st_mode) and info.st_nlink == 1
@@ -44,15 +45,68 @@ class AdmissionJournal(FixtureMutationJournal):
             finally:
                 os.close(fd)
 
+    def terminal_outcome(self, intent):
+        assert self.lock.locked()
+        assert self.current["intent"] == intent
+        mutation_id = intent["mutation_id"]
+        try:
+            record = gateway._read(self.root / f"{mutation_id}.json", os.geteuid())
+        except FileNotFoundError:
+            return "UNKNOWN"
+        assert type(record["v"]) is int and record["v"] == 2
+        assert record["operation_id"] == mutation_id
+        assert record["authority_binding"] == intent
+        for field in ("target_digest", "plan_digest", "grant_digest"):
+            assert record[field] == intent[field]
+
+        if record["state"] == "ACKNOWLEDGED":
+            return self.ledger_outcome(intent, record["proof_digest"])
+        if record["state"] == "OBSERVED_NO_EFFECT":
+            proof = f"effectgateway|no-effect|{mutation_id}|EXECUTION_FENCE_REJECTED".encode()
+            assert record["proof_digest"] == gateway._digest(proof)
+            assert not self.ledger_path.exists()
+            return "NO_EFFECT"
+        assert record["state"] in ("INTENT_WRITTEN", "DISPATCHED", "UNKNOWN_EFFECT")
+        assert "proof_digest" not in record
+        return "UNKNOWN"
+
+    def ledger_outcome(self, intent, proof_digest):
+        try:
+            with gateway._safe_file(self.ledger_path, os.geteuid()) as stream:
+                raw = stream.read(gateway.MAX_FRAME + 1)
+        except FileNotFoundError:
+            return "UNKNOWN"
+        assert len(raw) <= gateway.MAX_FRAME and raw.endswith(b"\n") and raw.count(b"\n") == 1
+        entry = gateway._json(raw)
+        # Match the synthetic Go provider's field order and pre-hash encoding.
+        unsigned = {
+            "seq": 1,
+            "at": entry["at"],
+            "mutation_id": intent["mutation_id"],
+            "target_digest": intent["target_digest"],
+            "owner": intent["owner"],
+            "session": intent["session"],
+            "generation": intent["writer_generation"],
+            "prev_hash": "",
+            "hash": "",
+        }
+        digest = gateway._digest(b"|" + gateway._encode(unsigned))
+        assert raw == gateway._encode(dict(unsigned, hash=digest)) + b"\n"
+        assert proof_digest == digest
+        return "ACK"
+
 
 def serve(root, mode):
     state = root / "authority"
     state.mkdir(mode=0o700)
     fixture = authority_fixture(state)
     journal_root = root / "journal"
-    journal = AdmissionJournal(
+    # Simulate an observer that cannot see the provider ledger, even when Go
+    # has locally recorded a provider acknowledgment.
+    ledger_path = root / ("unobserved-ledger" if mode == "unobserved-ack" else "ledger")
+    journal = GatewayJournal(
         fixture.read_journal(fixture.manifest, fixture.request["mutation_id"], deadline=None),
-        journal_root / ".lock",
+        journal_root, ledger_path,
     )
     effects = []
     fixture.wire_runtime(journal, effects)
@@ -79,7 +133,7 @@ def serve(root, mode):
             gateway.validate_response(request, reply)
             assert (request["method"], reply["status"], reply["reason"], reply["mutation_state"]) == expected
             assert reply["authorizes_execution"] is False
-            if request["method"] == "admit":
+            if request["method"] in ("admit", "finish") and reply["status"] == "OK":
                 assert reply["request_digest"] == gateway.intent_digest(binding)
                 if reply["reason"] == "ADMITTED":
                     assert reply["admission_digest"] == journal.decision["admission_digest"]
@@ -90,7 +144,7 @@ def serve(root, mode):
         with patch.object(authority, "evaluate_until", side_effect=capture):
             gateway.serve_connection(connection, authority, allowed_uids={uid})
 
-    def assert_reservation(*, execution_claimed):
+    def assert_reservation(*, execution_claimed, reservation_state="RUNNING"):
         reservation = authority.claims.reservation(goal_id, mutation_id)
         expected = {
             "goal_id": goal_id,
@@ -101,11 +155,12 @@ def serve(root, mode):
             "request_digest": gateway.intent_digest(binding),
             "resource_digest": binding["resource_digest"],
             "decision_digest": journal.decision["admission_digest"],
-            "state": "RUNNING",
+            "state": reservation_state,
             "budget_confirmed": 1,
             "execution_claimed": int(execution_claimed),
         }
         assert {field: reservation[field] for field in expected} == expected
+        assert bool(reservation["ended_at"]) == (reservation_state != "RUNNING")
         assert authority.claims.reservation_inventory() == [reservation]
 
     def assert_one_spend():
@@ -135,6 +190,7 @@ def serve(root, mode):
         preview.settimeout(10)
         advisory = ("preview_admission", "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE", None)
         lost_admission_reply = mode == "lost-admission-reply"
+        reservation_state = "RUNNING"
         admission_reasons = ("ADMITTED", "DUPLICATE") if lost_admission_reply else ("ADMITTED",)
         for reason in admission_reasons:
             with preview.accept()[0] as connection:
@@ -157,12 +213,36 @@ def serve(root, mode):
             guarded.settimeout(10)
             serve_connection(guarded.accept()[0], peer_uid=uid, peer_pid=gateway_pid, verify=check)
 
-    expected_count = 4 if lost_admission_reply else 2
+        if mode in ("current", "revoked", "lost-finish-reply", "unobserved-ack"):
+            if mode == "unobserved-ack":
+                finish = ("finish", "BLOCKED", "UNRESOLVED_EFFECT", None)
+            else:
+                reservation_state = "FAILED" if mode == "revoked" else "DONE"
+                finish = ("finish", "OK", "FINISHED", reservation_state)
+            with preview.accept()[0] as connection:
+                exchange(connection, finish, drop_reply=mode == "lost-finish-reply")
+
+        assert sys.stdin.readline() == "complete\n"
+        for listener in (preview, guarded):
+            listener.setblocking(False)
+            try:
+                unexpected, _ = listener.accept()
+            except BlockingIOError:
+                pass
+            else:
+                unexpected.close()
+                raise AssertionError("unexpected Authority connection after the last expected request")
+
+    expected_count = {
+        "lost-admission-reply": 4, "lost-reply": 2,
+        "current": 3, "revoked": 3, "lost-finish-reply": 3, "unobserved-ack": 3,
+    }[mode]
     assert len(requests) == len({request["request_id"] for request in requests}) == expected_count
     assert effects == []
     expected_outcomes = [] if lost_admission_reply else ["GRANT_NOT_REGISTERED" if mode == "revoked" else "approved"]
     assert outcomes == expected_outcomes, outcomes
-    assert_reservation(execution_claimed=not lost_admission_reply and mode != "revoked")
+    assert_reservation(execution_claimed=not lost_admission_reply and mode != "revoked",
+                       reservation_state=reservation_state)
 
 
 if __name__ == "__main__":

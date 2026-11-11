@@ -37,10 +37,12 @@ func TestGatewayPythonGuardedExecution(t *testing.T) {
 		name    string
 		receipt effectgateway.Receipt
 	}{
-		{"current", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1}},
-		{"revoked", effectgateway.Receipt{Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: "EXECUTION_FENCE_REJECTED"}},
+		{"current", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1, AuthoritySettlement: effectgateway.SettlementDone}},
+		{"revoked", effectgateway.Receipt{Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: "EXECUTION_FENCE_REJECTED", AuthoritySettlement: effectgateway.SettlementFailed}},
 		{"lost-reply", effectgateway.Receipt{Status: effectgateway.StatusUnknown, OperationState: string(journal.UnknownEffect)}},
 		{"lost-admission-reply", effectgateway.Receipt{Status: effectgateway.StatusDuplicate}},
+		{"lost-finish-reply", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1, AuthoritySettlement: effectgateway.SettlementUnconfirmed}},
+		{"unobserved-ack", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1, AuthoritySettlement: effectgateway.SettlementUnconfirmed}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runGatewayPythonAuthority(t, "authority_guarded.py", tc.name, tc.receipt, true)
@@ -103,11 +105,20 @@ func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected eff
 			if _, err := fmt.Fprintln(stdin, pid); err != nil {
 				t.Fatal(err)
 			}
+			return
 		}
 		if err := stdin.Close(); err != nil {
 			t.Fatal(err)
 		}
 	})
+	if pinPID {
+		if _, err := fmt.Fprintln(stdin, "complete"); err != nil {
+			t.Fatal(err)
+		}
+		if err := stdin.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("Python Authority fixture: %v", err)
 	}

@@ -56,14 +56,7 @@ func (a *LocalAdmitter) Reserve(ctx context.Context, binding AuthorityBinding) (
 	return result, nil
 }
 
-func validReservationReply(req authorityRequest, reply authorityReply) bool {
-	if reply.Status != "OK" || reply.ExpiresAt != nil || reply.MutationState == nil ||
-		reply.RequestDigest == nil || *reply.RequestDigest != jsonDigest(req.AuthorityBinding) {
-		return false
-	}
-	if _, ok := parseWireTime(reply.LeaseExpiresAt); !ok {
-		return false
-	}
+func validReservationReply(reply authorityReply) bool {
 	switch reply.Reason {
 	case "ADMITTED":
 		return *reply.MutationState == "RUNNING" && reply.AdmissionDigest != nil && wireDigest.MatchString(*reply.AdmissionDigest)

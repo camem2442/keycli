@@ -157,11 +157,14 @@ func (a *LocalAdmitter) exchange(ctx context.Context, method string, binding Aut
 	if ctx.Err() != nil || !time.Now().Before(deadline) {
 		return fail()
 	}
-	// Admit may reserve a mutation after the first send attempt. A transport
-	// or validation failure after that point leaves the reservation uncertain.
+	// A mutating exchange may commit on the Authority side after the first
+	// send attempt, even when the client fails to obtain a valid reply.
 	afterSend := func(err error) (authorityReply, error) {
-		if method == "admit" && err != nil {
+		switch method {
+		case "admit":
 			err = errors.Join(ErrReservationUnknown, err)
+		case "finish":
+			err = errors.Join(ErrSettlementUnknown, err)
 		}
 		return authorityReply{}, err
 	}
@@ -193,7 +196,8 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 	if !ok {
 		return bad()
 	}
-	extended := req.Method == "admit" && fields["lease_expires_at"] != nil && fields["request_digest"] != nil
+	extended := (req.Method == "admit" || req.Method == "finish") &&
+		fields["lease_expires_at"] != nil && fields["request_digest"] != nil
 	expected := len(replyFields)
 	if extended {
 		expected += 2
@@ -214,7 +218,7 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 	}
 	switch {
 	case extended:
-		if !validReservationReply(req, reply) {
+		if !validMutationReply(req, reply) {
 			return bad()
 		}
 	case (req.Method == "preview_admission" || req.Method == "preview_execution" || req.Method == "admit") &&
@@ -228,6 +232,25 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 		return bad()
 	}
 	return reply, nil
+}
+
+func validMutationReply(req authorityRequest, reply authorityReply) bool {
+	if reply.Status != "OK" || reply.ExpiresAt != nil || reply.MutationState == nil ||
+		reply.RequestDigest == nil || *reply.RequestDigest != jsonDigest(req.AuthorityBinding) {
+		return false
+	}
+	if _, ok := parseWireTime(reply.LeaseExpiresAt); !ok {
+		return false
+	}
+	switch req.Method {
+	case "admit":
+		return validReservationReply(reply)
+	case "finish":
+		return reply.Reason == "FINISHED" && reply.AdmissionDigest == nil &&
+			(*reply.MutationState == "DONE" || *reply.MutationState == "FAILED")
+	default:
+		return false
+	}
 }
 
 func exactWireObject(raw []byte) (map[string]json.RawMessage, bool) {

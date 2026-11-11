@@ -94,7 +94,11 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 			}
 			listener, socketPath := authoritySocket(t)
 			done := make(chan error, 1)
-			go func() { done <- runLocalAuthorityFixtureAt(listener, binding, "guarded", now) }()
+			go func() {
+				err := runLocalAuthorityFixtureAt(listener, binding, "guarded", now)
+				_ = listener.Close()
+				done <- err
+			}()
 
 			verifierPath := filepath.Join(filepath.Dir(socketPath), "guard.sock")
 			verifier := command("serve_guarded", stateRoot, h.root, tc.mode, verifierPath, req.ExpiresAt.Format(time.RFC3339Nano))

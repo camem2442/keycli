@@ -202,6 +202,7 @@ func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbrid
 	var receipt effectgateway.Receipt
 	if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&receipt) != nil ||
 		receipt.Status != expected.Status || receipt.ProviderCalls != expected.ProviderCalls ||
+		receipt.AuthoritySettlement != expected.AuthoritySettlement ||
 		receipt.OperationState != expected.OperationState || (expected.Note != "" && receipt.Note != expected.Note) {
 		t.Fatalf("unexpected submit: HTTP %d, %+v", res.StatusCode, receipt)
 	}
