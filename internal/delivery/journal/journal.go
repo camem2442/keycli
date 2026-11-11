@@ -145,23 +145,42 @@ func (s Store) Reconcile(intent Intent, observe func(Record) (Observation, error
 	if !validIntent(intent) || observe == nil {
 		return Record{}, errors.New("invalid delivery journal reconciliation")
 	}
+	return s.reconcile(intent.OperationID, func(record Record) bool {
+		return record.Intent == intent && record.Binding == nil
+	}, observe)
+}
+
+// ReconcileBound resolves an operation by its persisted Authority binding.
+// The host observer must authorize the read and corroborate the outcome.
+func (s Store) ReconcileBound(operationID string, observe func(Record) (Observation, error)) (Record, error) {
+	if !ValidOperationID(operationID) || observe == nil {
+		return Record{}, errors.New("invalid bound delivery journal reconciliation")
+	}
+	return s.reconcile(operationID, func(record Record) bool { return record.Binding != nil }, observe)
+}
+
+func (s Store) reconcile(operationID string, matches func(Record) bool, observe func(Record) (Observation, error)) (Record, error) {
 	dir, _, unlock, err := s.lock(false)
 	if err != nil {
 		return Record{}, err
 	}
 	defer unlock()
-	record, err := readRecord(dir, intent.OperationID)
+	record, err := readRecord(dir, operationID)
 	if err != nil {
 		return Record{}, err
 	}
-	// This legacy path has no way to supply or verify an Authority binding.
-	if record.Intent != intent || record.Binding != nil {
+	if !matches(record) {
 		return Record{}, ErrIntentMismatch
 	}
 	if !pending(record.State) {
 		return record, nil
 	}
-	observation, err := observe(unresolved(record))
+	view := unresolved(record)
+	if record.Binding != nil {
+		binding := *record.Binding
+		view.Binding = &binding
+	}
+	observation, err := observe(view)
 	if err != nil || !digest.MatchString(observation.ProofDigest) ||
 		(observation.State != ObservedNoEffect &&
 			(observation.State != ObservedApplied || record.State == IntentWritten)) {
@@ -243,7 +262,7 @@ func admit(dir *os.File, candidate Record) error {
 			if err != nil {
 				return fmt.Errorf("read delivery target latch: %w", err)
 			}
-			if record.TargetDigest == candidate.TargetDigest && pending(record.State) {
+			if pending(record.State) && conflictsWithPending(record, candidate) {
 				return ErrTargetPending
 			}
 		}
@@ -254,4 +273,16 @@ func admit(dir *os.File, candidate Record) error {
 			return err
 		}
 	}
+}
+
+func conflictsWithPending(record, candidate Record) bool {
+	if record.TargetDigest == candidate.TargetDigest {
+		return true
+	}
+	if record.Binding == nil || candidate.Binding == nil {
+		// A legacy record has no resource mapping. Preserve legacy target
+		// matching between legacy callers, and fence mixed-version dispatch.
+		return record.Binding != nil || candidate.Binding != nil
+	}
+	return record.Binding.ResourceDigest == candidate.Binding.ResourceDigest
 }

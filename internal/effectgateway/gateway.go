@@ -20,6 +20,9 @@ type Gateway struct {
 	Journal   journal.Store
 	Provider  Provider
 	Now       func() time.Time
+
+	RecoveryAuthority RecoveryAuthorizer
+	RecoveryObserver  RecoveryObserver
 }
 
 func (g *Gateway) now() time.Time {

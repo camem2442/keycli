@@ -144,6 +144,52 @@ func TestBoundDispatchRequiresOriginalIntent(t *testing.T) {
 	}
 }
 
+func TestBoundDispatchFencesPendingResourceAcrossActions(t *testing.T) {
+	store := newTestStore(t)
+	first := testIntent("first")
+	binding := authoritybinding.Binding{
+		GoalID: "goal", MutationID: first.OperationID, WriterGeneration: 1,
+		Owner: "owner", Session: "session", Provider: "cloudflare", Operation: "prepare",
+		ResourceDigest: strings.Repeat("f", 64), TargetDigest: first.TargetDigest,
+		PlanDigest: first.PlanDigest, GrantDigest: first.GrantDigest,
+	}
+	if _, err := store.DispatchBound(first, binding, func(DispatchGuard) (Observation, error) {
+		return Observation{}, errors.New("synthetic response loss")
+	}); !errors.Is(err, ErrUnknownEffect) {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	second := testIntent("second")
+	second.TargetDigest = strings.Repeat("e", 64)
+	binding.MutationID, binding.Operation, binding.TargetDigest = second.OperationID, "finalize", second.TargetDigest
+	if _, err := store.DispatchBound(second, binding, neverBoundEffect(t)); !errors.Is(err, ErrTargetPending) {
+		t.Fatalf("same resource under another action: %v", err)
+	}
+	if _, err := store.Dispatch(second, neverEffect(t)); !errors.Is(err, ErrTargetPending) {
+		t.Fatalf("unmapped dispatch bypassed resource fence: %v", err)
+	}
+	binding.ResourceDigest = strings.Repeat("d", 64)
+	if _, err := store.DispatchBound(second, binding, func(DispatchGuard) (Observation, error) {
+		return proof(ObservedNoEffect), nil
+	}); err != nil {
+		t.Fatalf("different bound resource: %v", err)
+	}
+	if _, err := store.ReconcileBound(first.OperationID, func(record Record) (Observation, error) {
+		if record.State != UnknownEffect || record.Intent != first || record.Binding == nil {
+			t.Fatalf("observer saw the wrong original record: %+v", record)
+		}
+		return Observation{}, errors.New("remote state inconclusive")
+	}); !errors.Is(err, ErrUnknownEffect) {
+		t.Fatalf("inconclusive observation released the fence: %v", err)
+	}
+	settled, err := store.ReconcileBound(first.OperationID, func(record Record) (Observation, error) {
+		record.Binding.ResourceDigest = binding.ResourceDigest
+		return proof(ObservedApplied), nil
+	})
+	if err != nil || settled.State != ObservedApplied || settled.Binding.ResourceDigest != strings.Repeat("f", 64) {
+		t.Fatalf("observation changed the original binding: %+v, %v", settled, err)
+	}
+}
+
 func TestUnknownRequiresExactReconciliation(t *testing.T) {
 	store := newTestStore(t)
 	intent := testIntent("one")

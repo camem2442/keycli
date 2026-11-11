@@ -111,11 +111,11 @@ func main() {
 	lockReport := flag.Bool("lock-report", false, "print the provider lock report and exit")
 	providerKind := flag.String("provider", "synthetic", "provider adapter: synthetic|live")
 	failAfterApply := flag.Bool("fail-after-apply", false, "apply the effect, then fail (lost response)")
-	reconcile := flag.String("reconcile", "", "reconcile this mutation id and exit")
-	proof := flag.String("proof", "", "proof digest for -reconcile")
-	targetFlag := flag.String("target", "", "target digest (required for -reconcile)")
-	planFlag := flag.String("plan", "", "plan digest (required for -reconcile)")
-	grantFlag := flag.String("grant", "", "grant digest (required for -reconcile)")
+	reconcile := flag.String("synthetic-reconcile", "", "settle a synthetic fixture mutation and exit")
+	proof := flag.String("proof", "", "fixture proof digest for -synthetic-reconcile")
+	targetFlag := flag.String("target", "", "fixture target digest for -synthetic-reconcile")
+	planFlag := flag.String("plan", "", "fixture plan digest for -synthetic-reconcile")
+	grantFlag := flag.String("grant", "", "fixture grant digest for -synthetic-reconcile")
 	authorityConfig := flag.String("authority-config", "", "absolute path to the protected host Authority configuration")
 	flag.Parse()
 
@@ -171,7 +171,7 @@ func main() {
 
 	if *reconcile != "" {
 		if *proof == "" || *targetFlag == "" || *planFlag == "" || *grantFlag == "" || *journalPath == "" {
-			log.Fatal("-reconcile requires -proof, -target, -plan, -grant and -journal")
+			log.Fatal("-synthetic-reconcile requires -proof, -target, -plan, -grant and -journal")
 		}
 		store := journal.Store{Root: *journalPath}
 		intent := journal.Intent{OperationID: *reconcile, TargetDigest: *targetFlag, PlanDigest: *planFlag, GrantDigest: *grantFlag}
