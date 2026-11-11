@@ -8,7 +8,7 @@
 //	  → OpenAI workload identity federation
 //	  → short-lived OpenAI service-account token
 //
-// This package never signs with a real key, never calls a provider in tests and
+// This package never calls a provider in tests and
 // never replaces the token audience with an OpenAI URL. The Oracle audience that
 // is actually issued is the only acceptable one, because an audience rewrite
 // would let an operator "fix" a misconfiguration into an authorization bypass.
@@ -110,8 +110,7 @@ type TokenResponse struct {
 
 func (TokenResponse) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, "[redacted WIF response]") }
 
-// Exchanger performs the OpenAI federation call. The trusted host registers it
-// after verifying SDK support, mirroring githubwif.SDKExchange.
+// Exchanger performs the OpenAI federation call.
 type Exchanger interface {
 	Exchange(ctx context.Context, req ExchangeRequest) (TokenResponse, error)
 }
@@ -150,7 +149,7 @@ func (c Credential) ExpiresAt() time.Time { return c.expires }
 // Authorize attaches the token to the public OpenAI API origin only.
 func (c Credential) Authorize(req *http.Request) error {
 	if req == nil || req.URL == nil || req.URL.Scheme != "https" || req.URL.Host != "api.openai.com" ||
-		req.URL.User != nil || (req.Host != "" && req.Host != req.URL.Host) ||
+		req.URL.User != nil || req.URL.Opaque != "" || req.Header == nil || (req.Host != "" && req.Host != req.URL.Host) ||
 		req.Header.Get("Authorization") != "" || c.token == "" || !c.now().Before(c.expires) {
 		return errors.New("WIF credential cannot authorize this request")
 	}
@@ -187,14 +186,15 @@ func (p Policy) Acquire(ctx context.Context, signer Signer, exchanger Exchanger)
 		return Credential{}, ErrMappingMismatch
 	}
 	source, err := signer.SubjectToken(ctx)
-	if err != nil || source.Raw == "" {
+	if err != nil || source.Raw == "" || ctx.Err() != nil {
 		return Credential{}, ErrSourceUnavailable
 	}
-	now := time.Now()
-	if p.Now != nil {
-		now = p.Now()
+	clock := p.Now
+	if clock == nil {
+		clock = time.Now
 	}
-	if err := p.verifyClaims(source.Claims, now); err != nil {
+	started := clock()
+	if err := p.verifyClaims(source.Claims, started); err != nil {
 		return Credential{}, err
 	}
 	response, err := exchanger.Exchange(ctx, ExchangeRequest{
@@ -203,10 +203,14 @@ func (p Policy) Acquire(ctx context.Context, signer Signer, exchanger Exchanger)
 		ServiceAccount:   p.ServiceAccount,
 		Audience:         p.Audience,
 	})
-	if err != nil {
+	if err != nil || ctx.Err() != nil {
 		return Credential{}, ErrExchangeUnknown
 	}
-	return p.credential(response, now)
+	finished := clock()
+	if !finished.Before(source.Claims.ExpiresAt) {
+		return Credential{}, ErrSourceExpired
+	}
+	return p.credential(response, started, finished, source.Claims.ExpiresAt)
 }
 
 func (p Policy) verifyClaims(c Claims, now time.Time) error {
@@ -234,48 +238,80 @@ func (p Policy) verifyClaims(c Claims, now time.Time) error {
 	if !now.Before(c.ExpiresAt) {
 		return ErrSourceExpired
 	}
-	if p.MaxSourceLifetime > 0 {
-		lifetime := c.ExpiresAt.Sub(c.IssuedAt)
-		if lifetime <= 0 || lifetime > p.MaxSourceLifetime {
-			return ErrSourceLifetime
-		}
+	lifetime := c.ExpiresAt.Sub(c.IssuedAt)
+	if c.IssuedAt.IsZero() || c.IssuedAt.After(now) || lifetime <= 0 ||
+		(p.MaxSourceLifetime > 0 && lifetime > p.MaxSourceLifetime) {
+		return ErrSourceLifetime
 	}
 	return nil
 }
 
-func (p Policy) credential(r TokenResponse, now time.Time) (Credential, error) {
-	if r.AccessToken == "" || p.IdentityProvider == "" || p.ServiceAccount == "" {
+func (p Policy) credential(r TokenResponse, started, finished, sourceExpiry time.Time) (Credential, error) {
+	if !validBearerToken(r.AccessToken) || p.IdentityProvider == "" || p.ServiceAccount == "" {
 		return Credential{}, ErrMappingMismatch
 	}
-	if strings.ContainsAny(r.AccessToken, " \t\r\n") {
-		return Credential{}, ErrMappingMismatch
+
+	maxLifetime := time.Hour // OpenAI's documented maximum.
+	if p.MaxTokenLifetime > 0 && p.MaxTokenLifetime < maxLifetime {
+		maxLifetime = p.MaxTokenLifetime
 	}
+	if finished.Before(started) || r.ExpiresAt < 0 || r.ExpiresIn < 0 || r.ExpiresIn > int64(maxLifetime/time.Second) {
+		return Credential{}, ErrExpiryInconsistency
+	}
+
 	var expires time.Time
 	switch {
 	case r.ExpiresAt > 0:
 		expires = time.Unix(r.ExpiresAt, 0)
 		if r.ExpiresIn > 0 {
-			// Both fields present: they must describe the same instant.
-			implied := now.Add(time.Duration(r.ExpiresIn) * time.Second)
-			if delta := expires.Sub(implied); delta > time.Minute || delta < -time.Minute {
+			// The absolute timestamp comes from the token's exp. The
+			// relative value is measured from issuance, which may occur
+			// at any point during the request. Allow second rounding.
+			issued := expires.Add(-time.Duration(r.ExpiresIn) * time.Second)
+			if issued.Before(started.Add(-time.Second)) || issued.After(finished.Add(time.Second)) {
 				return Credential{}, ErrExpiryInconsistency
 			}
+		} else if expires.Sub(started) > maxLifetime {
+			return Credential{}, ErrExpiryInconsistency
 		}
 	case r.ExpiresIn > 0:
-		expires = now.Add(time.Duration(r.ExpiresIn) * time.Second)
+		// Without the absolute timestamp, use request start so time
+		// spent receiving the response cannot extend the lifetime.
+		expires = started.Add(time.Duration(r.ExpiresIn) * time.Second)
 	default:
 		return Credential{}, ErrExpiryInconsistency
 	}
-	if !expires.After(now) {
+
+	if expires.Sub(finished) > maxLifetime {
 		return Credential{}, ErrExpiryInconsistency
 	}
-	if p.MaxTokenLifetime > 0 && expires.Sub(now) > p.MaxTokenLifetime {
-		return Credential{}, ErrExpiryInconsistency
+	if sourceExpiry.Before(expires) {
+		expires = sourceExpiry
 	}
-	if p.MinTokenLifetime > 0 && expires.Sub(now) < p.MinTokenLifetime {
+	if !expires.After(finished) || (p.MinTokenLifetime > 0 && expires.Sub(finished) < p.MinTokenLifetime) {
 		return Credential{}, ErrExpiryInconsistency
 	}
 	return Credential{token: r.AccessToken, expires: expires, clock: p.Now}, nil
+}
+
+func isBearer(tokenType string) bool { return strings.EqualFold(tokenType, "Bearer") }
+
+func validBearerToken(token string) bool {
+	// RFC 6750 b64token; reject spaces, control characters, and punctuation
+	// that could change how the Authorization header is parsed.
+	base := strings.TrimRight(token, "=")
+	if base == "" {
+		return false
+	}
+	for i := 0; i < len(base); i++ {
+		c := base[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func contains(values []string, want string) bool {

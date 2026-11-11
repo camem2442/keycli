@@ -112,7 +112,7 @@ func TestOCI15SuccessfulSyntheticExchange(t *testing.T) {
 	if exchanger.last.Audience != testAudience {
 		t.Fatal("the issued Oracle audience must be forwarded unchanged")
 	}
-	if !credential.ExpiresAt().Equal(testNow.Add(30 * time.Minute)) {
+	if !credential.ExpiresAt().Equal(testNow.Add(25 * time.Minute)) {
 		t.Fatalf("expiry = %s", credential.ExpiresAt())
 	}
 
@@ -375,5 +375,62 @@ func TestMissingComponentsAndUnavailableSigner(t *testing.T) {
 	cancel()
 	if _, err := p.Acquire(cancelled, &fakeSigner{token: source()}, &fakeExchanger{}); !errors.Is(err, ErrSourceUnavailable) {
 		t.Fatalf("cancelled context: %v", err)
+	}
+}
+
+func TestAcquireExpiryWithExchangeElapsed(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		in       int64
+		absolute time.Duration
+		elapsed  time.Duration
+		source   time.Duration
+		want     time.Duration
+		failure  error
+	}{
+		{"relative from start", 120, 0, 30 * time.Second, time.Hour, 2 * time.Minute, nil},
+		{"both with delayed issuance", 120, 3 * time.Minute, 61 * time.Second, time.Hour, 3 * time.Minute, nil},
+		{"issuance after response", 120, 3 * time.Minute, 10 * time.Second, time.Hour, 0, ErrExpiryInconsistency},
+		{"expiry bounded by source", 120, 0, time.Second, 90 * time.Second, 90 * time.Second, nil},
+		{"minimum checked after source cap", 120, 0, 45 * time.Second, 90 * time.Second, 0, ErrExpiryInconsistency},
+		{"minimum checked after exchange", 120, 0, 75 * time.Second, time.Hour, 0, ErrExpiryInconsistency},
+		{"already expired", 120, 0, 121 * time.Second, time.Hour, 0, ErrExpiryInconsistency},
+		{"source expired during exchange", 120, 0, 90 * time.Second, 90 * time.Second, 0, ErrSourceExpired},
+		{"negative relative with absolute", -1, 3 * time.Minute, time.Second, time.Hour, 0, ErrExpiryInconsistency},
+		{"duration overflow", (1 << 63) - 1, 0, time.Second, time.Hour, 0, ErrExpiryInconsistency},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cred, err, _, _ := acquire(t, func(p *Policy, s *fakeSigner, e *fakeExchanger) {
+				s.token.Claims.ExpiresAt = testNow.Add(tt.source)
+				p.MaxSourceLifetime = 2 * time.Hour
+				p.Now = func() time.Time {
+					if e.calls == 0 {
+						return testNow
+					}
+					return testNow.Add(tt.elapsed)
+				}
+				e.response.ExpiresIn = tt.in
+				if tt.absolute != 0 {
+					e.response.ExpiresAt = testNow.Add(tt.absolute).Unix()
+				}
+			})
+			if !errors.Is(err, tt.failure) {
+				t.Fatalf("got %v, want %v", err, tt.failure)
+			}
+			if err == nil && !cred.ExpiresAt().Equal(testNow.Add(tt.want)) {
+				t.Fatalf("expiry = %s, want %s", cred.ExpiresAt(), testNow.Add(tt.want))
+			}
+		})
+	}
+}
+
+func TestAcquireRejectsMissingAndFutureSourceIssuance(t *testing.T) {
+	for _, issued := range []time.Time{{}, testNow.Add(time.Second)} {
+		_, err, _, exchange := acquire(t, func(_ *Policy, s *fakeSigner, _ *fakeExchanger) {
+			s.token.Claims.IssuedAt = issued
+		})
+		if !errors.Is(err, ErrSourceLifetime) || exchange.calls != 0 {
+			t.Fatalf("invalid issuance entered exchange: err=%v calls=%d", err, exchange.calls)
+		}
 	}
 }
