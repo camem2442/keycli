@@ -16,6 +16,7 @@ jobs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       manifest_sha: ${{ steps.bundle.outputs.manifest_sha }}
       source_sha: ${{ steps.identity.outputs.source_sha }}
+      run_attempt: ${{ steps.bundle.outputs.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +58,7 @@ jobs:
           bash scripts/release-contract.sh provenance > dist/provenance.json
           (cd dist && sha256sum provenance.json >> SHA256SUMS)
           echo "manifest_sha=$(sha256sum dist/SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Upload synthetic release bundle
         id: upload
         uses: actions/upload-artifact@v4
@@ -64,6 +66,10 @@ jobs:
           name: synthetic-release-${{ github.run_attempt }}
           path: dist/*
           if-no-files-found: error
+      - name: Require uploaded artifact ID
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]'
       - name: Download synthetic release bundle
         uses: actions/download-artifact@v4
         with:
@@ -90,10 +96,17 @@ jobs:
       RELEASE_CHANNEL: rc
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       MANIFEST_SHA: ${{ needs.linux.outputs.manifest_sha }}
+      BUILD_RUN_ATTEMPT: ${{ needs.linux.outputs.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.linux.outputs.source_sha }}
+      - name: Require source and uploaded artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
       - name: Download synthetic release bundle
         uses: actions/download-artifact@v4
         with:
