@@ -139,10 +139,21 @@ The opt-in cross-language test
 Python takeover coordinator with a synthetic provider. The fixture checks
 that takeover waits on the Go journal's existing lock while the effect is
 running. It reads the persisted acknowledgement before advancing the claim.
-Set `KEYCLI_TEST_WORKSPACE_INFRA` to the workspace-infra preview checkout to
-include this test and the Go/Python Unix preview regression.
+`TestGatewayPythonTakeoverAfterProviderCrash` kills the synthetic
+Gateway while its callback holds the same lock. It checks that the
+durable dispatch remains unresolved, replay and same-target effects
+stay fenced, and takeover cannot activate the successor without an
+independent observation. Set `KEYCLI_TEST_WORKSPACE_INFRA` to the
+workspace-infra preview checkout to run both lock tests and the
+Go/Python Unix preview regression.
 
 A future authorizing exchange must bind the execution check to the same
 journal ownership used by takeover. It must preserve that ownership through
 effect handoff and durable settlement. A timed-out or disconnected exchange
 must keep an unresolved effect fenced until independent reconciliation.
+The final Authority check must run under the existing dispatch guard
+without taking the same lock again. It must use the exact durable
+intent and reservation, and all claim transitions for the participating
+goals must use that guard or the same journal's takeover path. An
+advisory response, even from a peer with the expected UID, provides no
+such guarantee.
