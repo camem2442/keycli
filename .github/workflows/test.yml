@@ -23,6 +23,10 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y -qq ripgrep
           fi
+      - name: Verify release contract
+        env:
+          CGO_ENABLED: "0"
+        run: python3 scripts/verify-release-contract.py
       - name: Verify (Linux)
         env:
           CGO_ENABLED: "0"
