@@ -3,18 +3,24 @@ package providers
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/camem2442/keycli/internal/authoritybinding"
 	"github.com/camem2442/keycli/internal/delivery/cloudflaredelivery"
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectgateway"
 	"github.com/camem2442/keycli/internal/hostbridge"
 	"github.com/camem2442/keycli/internal/rotation"
+	"github.com/camem2442/keycli/internal/rotation/provideridentity"
+	"github.com/camem2442/keycli/internal/rotation/providerlifecycle"
 	"github.com/camem2442/keycli/internal/target/cloudflare"
 )
 
@@ -32,7 +38,10 @@ func (o *cloudflareObserver) Observe(context.Context, string, string) (cloudflar
 	return o.after, nil
 }
 
-func (o *cloudflareObserver) GetVersion(context.Context, string, string, string) (cloudflare.VersionMetadata, error) {
+func (o *cloudflareObserver) GetVersion(_ context.Context, _, _, id string) (cloudflare.VersionMetadata, error) {
+	if id == "old" {
+		return cloudflare.VersionMetadata{ID: id}, nil
+	}
 	return cloudflare.VersionMetadata{ID: "new", Tag: o.tag, BindingNames: []string{"FIXTURE"}}, nil
 }
 
@@ -93,6 +102,96 @@ func TestCloudflareStageGatewayPreservesActiveTraffic(t *testing.T) {
 			if _, err := gateway.Submit(ctx, envelope); loads != 1 {
 				t.Fatalf("stage replay loaded the source again: %v", err)
 			}
+			if tc.status == effectgateway.StatusUnknown {
+				binding := authoritybinding.Binding{Provider: "cloudflare", MutationID: req.MutationID, TargetDigest: req.TargetDigest}
+				recovery := CloudflareWorkerStageRecovery{Binding: binding, AccountID: account, Worker: "worker", Environment: "prod", Destination: "FIXTURE", ExpectedActiveDigest: stage.ExpectedActiveDigest, Observer: observer}
+				evidence, err := recovery.ObserveRecovery(ctx, binding)
+				if tc.drift {
+					if !errors.Is(err, journal.ErrUnknownEffect) {
+						t.Fatalf("accepted traffic drift on recovery: %+v %v", evidence, err)
+					}
+				} else if err != nil || evidence.State != journal.ObservedApplied {
+					t.Fatalf("could not verify exact inactive version after child failure: %+v %v", evidence, err)
+				}
+			}
+
 		})
+	}
+}
+
+type cloudflareRecoverySink map[string]string
+
+func (s cloudflareRecoverySink) Store(_ context.Context, operationID, tokenID string, _ []byte) error {
+	s[operationID] = tokenID
+	return errors.New("store reply lost")
+}
+
+func (s cloudflareRecoverySink) Lookup(_ context.Context, operationID string) (string, bool, error) {
+	token, found := s[operationID]
+	return token, found, nil
+}
+
+func TestCloudflareIssueLostStoreReplyRecoversExactToken(t *testing.T) {
+	ctx := context.Background()
+	account, group, token := strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)
+	name := "kc-rot-fixture"
+	canonical := account + "/tokens/" + name + "/permission-group/" + group
+	gateway, req, key, plan := providerGateway(t, "cloudflare", "fixture", cloudflareIssueOperation, hostbridge.ActionIssue, canonical)
+	expiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	sink := cloudflareRecoverySink{}
+	reply := func(body string) *http.Response {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+	}
+	posts := 0
+	issuer, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+		posts++
+		if r.Method != http.MethodPost || r.URL.Path != "/client/v4/accounts/"+account+"/tokens" {
+			t.Fatal("issuance escaped its account")
+		}
+		return reply(fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":%q,"value":"synthetic"}}`, token, name)), nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportedToken := token
+	reader, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet {
+			t.Fatal("recovery attempted a write")
+		}
+		switch r.URL.Path {
+		case "/client/v4/accounts/" + account + "/tokens/permission_groups":
+			return reply(fmt.Sprintf(`{"success":true,"result":[{"id":%q,"name":"Workers Scripts Read","scopes":["com.cloudflare.api.account"],"is_selectable":true}]}`, group)), nil
+		case "/client/v4/accounts/" + account + "/tokens/" + token:
+			return reply(fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":%q,"status":"active","expires_on":%q,"policies":[{"effect":"allow","resources":{"com.cloudflare.api.account.%s":"*"},"permission_groups":[{"id":%q}]}]}}`, reportedToken, name, expiry.Format(time.RFC3339), account, group)), nil
+		default:
+			t.Fatalf("unexpected read %s", r.URL.Path)
+			return nil, nil
+		}
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := CloudflareTokenIssue{
+		MutationID: req.MutationID, Name: name, PermissionGroupID: group, ExpiresAt: expiry, Issuer: issuer, PermissionReader: reader, Sink: sink,
+		Authorize: func(context.Context, string, rotation.PreparationPlan) (rotation.PreparationGrant, error) {
+			return rotation.PreparationGrant{PlanDigest: plan.ID, GrantDigest: req.GrantDigest, ExpiresAt: req.ExpiresAt}, nil
+		},
+	}
+	gateway.RotationActions = CloudflareRotation{Plan: plan, AccountID: account, RuntimePermissionGroups: []string{group}, Issue: &issue}
+	envelope := effectgateway.Sign(req, key)
+	if result, err := gateway.Submit(ctx, envelope); result.Status != effectgateway.StatusUnknown || posts != 1 {
+		t.Fatalf("unexpected issuance status %s posts=%d err=%v", result.Status, posts, err)
+	}
+	if _, err := gateway.Submit(ctx, envelope); posts != 1 {
+		t.Fatalf("replay issued another token: %v", err)
+	}
+	binding := authoritybinding.Binding{Provider: "cloudflare", MutationID: req.MutationID, TargetDigest: req.TargetDigest}
+	recovery := CloudflareIssueRecovery{Binding: binding, AccountID: account, Issue: issue}
+	if got, err := recovery.ObserveRecovery(ctx, binding); err != nil || got.State != journal.ObservedApplied || got.ProviderIdentityDigest != recovery.IdentityDigest() {
+		t.Fatalf("could not recover committed store record: %+v %v", got, err)
+	}
+	reportedToken = strings.Repeat("d", 32)
+	if _, err := recovery.ObserveRecovery(ctx, binding); !errors.Is(err, journal.ErrUnknownEffect) {
+		t.Fatalf("accepted changed token ID: %v", err)
 	}
 }

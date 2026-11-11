@@ -155,3 +155,43 @@ func (r Reader) VerifyWorkersRuntimeGroup(ctx context.Context, account, group st
 	}
 	return nil
 }
+
+// VerifyIssuedWorkersToken checks the saved token identity, expiration and
+// single-account policy through the independent read client.
+func (r Reader) VerifyIssuedWorkersToken(ctx context.Context, account, token, name, group string, expiresAt time.Time) error {
+	invalid := errors.New("Cloudflare issued token identity unavailable or changed")
+	if !hex32(account) || !hex32(token) || !hex32(group) || !noWildcard(name) || expiresAt.IsZero() {
+		return invalid
+	}
+	var observed struct {
+		Success bool `json:"success"`
+		Result  struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Status    string `json:"status"`
+			ExpiresOn string `json:"expires_on"`
+			Policies  []struct {
+				Effect    string            `json:"effect"`
+				Resources map[string]string `json:"resources"`
+				Groups    []struct {
+					ID string `json:"id"`
+				} `json:"permission_groups"`
+			} `json:"policies"`
+		} `json:"result"`
+	}
+	if err := r.read(ctx, "https://api.cloudflare.com", "/client/v4/accounts/"+account+"/tokens/"+token, &observed, nil); err != nil || !observed.Success {
+		return invalid
+	}
+	got := observed.Result
+	expiry, err := time.Parse(time.RFC3339, got.ExpiresOn)
+	if err != nil || !expiry.Equal(expiresAt.UTC().Truncate(time.Second)) ||
+		got.ID != token || got.Name != name || got.Status != "active" || len(got.Policies) != 1 {
+		return invalid
+	}
+	policy := got.Policies[0]
+	if policy.Effect != "allow" || len(policy.Resources) != 1 || policy.Resources["com.cloudflare.api.account."+account] != "*" ||
+		len(policy.Groups) != 1 || policy.Groups[0].ID != group {
+		return invalid
+	}
+	return nil
+}

@@ -53,36 +53,49 @@ func reconcile(ctx context.Context, store journal.Store, id string, plan deliver
 		if record.State == journal.IntentWritten {
 			return journal.Observation{}, journal.ErrUnknownEffect
 		}
-		snapshot, err := remote.Observe(ctx, grant.AccountID, grant.Worker)
-		if err != nil || snapshot.AccountID != grant.AccountID || snapshot.Worker != grant.Worker || activeDigest(snapshot) != grant.ExpectedActiveDigest {
-			return journal.Observation{}, journal.ErrUnknownEffect
+		candidate, err := FindStagedVersion(ctx, remote, grant.AccountID, grant.Worker, grant.Destination, "kc-"+id, grant.ExpectedActiveDigest)
+		if err != nil {
+			return journal.Observation{}, err
 		}
-		// Even if the list is truncated, the operation is held UNKNOWN rather
-		// than concluding absence. Limit GETs for reconciliation costs.
-		if len(snapshot.LatestVersionIDs) > 8 || len(snapshot.LatestVersionIDs) == 0 {
-			return journal.Observation{}, journal.ErrUnknownEffect
-		}
-		active := map[string]bool{}
-		for _, part := range snapshot.Versions {
-			active[part.VersionID] = true
-		}
-		var candidate string
-		for _, versionID := range snapshot.LatestVersionIDs {
-			detail, err := remote.GetVersion(ctx, grant.AccountID, grant.Worker, versionID)
-			if err != nil {
-				return journal.Observation{}, journal.ErrUnknownEffect
-			}
-			if detail.Tag == "kc-"+id && detail.ID == versionID && slices.Contains(detail.BindingNames, grant.Destination) && !active[versionID] {
-				if candidate != "" {
-					return journal.Observation{}, journal.ErrUnknownEffect
-				}
-				candidate = versionID
-			}
-		}
-		if candidate == "" {
-			return journal.Observation{}, journal.ErrUnknownEffect
-		}
-		proof := digest([]byte(record.OperationID + "\x00" + record.TargetDigest + "\x00" + candidate + "\x00" + activeDigest(snapshot)))
+		proof := digest([]byte(record.OperationID + "\x00" + record.TargetDigest + "\x00" + candidate + "\x00" + grant.ExpectedActiveDigest))
 		return journal.Observation{State: journal.ObservedApplied, ProofDigest: proof}, nil
 	})
+}
+
+// FindStagedVersion finds an exact tagged inactive version under the original
+// deployment baseline. It never infers absence from the bounded inventory.
+func FindStagedVersion(ctx context.Context, remote Observer, account, worker, destination, tag, expectedActiveDigest string) (string, error) {
+	if remote == nil || tag == "" || !sha256Digest(expectedActiveDigest) {
+		return "", journal.ErrUnknownEffect
+	}
+	snapshot, err := remote.Observe(ctx, account, worker)
+	if err != nil || snapshot.AccountID != account || snapshot.Worker != worker || activeDigest(snapshot) != expectedActiveDigest {
+		return "", journal.ErrUnknownEffect
+	}
+	// Even if the list is truncated, the operation is held UNKNOWN rather
+	// than concluding absence. Limit GETs for reconciliation costs.
+	if len(snapshot.LatestVersionIDs) > 8 || len(snapshot.LatestVersionIDs) == 0 {
+		return "", journal.ErrUnknownEffect
+	}
+	active := map[string]bool{}
+	for _, part := range snapshot.Versions {
+		active[part.VersionID] = true
+	}
+	var candidate string
+	for _, versionID := range snapshot.LatestVersionIDs {
+		detail, err := remote.GetVersion(ctx, account, worker, versionID)
+		if err != nil {
+			return "", journal.ErrUnknownEffect
+		}
+		if detail.Tag == tag {
+			if candidate != "" || detail.ID != versionID || !slices.Contains(detail.BindingNames, destination) || active[versionID] {
+				return "", journal.ErrUnknownEffect
+			}
+			candidate = versionID
+		}
+	}
+	if candidate == "" {
+		return "", journal.ErrUnknownEffect
+	}
+	return candidate, nil
 }
