@@ -65,7 +65,7 @@ last_verified_commit: 7bbc01d533a0c7ca9eb8ff43cf51878f42289ace
 | vet darwin | `GOOS=darwin GOARCH={arm64,amd64} go vet ./...` | **ok** |
 | vet linux | `GOOS=linux GOARCH=amd64 go vet ./...` | **ok** |
 | unit | `go test -tags=kc_testhooks ./...` | 36 pkg ok, 1 pkg 환경조건 실패(아래) |
-| release | `bash verify.sh --suite release` | **ok** (kc 4타깃 + keycli-linux-amd64, SHA256SUMS 생성) |
+| release | `bash verify.sh --suite release` | 산출물 생성 ok / MCP 실행 단계 **NOT_VERIFIED** (macOS에서 Linux 바이너리 실행 불가, exit 126) |
 | race (보조) | `go test -race ./internal/delivery/... ./internal/rotation/... ./internal/identity/githubwif/... ./internal/target/{gh,cloudflare}/... ./internal/cli/...` | **ok** (Go 1.27.3, 아래 참조) |
 | mac-smoke | — | **NOT VERIFIED (의도적 미실행)** |
 

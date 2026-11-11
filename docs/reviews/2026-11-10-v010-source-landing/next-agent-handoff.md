@@ -99,3 +99,34 @@ PATH="$GR/bin:$PATH" GOTOOLCHAIN=local CGO_ENABLED=0 TMPDIR="$PWD/.tmp" \
 
 `--suite all`을 Mac에서 그대로 돌리면 `mac-smoke`가 **실제 키체인**을 사용한다.
 격리 작업에서는 `all` 대신 위 3개 suite + `release`를 사용한다.
+
+## 2026-11-10 후속 직렬 실행 결과 (Phase 1–3)
+
+| 단계 | 결과 | 위치 |
+|---|---|---|
+| Phase 0 기준선 | PASS — `origin/main` `4c972d98`, 후보 Tree `ee735340`, 65/65 blob, PR head 드리프트 0 | 이 디렉터리 |
+| Phase 1 게시 | **HOLD** — 등록 Goal/Grant 없음(`git_push`/`open_pr` 0건). 산출물 4종 기록 | [landing-pr-handoff.md](landing-pr-handoff.md) |
+| Phase 2 WI-KC-01 | **구현·테스트 완료 (source-only)** — `tooling/keycli_delivery_receipt.py`, 22 테스트 | workspace-infra `opencode/keycli-delivery-receipt-20261110` @ `e82f98d` |
+| Phase 3 WI-KC-02 | **구현·테스트 완료 (source-only)** — `tooling/keycli_host_admission.py` (19), `internal/hostbridge` (15) | 같은 workspace-infra 브랜치 + keycli `opencode/kc-hostbridge-20261110` @ `5edac37` |
+
+후속 실행자는 다음을 먼저 확인한다.
+
+- workspace-infra `e82f98d`는 `main`에 병합되지 않았다(로컬 전용).
+- keycli `5edac37`은 landing payload `80bdd82b` 위에 있다(`depends_on`).
+- 실제 provider mutation·Keychain·`~/.kc`·설치 바이너리 변경은 여전히 0회다.
+- `TRUSTED_HOST`는 `SOURCE_PARTIAL` 유지: 호스트 프로세스가 자격증명을 실제로 격리해야
+  운영 인수가 성립한다.
+
+## 2026-11-10 직렬 실행 S0–S6 후속 결과
+
+| Phase | 결과 | 근거 |
+|---|---|---|
+| S0 | PASS — `origin/main` `4c972d98`, 후보 Tree `ee735340`, PR/브랜치 미게시, Claim/Grant 불변 | 이 디렉터리 |
+| S0 (정정) | `tooling/keycli_policy_receipt.py`는 `e079647c`에 **존재** | 이전 "부재"는 diverged 공유 worktree(`99657d1`) 오판 |
+| S1 | **HOLD** — `KEYCLI-V010-LANDING-PUBLISH-20261110` Grant 0건 | [landing-pr-handoff.md](landing-pr-handoff.md) |
+| S2 | WI-KC-01 22 + WI-KC-02 52(48+4) 테스트, H17–H30, nullable budget 수정 | infra `b99824a` |
+| S2 (Go) | hostbridge 20 테스트(실 journal H20/H21/H22/H23/H28) | keycli `e401112` |
+| S3 | OCI WIF 16 테스트(source-only) | keycli `7f19eb8` |
+| S4 | 읽기 전용 감사 **NOT_VERIFIED** (승인된 계정 접근 없음, GET 0회) | [cloudflare-free-pilot-prescreen.md](cloudflare-free-pilot-prescreen.md) |
+| S5 | 5개 provider 효과 전부 **NOT_AUTHORIZED** | [provider-operating-gate-s5.md](provider-operating-gate-s5.md) |
+| S6 | RC 증거·릴리스 매트릭스, release suite 정정 | [rc-evidence-2026-11-10.md](rc-evidence-2026-11-10.md) |
