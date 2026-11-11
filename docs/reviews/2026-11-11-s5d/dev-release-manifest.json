@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "channel": "dev",
+  "head": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+  "tree": "9e7ef65843b1e1c9dcde3f7f047895c49f3b42bc",
+  "gates": [
+    {
+      "id": "SOURCE_REGRESSION",
+      "status": "PASS",
+      "evidence": "docs/reviews/2026-11-11-s5d/dev-release-evidence.md",
+      "evidence_sha256": "95aeae58df08b92b27e45245258f6af178efeda221c1e9d85926b0513c2abd58",
+      "verified_commit": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+      "runner": "go test ./... (Go 1.22.12)",
+      "tests_run": 306
+    },
+    {
+      "id": "PROTOCOL_FENCING",
+      "status": "PASS",
+      "evidence": "docs/reviews/2026-11-11-s5d/dev-release-evidence.md",
+      "evidence_sha256": "95aeae58df08b92b27e45245258f6af178efeda221c1e9d85926b0513c2abd58",
+      "verified_commit": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+      "runner": "Mac+Flip3 two-host barrier scenarios (S3/S4)",
+      "tests_run": 12
+    },
+    {
+      "id": "UNKNOWN_EFFECT_RECOVERY",
+      "status": "PASS",
+      "evidence": "docs/reviews/2026-11-11-s5d/dev-release-evidence.md",
+      "evidence_sha256": "95aeae58df08b92b27e45245258f6af178efeda221c1e9d85926b0513c2abd58",
+      "verified_commit": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+      "runner": "S4-D lost-response, restart, reconcile",
+      "tests_run": 3
+    },
+    {
+      "id": "DEV_PROVIDER_BUILD_LOCK",
+      "status": "PASS",
+      "evidence": "docs/reviews/2026-11-11-s5d/dev-release-evidence.md",
+      "evidence_sha256": "95aeae58df08b92b27e45245258f6af178efeda221c1e9d85926b0513c2abd58",
+      "verified_commit": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+      "runner": "go test -run 'Lock|Operational|Runtime|Report' ./internal/effectgateway/",
+      "tests_run": 6
+    },
+    {
+      "id": "DEV_PROVIDER_RUNTIME_LOCK",
+      "status": "PASS",
+      "evidence": "docs/reviews/2026-11-11-s5d/dev-release-evidence.md",
+      "evidence_sha256": "95aeae58df08b92b27e45245258f6af178efeda221c1e9d85926b0513c2abd58",
+      "verified_commit": "3a1ba393b3a1c5bf603be0f85712c71ef4878f57",
+      "runner": "go test -run 'Runtime|LockIgnores|LockedProvider' ./internal/effectgateway/",
+      "tests_run": 4
+    }
+  ],
+  "known_holds": [
+    {
+      "id": "planning-docs-clv-44",
+      "scope": "workspace-infra/docs/planning",
+      "reason": "clv-44 plan file was never committed; owned by the CLV planning writer"
+    },
+    {
+      "id": "operational-gates",
+      "scope": "keycli/operational",
+      "reason": "MAC_HOST_OWNER_ISOLATION and PRODUCT_CREDENTIAL_ISOLATION are NOT_VERIFIED"
+    }
+  ],
+  "lock_report": {
+    "path": "docs/reviews/2026-11-11-s5d/dev-lock-report.json",
+    "sha256": "e949a642cc085e7936fe36e9a034e4717a3bdbf7bf13fa74ae2438238385f229",
+    "provider_enabled": false,
+    "channel": "dev"
+  }
+}
