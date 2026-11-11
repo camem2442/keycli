@@ -158,7 +158,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.contract("classify", fails=True, **{**candidate, "REPOSITORY_VISIBILITY": "public"})
         self.contract("classify", fails=True, **{**candidate, "WORKFLOW_REF": "refs/heads/unreviewed"})
         self.contract("classify", fails=True, **{**candidate, "APPROVAL_REF": "review/24\nchannel=dev"})
-        self.contract("classify", **candidate)
+        self.contract("classify", fails=True, **{**candidate, "RUNNER_MODE": "utm-ci", "REPOSITORY_VISIBILITY": "public"})
+        self.contract("classify", fails=True, **{**candidate, "RUNNER_MODE": "utm-ci", "EVENT": "push"})
+        self.contract("classify", fails=True, **{**candidate, "RUNNER_MODE": "unexpected"})
+        self.contract("classify", **{**candidate, "RUNNER_MODE": "utm-ci"})
         self.assertIn("tag_object=\n", self.output.read_text())
         self.git("checkout", "-q", "--detach", self.source)
         self.contract("bind", **candidate)
@@ -191,6 +194,17 @@ class ReleaseContractTests(unittest.TestCase):
         self.contract("verify-bundle", fails=True, MANIFEST_SHA=expected)
         (dist / "provenance.json").write_text(provenance.replace(self.source, self.workflow_sha))
         self.contract("verify-bundle", fails=True, MANIFEST_SHA=manifest())
+
+    def test_utm_runner_selection_is_restricted_before_scheduling(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        lines = [line for line in workflow.splitlines() if "runs-on:" in line and "self-hosted" in line]
+        self.assertEqual(len(lines), 5)
+        for line in lines:
+            for condition in ("inputs.use_utm_runner", "github.event_name == 'workflow_dispatch'",
+                              "inputs.candidate_channel == 'operational'",
+                              "github.event.repository.visibility == 'private'",
+                              "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"):
+                self.assertIn(condition, line)
 
     def test_dev_release_checks_non_executable_gateway(self):
         import platform

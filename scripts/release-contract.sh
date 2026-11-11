@@ -40,6 +40,14 @@ resolve_tag() {
 classify() {
   validate_version
   local tag_object="" tag_identity
+  case "${RUNNER_MODE:-hosted}" in
+    hosted) ;;
+    utm-ci)
+      [[ "${EVENT:-}" == workflow_dispatch && "${CANDIDATE_CHANNEL:-}" == operational &&
+         "${REPOSITORY_VISIBILITY:-}" == private ]] || fail "UTM runner requires a private operational candidate dispatch"
+      ;;
+    *) fail "unknown runner mode" ;;
+  esac
   case "${CANDIDATE_CHANNEL:-}" in
     ""|tagged|operational) ;;
     *) fail "unknown dispatch channel" ;;
@@ -90,30 +98,15 @@ verify_binary() {
   validate_identity
   local arch="$1" cli="dist/kc-linux-$1" gateway="dist/kc-gateway-linux-$1"
   local expected="$RELEASE_VERSION ($SOURCE_SHA)"
-  local legacy="dist/keycli-linux-amd64"
   chmod +x "$cli" "$gateway"
-  if [[ "$arch" == amd64 && "$(uname -m)" == aarch64 ]]; then
-    [[ -x "${KC_CI_QEMU_X86_64:-}" ]] || fail "x86_64 emulator unavailable"
-    chmod +x "$legacy"
-    local wrapper_dir
-    wrapper_dir="$(mktemp -d)"
-    for name in kc-linux-amd64 kc-gateway-linux-amd64 keycli-linux-amd64; do
-      printf '#!/bin/sh\nexec "%s" "%s/dist/%s" "$@"\n' \
-        "$KC_CI_QEMU_X86_64" "$PWD" "$name" > "$wrapper_dir/$name"
-      chmod 700 "$wrapper_dir/$name"
-    done
-    cli="$wrapper_dir/kc-linux-amd64"
-    gateway="$wrapper_dir/kc-gateway-linux-amd64"
-    legacy="$wrapper_dir/keycli-linux-amd64"
-  fi
   local actual
   actual="$("$cli" --version)" || fail "CLI version command failed"
   [[ "$actual" == "kc version $expected" ]] || fail "unexpected CLI version or commit"
   actual="$("$gateway" --version)" || fail "gateway version command failed"
   [[ "$actual" == "$expected" ]] || fail "unexpected gateway version or commit"
   if [[ "$arch" == amd64 ]]; then
-    chmod +x "$legacy"
-    actual="$("$legacy" --version)" || fail "legacy CLI version command failed"
+    chmod +x dist/keycli-linux-amd64
+    actual="$(dist/keycli-linux-amd64 --version)" || fail "legacy CLI version command failed"
     [[ "$actual" == "kc version $expected" ]] || fail "unexpected legacy CLI identity"
   fi
   bash "$(dirname "$0")/verify-mcp-binary.sh" "$cli" "kc version $expected"
@@ -165,10 +158,11 @@ case "${1:-}" in
     jq -n --arg version "$RELEASE_VERSION" --arg source_sha "$SOURCE_SHA" \
       --arg channel "$RELEASE_CHANNEL" --arg approval_ref "${APPROVAL_REF:-}" \
       --arg tag_object "${TAG_OBJECT:-}" \
+      --arg runner_mode "${RUNNER_MODE:-hosted}" \
       --arg repository "$GITHUB_REPOSITORY" --arg run_id "$GITHUB_RUN_ID" \
       --arg run_attempt "${BUILD_RUN_ATTEMPT:-$GITHUB_RUN_ATTEMPT}" --arg workflow_sha "$WORKFLOW_SHA" \
       '{schema_version: 1, $version, $source_sha, $channel, $approval_ref,
-        $repository, $run_id, $run_attempt, $workflow_sha, $tag_object}'
+        $repository, $run_id, $run_attempt, $workflow_sha, $tag_object, $runner_mode}'
     ;;
   verify-binary) verify_binary "$2" ;;
   verify-bundle)

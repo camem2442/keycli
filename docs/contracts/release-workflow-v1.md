@@ -40,6 +40,12 @@ gh workflow run release.yml -f tag=v0.10.0 -f candidate_channel=operational \
 검증된 manifest digest를 함께 기록한다. 승인 참조는 실행자가 입력한 추적 정보이며,
 독립 호스트 검증과 서명된 인수 증거는 PR-13/14가 제공한다.
 
+### UTM 자체 호스팅 검증
+
+비공개 저장소의 기본 브랜치에서 수동 실행하는 operational 후보만 `-F use_utm_runner=true`를 선택할 수 있다. 전용 러너는 `self-hosted`, `Linux`, `ARM64`, `keycli-pr02` 라벨과 SQLite, ripgrep, GitHub CLI, x86-64 binfmt 실행 환경이 필요하다. 러너에는 검토된 소스만 전달하고 작업 후 등록을 제거한다. `provenance.json`의 `runner_mode`는 선택된 경로를 기록한다.
+
+이 경로에서 ARM64 검사는 네이티브로, AMD64 검사는 ARM64 호스트의 에뮬레이션으로 실행된다. 따라서 AMD64 네이티브 인수 증거는 별도로 필요하다. 러너 선택을 생략하면 기존 GitHub 호스팅 경로를 사용한다.
+
 ## 빌드와 다운로드 검사
 
 | 자산 | 포함 |

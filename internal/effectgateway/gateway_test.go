@@ -3,6 +3,7 @@ package effectgateway
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,14 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "journal")
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "journal")
 	h := &harness{
 		claims:   &fakeClaims{snapshot: activeClaim()},
 		keys:     &fakeKeys{key: []byte(testKey)},

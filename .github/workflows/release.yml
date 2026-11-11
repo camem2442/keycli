@@ -23,6 +23,10 @@ on:
           - tagged
           - operational
         default: tagged
+      use_utm_runner:
+        description: "Use the dedicated UTM runner for a private operational candidate"
+        type: boolean
+        default: false
       candidate_source_sha:
         description: "Reviewed 40-character source SHA for an operational candidate"
         type: string
@@ -38,13 +42,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TMPDIR: /home/runner/keycli-pr02-tmp
   REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
   WORKFLOW_SHA: ${{ github.workflow_sha }}
+  RUNNER_MODE: ${{ inputs.use_utm_runner && 'utm-ci' || 'hosted' }}
 
 jobs:
   classify:
-    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     outputs:
       version: ${{ steps.classify.outputs.version }}
       source_sha: ${{ steps.classify.outputs.source_sha }}
@@ -73,7 +77,7 @@ jobs:
 
   guard:
     needs: classify
-    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     steps:
       - name: Hold stable publication pending independent acceptance
         env:
@@ -88,7 +92,7 @@ jobs:
 
   verify:
     needs: [classify, guard]
-    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: source
@@ -126,13 +130,12 @@ jobs:
       - name: Unit and policy regression
         env:
           CGO_ENABLED: "0"
-        run: |
-          umask 022
-          bash verify.sh --suite all
+          TMPDIR: ${{ inputs.use_utm_runner && '/tmp' || runner.temp }}
+        run: bash verify.sh --suite all
 
   build:
     needs: [classify, verify]
-    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: source
@@ -189,8 +192,10 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            runner: ubuntu-latest
           - arch: arm64
-    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || matrix.runner }}
     defaults:
       run:
         working-directory: source
@@ -202,7 +207,6 @@ jobs:
       APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
       BUILD_RUN_ATTEMPT: ${{ needs.build.outputs.run_attempt }}
       MANIFEST_SHA: ${{ needs.build.outputs.manifest_sha }}
-      KC_CI_QEMU_X86_64: /home/runner/keycli-pr02-preflight/root/usr/bin/qemu-x86_64-static
     steps:
       - uses: actions/checkout@v4
         with:
@@ -233,3 +237,57 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
         run: bash ../release-control/scripts/release-contract.sh verify-binary "$ARCH"
+
+  publish:
+    needs: [classify, verify, build, gate]
+    if: ${{ (needs.classify.outputs.channel == 'dev' || needs.classify.outputs.channel == 'rc') && (github.event_name == 'push' || inputs.dry_run == false) }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_VERSION: ${{ needs.classify.outputs.version }}
+      SOURCE_SHA: ${{ needs.classify.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.classify.outputs.tag_object }}
+      RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
+      APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
+      MANIFEST_SHA: ${{ needs.build.outputs.manifest_sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Verify the gated manifest before publication
+        run: |
+          set -euo pipefail
+          cd dist
+          [[ "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" == "$MANIFEST_SHA" ]]
+          sha256sum --strict -c SHA256SUMS
+      - name: Attest the prerelease assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: Recheck the tag and publish the verified prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ref="refs/tags/$RELEASE_VERSION"
+          matches="$(git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+            ls-remote --exit-code "$REPOSITORY_URL" "$ref" "$ref^{}")"
+          object="$(awk -v ref="$ref" '$2 == ref { print $1 }' <<<"$matches")"
+          peeled="$(awk -v ref="$ref^{}" '$2 == ref { print $1 }' <<<"$matches")"
+          [[ "$object" == "$TAG_OBJECT" && "${peeled:-$object}" == "$SOURCE_SHA" ]] || {
+            echo "::error::release tag moved since classification"
+            exit 1
+          }
+          gh release create "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "$RELEASE_VERSION ($RELEASE_CHANNEL)" \
+            --notes "Source: $SOURCE_SHA. Provider effects are locked. Operational acceptance: HOLD." \
+            dist/*
