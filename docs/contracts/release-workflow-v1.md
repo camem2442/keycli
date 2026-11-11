@@ -71,4 +71,7 @@ GitHub attestation은 자산과 워크플로 실행의 출처를 기록한다. �
 | Environment `release` | 게시 권한을 가진 ref와 사용자로 제한 |
 
 원격 확인과 GitHub Release 생성은 별도 요청이다. 게시 중 ref 변경을 막으려면
-릴리스 태그의 업데이트와 삭제를 저장소 규칙으로 차단해야 한다.
+릴리스 태그의 업데이트와 삭제를 저장소 규칙으로 차단해야 한다. 태그 push의 이벤트
+SHA가 peeled commit인 경우, `classify` 실행 전 같은 commit을 가리키도록 교체된
+annotated 태그 객체는 이벤트 SHA와의 비교만으로 구별할 수 없다. 따라서 보호 규칙은
+태그 생성부터 적용해야 하며, `classify`가 기록한 태그 객체는 그 시점의 관측값이다.
