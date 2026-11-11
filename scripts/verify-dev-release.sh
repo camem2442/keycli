@@ -118,10 +118,24 @@ if [[ -f "$WORK/assets/$HOST_ASSET" ]]; then
   fi
 fi
 
-# 4. gateway asset (optional): provider effects must be locked
-if [[ -f "$WORK/assets/$GATEWAY_ASSET" && -x "$WORK/assets/$GATEWAY_ASSET" ]]; then
-  report="$("$WORK/assets/$GATEWAY_ASSET" -lock-report 2>&1 || true)"
-  if [[ "$report" == *'"provider_enabled":false'* ]]; then check provider_lock PASS; else check provider_lock "FAIL ($report)"; fi
+# 4. downloaded assets may lack executable permissions; test a private copy.
+if [[ -f "$WORK/assets/$GATEWAY_ASSET" ]]; then
+  gateway="$WORK/gateway"
+  if cp "$WORK/assets/$GATEWAY_ASSET" "$gateway" && chmod 700 "$gateway"; then
+    report="$(env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report 2>&1)"
+    locked_status=$?
+    enabled_report="$(KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report 2>&1)"
+    enabled_status=$?
+    if [[ "$locked_status" -eq 0 && "$enabled_status" -eq 0 &&
+          "$report" == *'"provider_enabled":false'* &&
+          "$enabled_report" == *'"provider_enabled":false'* ]]; then
+      check provider_lock PASS
+    else
+      check provider_lock "FAIL (gateway lock check failed)"
+    fi
+  else
+    check provider_lock "FAIL (gateway copy or chmod failed)"
+  fi
 else
   note provider_lock "SKIP (gateway asset not published)"
 fi

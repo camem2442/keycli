@@ -192,6 +192,52 @@ class ReleaseContractTests(unittest.TestCase):
         (dist / "provenance.json").write_text(provenance.replace(self.source, self.workflow_sha))
         self.contract("verify-bundle", fails=True, MANIFEST_SHA=manifest())
 
+    def test_dev_release_checks_non_executable_gateway(self):
+        import platform
+
+        repo = self.repo / "acceptance"
+        scripts = repo / "scripts"
+        scripts.mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/verify-dev-release.sh", scripts)
+        (scripts / "verify-mcp-binary.sh").write_text("#!/bin/sh\nexit 0\n")
+        assets = repo / "assets"
+        assets.mkdir()
+        machine = platform.machine().lower()
+        arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[machine]
+        system = platform.system().lower()
+        cli = assets / f"kc-{system}-{arch}"
+        gateway = assets / f"kc-gateway-{system}-{arch}"
+        cli.write_text(f"#!/bin/sh\necho 'kc version {VERSION}'\n")
+        gateway.write_text("#!/bin/sh\necho '{\"provider_enabled\":false}'\n")
+        cli.chmod(0o644)
+        gateway.chmod(0o644)
+        def write_manifest():
+            (assets / "SHA256SUMS").write_text("".join(
+                f"{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n"
+                for asset in (cli, gateway)
+            ))
+        write_manifest()
+        env = {**os.environ, "HOME": str(self.repo / "empty-home")}
+        def check_release():
+            return subprocess.run(
+                ["bash", str(scripts / "verify-dev-release.sh"), "--tag", VERSION,
+                 "--assets-dir", str(assets)], env=env, capture_output=True, text=True,
+            )
+        result = check_release()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"provider_lock\s+PASS")
+        self.assertEqual(gateway.stat().st_mode & 0o777, 0o644)
+        gateway.write_text(
+            "#!/bin/sh\n"
+            "if [ \"${KC_PROVIDER_EFFECTS:-}\" = enabled ]; then \n"
+            "  echo '{\"provider_enabled\":true}'; \n"
+            "else echo '{\"provider_enabled\":false}'; fi\n"
+        )
+        write_manifest()
+        result = check_release()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertRegex(result.stdout, r"provider_lock\s+FAIL")
+
     def test_actual_gateway_build_and_runtime_lock(self):
         commit = self.source
         version_pkg = "github.com/camem2442/keycli/internal/version"
