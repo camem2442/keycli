@@ -40,6 +40,14 @@ resolve_tag() {
 classify() {
   validate_version
   local tag_object="" tag_identity
+  case "${RUNNER_MODE:-hosted}" in
+    hosted) ;;
+    utm-ci)
+      [[ "${EVENT:-}" == workflow_dispatch && "${CANDIDATE_CHANNEL:-}" == operational &&
+         "${REPOSITORY_VISIBILITY:-}" == private ]] || fail "UTM runner requires a private operational candidate dispatch"
+      ;;
+    *) fail "unknown runner mode" ;;
+  esac
   case "${CANDIDATE_CHANNEL:-}" in
     ""|tagged|operational) ;;
     *) fail "unknown dispatch channel" ;;
@@ -150,10 +158,11 @@ case "${1:-}" in
     jq -n --arg version "$RELEASE_VERSION" --arg source_sha "$SOURCE_SHA" \
       --arg channel "$RELEASE_CHANNEL" --arg approval_ref "${APPROVAL_REF:-}" \
       --arg tag_object "${TAG_OBJECT:-}" \
+      --arg runner_mode "${RUNNER_MODE:-hosted}" \
       --arg repository "$GITHUB_REPOSITORY" --arg run_id "$GITHUB_RUN_ID" \
       --arg run_attempt "${BUILD_RUN_ATTEMPT:-$GITHUB_RUN_ATTEMPT}" --arg workflow_sha "$WORKFLOW_SHA" \
       '{schema_version: 1, $version, $source_sha, $channel, $approval_ref,
-        $repository, $run_id, $run_attempt, $workflow_sha, $tag_object}'
+        $repository, $run_id, $run_attempt, $workflow_sha, $tag_object, $runner_mode}'
     ;;
   verify-binary) verify_binary "$2" ;;
   verify-bundle)

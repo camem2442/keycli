@@ -23,6 +23,10 @@ on:
           - tagged
           - operational
         default: tagged
+      use_utm_runner:
+        description: "Use the dedicated UTM runner for a private operational candidate"
+        type: boolean
+        default: false
       candidate_source_sha:
         description: "Reviewed 40-character source SHA for an operational candidate"
         type: string
@@ -40,10 +44,11 @@ concurrency:
 env:
   REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
   WORKFLOW_SHA: ${{ github.workflow_sha }}
+  RUNNER_MODE: ${{ inputs.use_utm_runner && 'utm-ci' || 'hosted' }}
 
 jobs:
   classify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     outputs:
       version: ${{ steps.classify.outputs.version }}
       source_sha: ${{ steps.classify.outputs.source_sha }}
@@ -72,7 +77,7 @@ jobs:
 
   guard:
     needs: classify
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     steps:
       - name: Hold stable publication pending independent acceptance
         env:
@@ -87,7 +92,7 @@ jobs:
 
   verify:
     needs: [classify, guard]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: source
@@ -125,11 +130,12 @@ jobs:
       - name: Unit and policy regression
         env:
           CGO_ENABLED: "0"
+          TMPDIR: ${{ inputs.use_utm_runner && '/tmp' || runner.temp }}
         run: bash verify.sh --suite all
 
   build:
     needs: [classify, verify]
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: source
@@ -189,7 +195,7 @@ jobs:
             runner: ubuntu-latest
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || matrix.runner }}
     defaults:
       run:
         working-directory: source
