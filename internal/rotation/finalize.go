@@ -59,6 +59,9 @@ func Finalize(ctx context.Context, store journal.Store, operationID string, plan
 		return journal.Record{}, errors.New("old credential provider identity not verified")
 	}
 	return dispatchAction(store, action.Intent(), func() (journal.Observation, error) {
+		if err := CheckRollbackFence(store, action.intent.PlanDigest); err != nil {
+			return journal.Observation{}, err
+		}
 		return action.Execute(ctx, nil)
 	})
 }

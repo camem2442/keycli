@@ -167,6 +167,11 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 			}
 		}
 		if action != nil {
+			if _, finalizing := action.(rotation.FinalizeAction); finalizing {
+				if err := rotation.CheckRollbackFence(g.Journal, req.PlanDigest); err != nil {
+					return outcome(err)
+				}
+			}
 			fencePassed := false
 			observation, err := action.Execute(ctx, func(actionCtx context.Context) error {
 				err := checkFence(actionCtx)

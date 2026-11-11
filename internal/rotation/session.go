@@ -14,17 +14,19 @@ import (
 // Session stores host metadata and references to independent evidence.
 // Journal records remain authoritative for every attempted effect.
 type Session struct {
-	Version            int                 `json:"v"`
-	Plan               PreparationPlan     `json:"plan"`
-	OldIdentityDigest  string              `json:"old_identity_digest"`
-	NewIdentityDigest  string              `json:"new_identity_digest,omitempty"`
-	Stage              journal.Intent      `json:"stage"`
-	Activate           *journal.Intent     `json:"activate,omitempty"`
-	Revoke             *journal.Intent     `json:"revoke,omitempty"`
-	StageEvidence      string              `json:"stage_evidence,omitempty"`
-	Activation         *ActivationEvidence `json:"activation,omitempty"`
-	Consumers          []ConsumerEvidence  `json:"consumers,omitempty"`
-	RevocationEvidence string              `json:"revocation_evidence,omitempty"`
+	Version            int                  `json:"v"`
+	Plan               PreparationPlan      `json:"plan"`
+	OldIdentityDigest  string               `json:"old_identity_digest"`
+	NewIdentityDigest  string               `json:"new_identity_digest,omitempty"`
+	Stage              journal.Intent       `json:"stage"`
+	Activate           *journal.Intent      `json:"activate,omitempty"`
+	Revoke             *journal.Intent      `json:"revoke,omitempty"`
+	Rollback           *journal.Intent      `json:"rollback,omitempty"`
+	Restoration        *RestorationEvidence `json:"restoration,omitempty"`
+	StageEvidence      string               `json:"stage_evidence,omitempty"`
+	Activation         *ActivationEvidence  `json:"activation,omitempty"`
+	Consumers          []ConsumerEvidence   `json:"consumers,omitempty"`
+	RevocationEvidence string               `json:"revocation_evidence,omitempty"`
 }
 
 type SessionSnapshot struct {
@@ -61,7 +63,8 @@ func SaveSession(store journal.Store, previous SessionSnapshot, session Session)
 		if json.Unmarshal(previous.raw, &original) != nil || original.Plan.ID != session.Plan.ID ||
 			original.OldIdentityDigest != session.OldIdentityDigest || original.Stage != session.Stage ||
 			(original.NewIdentityDigest != "" && original.NewIdentityDigest != session.NewIdentityDigest) ||
-			!preservesOperation(original.Activate, session.Activate) || !preservesOperation(original.Revoke, session.Revoke) {
+			!preservesOperation(original.Activate, session.Activate) || !preservesOperation(original.Revoke, session.Revoke) ||
+			!preservesOperation(original.Rollback, session.Rollback) {
 			return SessionSnapshot{}, errors.New("rotation session identity changed")
 		}
 	}
@@ -88,7 +91,7 @@ func encodeSession(s Session) ([]byte, error) {
 		return nil, invalid
 	}
 	seen := make(map[string]bool)
-	for _, op := range []*journal.Intent{&s.Stage, s.Activate, s.Revoke} {
+	for _, op := range []*journal.Intent{&s.Stage, s.Activate, s.Revoke, s.Rollback} {
 		if op == nil {
 			continue
 		}
@@ -97,6 +100,9 @@ func encodeSession(s Session) ([]byte, error) {
 			return nil, invalid
 		}
 		seen[op.OperationID] = true
+	}
+	if s.Restoration != nil && (s.Rollback == nil || !validRestoration(s.Plan, *s.Restoration)) {
+		return nil, invalid
 	}
 	if s.StageEvidence != "" && (!journal.ValidDigest(s.StageEvidence) || s.NewIdentityDigest == "") ||
 		s.RevocationEvidence != "" && (!journal.ValidDigest(s.RevocationEvidence) || s.Revoke == nil) {
@@ -141,10 +147,11 @@ const (
 // trusted host or provider records. A digest or journal acknowledgement alone
 // never verifies a stage, activation, consumer, or revocation.
 type SessionVerifiers struct {
-	Stage      func(context.Context, Session, journal.Record) error
-	Activation VerifyActivation
-	Consumer   VerifyConsumer
-	Revocation func(context.Context, Session, journal.Record) error
+	Stage       func(context.Context, Session, journal.Record) error
+	Activation  VerifyActivation
+	Consumer    VerifyConsumer
+	Revocation  func(context.Context, Session, journal.Record) error
+	Restoration VerifyRestoration
 }
 
 // State derives a read-only view. It neither dispatches nor authorizes work.
@@ -155,11 +162,11 @@ func (s Session) State(ctx context.Context, store journal.Store, now time.Time, 
 	if _, err := encodeSession(s); err != nil {
 		return "", err
 	}
-	var stage, activate, revoke journal.Record
+	var stage, activate, revoke, rollback journal.Record
 	refs := []struct {
 		intent *journal.Intent
 		record *journal.Record
-	}{{&s.Stage, &stage}, {s.Activate, &activate}, {s.Revoke, &revoke}}
+	}{{&s.Stage, &stage}, {s.Activate, &activate}, {s.Revoke, &revoke}, {s.Rollback, &rollback}}
 	for _, ref := range refs {
 		if ref.intent == nil {
 			continue
@@ -185,6 +192,13 @@ func (s Session) State(ctx context.Context, store journal.Store, now time.Time, 
 			return SessionRevokeVerified, nil
 		}
 		return SessionRevokeAcknowledged, nil
+	}
+	if effectObserved(rollback) {
+		if s.Restoration != nil && verify.Restoration != nil &&
+			freshRestoration(*s.Restoration, now) && verify.Restoration(ctx, clonePreparationPlan(s.Plan), rollback, cloneRestoration(*s.Restoration)) == nil {
+			return SessionActiveVerified, nil
+		}
+		return SessionPreparedUnverified, nil
 	}
 	if !effectObserved(stage) {
 		return SessionPlanned, nil
