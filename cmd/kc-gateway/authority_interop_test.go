@@ -5,18 +5,50 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/camem2442/keycli/internal/delivery/journal"
+	"github.com/camem2442/keycli/internal/effectgateway"
 	"github.com/camem2442/keycli/internal/hostbridge"
 )
 
 // Set KEYCLI_TEST_WORKSPACE_INFRA to a workspace-infra checkout containing
 // the preview methods and their Python fixture, then run with -count=1.
 func TestGatewayPythonAuthorityPreviews(t *testing.T) {
+	for _, tc := range []struct{ name, note string }{
+		{"unchanged-head", "EXECUTION_FENCE_UNAVAILABLE"},
+		{"changed-head", "EXECUTION_FENCE_REJECTED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runGatewayPythonAuthority(t, "authority_preview.py", tc.name, effectgateway.Receipt{
+				Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: tc.note,
+			}, false)
+		})
+	}
+}
+
+func TestGatewayPythonGuardedExecution(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		receipt effectgateway.Receipt
+	}{
+		{"current", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1}},
+		{"revoked", effectgateway.Receipt{Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: "EXECUTION_FENCE_REJECTED"}},
+		{"lost-reply", effectgateway.Receipt{Status: effectgateway.StatusUnknown, OperationState: string(journal.UnknownEffect)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runGatewayPythonAuthority(t, "authority_guarded.py", tc.name, tc.receipt, true)
+		})
+	}
+}
+
+func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected effectgateway.Receipt, pinPID bool) {
+	t.Helper()
 	infra := os.Getenv("KEYCLI_TEST_WORKSPACE_INFRA")
 	if infra == "" {
 		t.Skip("set KEYCLI_TEST_WORKSPACE_INFRA to the workspace-infra preview checkout")
@@ -25,50 +57,57 @@ func TestGatewayPythonAuthorityPreviews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script, err := filepath.Abs("testdata/authority_preview.py")
+	script, err := filepath.Abs(filepath.Join("testdata", filename))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		name string
-		note string
-	}{
-		{"unchanged-head", "EXECUTION_FENCE_UNAVAILABLE"},
-		{"changed-head", "EXECUTION_FENCE_REJECTED"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := gatewayTempDir(t)
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, "python3", "-B", script, dir, tc.name)
-			cmd.Dir = infra
-			cmd.Env = append(os.Environ(), "PYTHONPATH="+infra+string(os.PathListSeparator)+filepath.Join(infra, "tests"), "TMPDIR="+dir)
-			cmd.Stderr = os.Stderr
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
+	dir := gatewayTempDir(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", "-B", script, dir, mode)
+	cmd.Dir = infra
+	fixture, err := filepath.Abs("../../internal/effectgateway/testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "PYTHONPATH="+infra+string(os.PathListSeparator)+filepath.Join(infra, "tests")+string(os.PathListSeparator)+fixture, "TMPDIR="+dir)
+	cmd.Stderr = os.Stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}()
+	var ready struct {
+		DB      string                      `json:"db"`
+		Config  string                      `json:"config"`
+		Binding hostbridge.AuthorityBinding `json:"binding"`
+	}
+	if err := json.NewDecoder(stdout).Decode(&ready); err != nil {
+		t.Fatalf("Python Authority did not become ready: %v", err)
+	}
+	runGatewayProcessSubmit(t, dir, ready.DB, ready.Config, ready.Binding, expected, func(pid int) {
+		if pinPID {
+			if _, err := fmt.Fprintln(stdin, pid); err != nil {
 				t.Fatal(err)
 			}
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			defer func() {
-				if cmd.ProcessState == nil {
-					_ = cmd.Process.Kill()
-					_ = cmd.Wait()
-				}
-			}()
-			var ready struct {
-				DB      string                      `json:"db"`
-				Config  string                      `json:"config"`
-				Binding hostbridge.AuthorityBinding `json:"binding"`
-			}
-			if err := json.NewDecoder(stdout).Decode(&ready); err != nil {
-				t.Fatalf("Python Authority did not become ready: %v", err)
-			}
-			runGatewaySubmit(t, dir, ready.DB, ready.Config, ready.Binding, tc.note, nil)
-			if err := cmd.Wait(); err != nil {
-				t.Fatalf("Python Authority fixture: %v", err)
-			}
-		})
+		}
+		if err := stdin.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("Python Authority fixture: %v", err)
 	}
 }

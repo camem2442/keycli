@@ -105,7 +105,7 @@ synthetic reconcile and lost-response flags.
 The host supervisor creates the configuration from trusted registration data.
 Use a regular, single-link file with mode `0600` owned by the gateway's
 effective UID. The file is limited to 64 KiB and is read once at startup;
-restart to change a registration or the endpoint. All path components must
+restart to change a registration, endpoint, or pinned peer credentials. All path components must
 be absolute, clean and free of symlinks. Ancestors must belong to root, the
 gateway UID, or (for the socket) the pinned service UID. Shared writable
 ancestors require the sticky bit; the immediate parent cannot be shared
@@ -114,9 +114,17 @@ ACL entries that can grant access. A socket that already exists at startup
 must be an owner-only Unix socket owned by the pinned UID. Each exchange
 checks the socket and authenticates the connected kernel peer independently.
 
-The JSON document contains exactly `v` (integer `1`), `socket_path`,
-`socket_uid` (numeric), and a nonempty `registrations` array. Each entry
-contains exactly these fields:
+The JSON document requires `v` (integer `1`), `socket_path` and
+`socket_uid` for the v1 advisory endpoint, and a nonempty `registrations`
+array. It accepts an optional `guarded_execution` object with exactly
+`socket_path`, `socket_uid` (unsigned 32-bit integer), and
+`socket_pid` (positive signed 32-bit integer). The guarded endpoint follows
+the same socket path and ownership rules and checks both kernel UID and
+PID on every connection. Restart the Gateway with the verifier's new PID
+if the verifier process restarts. An invalid guarded setting aborts startup.
+Omit `guarded_execution` to use advisory execution previews.
+
+Each registration contains the following fields.
 
 | Fields | Meaning |
 |---|---|
@@ -163,9 +171,11 @@ Go/Python Unix preview regression.
 
 A trusted host can explicitly compose `LocalAuthority.Execution` with
 `hostbridge.NewGuardedExecution` using a fixed filesystem Unix endpoint and
-the verifier's kernel UID and PID. The startup registration loader
-continues to configure the v1 advisory client. A configured guarded exchange
-requires the version 2 method and has no fallback to a preview or legacy
+the verifier's kernel UID and PID. At startup, the protected
+`guarded_execution` settings select this exchange while the top-level socket
+continues to serve v1 admission previews. The verifier must already support
+the version 2 method, and the exact reservation must exist by dispatch.
+A configured guarded exchange has no fallback to a preview or legacy
 mutating method.
 
 The guarded client sends one EOF-framed JSON object and one `SCM_RIGHTS`
@@ -208,3 +218,8 @@ validation, and journal settlement through the provider callback. Revocation,
 binding mismatch, separately opened descriptors, peer mismatch, and invalid,
 lost or stalled replies are covered. Set `KEYCLI_TEST_WORKSPACE_INFRA` to the
 workspace-infra checkout containing the Python mutation coordinator fixtures.
+`TestGatewayPythonGuardedExecution` also starts `kc-gateway` with the protected
+configuration and connects it to workspace-infra's `tooling.keycli_guarded_execution`
+receiver. This test prepares a synthetic reservation before submitting the
+request. The receiver borrows the journal lock for verification, and the test
+checks both the SQLite execution claim and the Go journal outcome.

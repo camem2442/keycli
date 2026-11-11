@@ -24,7 +24,7 @@ if not __debug__:
     raise RuntimeError("fixture assertions must be enabled")
 
 
-def prepare(root, mode):
+def prepare_fixture(root, mode):
     fixture = fixtures.GatewayAuthorityTests()
     # Keep the upstream fixture in the Go test's private scratch directory
     # so the verifier can reopen the same registry, grant and SQLite store.
@@ -41,6 +41,11 @@ def prepare(root, mode):
         "request": fixture.request,
         "decision": decision,
     })
+    return fixture
+
+
+def prepare(root, mode):
+    fixture = prepare_fixture(root, mode)
     print(json.dumps({field: fixture.request[field] for field in gateway.BINDINGS}))
 
 

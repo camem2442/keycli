@@ -5,6 +5,7 @@ package effectgateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,23 @@ func TestHostAuthorityConfigRejectsUnsafeInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if a.Admitter == nil || a.Execution != nil {
+		t.Fatal("startup without guarded settings must compose only the v1 advisory client")
+	}
+	guardDir := filepath.Join(dir, "guarded")
+	if err := os.Mkdir(guardDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	guardSocket := filepath.Join(guardDir, "authority.sock")
+	guarded := fmt.Sprintf(`{"socket_path":%q,"socket_uid":%d,"socket_pid":%d}`, guardSocket, os.Geteuid(), os.Getpid())
+	withGuard := func(settings string) string {
+		return document[:len(document)-1] + `,"guarded_execution":` + settings + "}"
+	}
+	write(t, withGuard(guarded), 0600)
+	guardedAuthority, err := LoadLocalAuthority(path)
+	if err != nil || guardedAuthority.Execution == nil || guardedAuthority.Admitter == nil {
+		t.Fatalf("guarded startup under protected parent: %v", err)
+	}
 	for _, change := range []struct{ name, raw string }{
 		{"oversize", document + strings.Repeat(" ", maxAuthorityConfig)},
 		{"trailing", document + "{}"},
@@ -57,6 +75,18 @@ func TestHostAuthorityConfigRejectsUnsafeInputs(t *testing.T) {
 		{"unknown registration field", strings.Replace(document, `"goal_id":`, `"extra":0,"goal_id":`, 1)},
 		{"invalid resource digest", strings.Replace(document, strings.Repeat("a", 64), "x", 1)},
 		{"noncanonical socket", strings.Replace(document, socket, socketDir+"/./authority.sock", 1)},
+		{"null guarded execution", withGuard("null")},
+		{"malformed guarded execution", withGuard("[]")},
+		{"duplicate guarded execution", strings.TrimSuffix(withGuard(guarded), "}") + `,"guarded_execution":` + guarded + "}"},
+		{"case folded guarded execution", strings.Replace(withGuard(guarded), `"guarded_execution"`, `"Guarded_execution"`, 1)},
+		{"missing guarded PID", withGuard(fmt.Sprintf(`{"socket_path":%q,"socket_uid":%d}`, guardSocket, os.Geteuid()))},
+		{"zero guarded PID", withGuard(fmt.Sprintf(`{"socket_path":%q,"socket_uid":%d,"socket_pid":0}`, guardSocket, os.Geteuid()))},
+		{"out of range guarded PID", withGuard(fmt.Sprintf(`{"socket_path":%q,"socket_uid":%d,"socket_pid":2147483648}`, guardSocket, os.Geteuid()))},
+		{"string guarded PID", withGuard(fmt.Sprintf(`{"socket_path":%q,"socket_uid":%d,"socket_pid":"1"}`, guardSocket, os.Geteuid()))},
+		{"null guarded UID", withGuard(fmt.Sprintf(`{"socket_path":%q,"socket_uid":null,"socket_pid":1}`, guardSocket))},
+		{"duplicate guarded UID", withGuard(strings.Replace(guarded, `"socket_uid":`, `"socket_uid":1,"socket_uid":`, 1))},
+		{"unknown guarded field", withGuard(`{"extra":false,` + guarded[1:])},
+		{"relative guarded socket", withGuard(strings.Replace(guarded, guardSocket, "guarded/authority.sock", 1))},
 	} {
 		t.Run(change.name, func(t *testing.T) {
 			write(t, change.raw, 0600)
@@ -112,4 +142,62 @@ func TestHostAuthorityConfigRejectsUnsafeInputs(t *testing.T) {
 	if _, err := LoadLocalAuthority(path); err == nil {
 		t.Fatal("shared writable socket parent accepted")
 	}
+	if err := os.Chmod(socketDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	unsafeGuardDir := filepath.Join(dir, "unsafe-guarded")
+	if err := os.Mkdir(unsafeGuardDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unsafeGuardDir, 0770); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		settings string
+	}{
+		{"symlink guarded ancestor", strings.Replace(guarded, guardSocket, filepath.Join(parentAlias, "authority.sock"), 1)},
+		{"shared writable guarded parent", strings.Replace(guarded, guardSocket, filepath.Join(unsafeGuardDir, "authority.sock"), 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write(t, withGuard(tc.settings), 0600)
+			if _, err := LoadLocalAuthority(path); err == nil {
+				t.Fatal("unsafe guarded socket path accepted")
+			}
+		})
+	}
+	write(t, withGuard(guarded), 0600)
+	if err := os.Symlink(path, guardSocket); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLocalAuthority(path); err == nil {
+		t.Fatal("symlink guarded socket accepted")
+	}
+	if err := os.Remove(guardSocket); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", guardSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	if err := os.Chmod(guardSocket, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLocalAuthority(path); err != nil {
+		t.Fatalf("protected guarded socket rejected: %v", err)
+	}
+	wrongUID := strings.Replace(guarded, fmt.Sprintf(`"socket_uid":%d`, os.Geteuid()), fmt.Sprintf(`"socket_uid":%d`, uint32(os.Geteuid())+1), 1)
+	write(t, withGuard(wrongUID), 0600)
+	if _, err := LoadLocalAuthority(path); err == nil {
+		t.Fatal("guarded socket owned by a different UID accepted")
+	}
+	write(t, withGuard(guarded), 0600)
+	if err := os.Chmod(guardSocket, 0660); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLocalAuthority(path); err == nil {
+		t.Fatal("guarded socket with group access accepted")
+	}
+
 }

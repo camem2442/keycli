@@ -102,6 +102,17 @@ func gatewayTempDir(t *testing.T) string {
 
 func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.AuthorityBinding, wantNote string, beforeSubmit func()) {
 	t.Helper()
+	runGatewayProcessSubmit(t, dir, db, config, want, effectgateway.Receipt{
+		Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: wantNote,
+	}, func(_ int) {
+		if beforeSubmit != nil {
+			beforeSubmit()
+		}
+	})
+}
+
+func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbridge.AuthorityBinding, expected effectgateway.Receipt, beforeSubmit func(int)) {
+	t.Helper()
 	address, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +165,7 @@ func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.Auth
 		t.Fatal("invalid issued key format")
 	}
 	if beforeSubmit != nil {
-		beforeSubmit()
+		beforeSubmit(cmd.Process.Pid)
 	}
 	req := effectgateway.Request{
 		GoalID: want.GoalID, MutationID: want.MutationID, Generation: want.WriterGeneration,
@@ -173,15 +184,23 @@ func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.Auth
 	defer res.Body.Close()
 	var receipt effectgateway.Receipt
 	if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&receipt) != nil ||
-		receipt.Status != effectgateway.StatusNoEffect || receipt.ProviderCalls != 0 ||
-		receipt.OperationState != string(journal.ObservedNoEffect) || receipt.Note != wantNote {
+		receipt.Status != expected.Status || receipt.ProviderCalls != expected.ProviderCalls ||
+		receipt.OperationState != expected.OperationState || (expected.Note != "" && receipt.Note != expected.Note) {
 		t.Fatalf("unexpected submit: HTTP %d, %+v", res.StatusCode, receipt)
 	}
-	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
-		t.Fatalf("provider ledger should not exist: %v", err)
+	if expected.ProviderCalls == 0 {
+		if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
+			t.Fatalf("provider ledger should not exist: %v", err)
+		}
+	} else {
+		raw, err := os.ReadFile(ledgerPath)
+		var entry ledgerEntry
+		if err != nil || json.Unmarshal(raw, &entry) != nil || entry.Seq != 1 || entry.Mutation != want.MutationID {
+			t.Fatalf("expected one provider ledger entry for the bound mutation: %v", err)
+		}
 	}
 	record, err := (journal.Store{Root: journalPath}).Status(want.MutationID)
-	if err != nil || record.Version != 2 || record.State != journal.ObservedNoEffect ||
+	if err != nil || record.Version != 2 || string(record.State) != expected.OperationState ||
 		record.Binding == nil || *record.Binding != want {
 		t.Fatalf("unexpected persisted Authority binding: %+v, %v", record, err)
 	}

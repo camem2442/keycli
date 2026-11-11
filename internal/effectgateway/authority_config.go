@@ -32,7 +32,7 @@ func (r hostRegistry) Resolve(_ context.Context, goalID, mutationID string) (Reg
 }
 
 // LoadLocalAuthority snapshots an owner-only registration file at startup. A
-// restart is required to change the fixed socket, peer UID or registrations.
+// restart is required to change fixed sockets, peer credentials or registrations.
 func LoadLocalAuthority(path string) (LocalAuthority, error) {
 	var result LocalAuthority
 	uid := uint32(os.Geteuid())
@@ -60,24 +60,31 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 	var socket string
 	var socketUID uint32
 	var entries []json.RawMessage
+	var guardedRaw json.RawMessage
 	if !decodeAuthorityObject(raw, map[string]any{
 		"v": &version, "socket_path": &socket, "socket_uid": &socketUID, "registrations": &entries,
-	}) || version != 1 || len(entries) == 0 || len(socket) > 103 {
-		return result, errAuthorityConfig
-	}
-	socketDir, socketName, err := openAuthorityParent(socket, uid, socketUID)
-	if err != nil {
-		return result, errAuthorityConfig
-	}
-	err = unix.Fstatat(int(socketDir.Fd()), socketName, &st, unix.AT_SYMLINK_NOFOLLOW)
-	_ = socketDir.Close()
-	if (err == nil && (st.Mode&unix.S_IFMT != unix.S_IFSOCK || st.Mode&07777 != 0600 || st.Uid != socketUID)) ||
-		(err != nil && !errors.Is(err, os.ErrNotExist)) {
+	}, map[string]any{"guarded_execution": &guardedRaw}) || version != 1 || len(entries) == 0 ||
+		!authoritySocketProtected(socket, uid, socketUID) {
 		return result, errAuthorityConfig
 	}
 	client, err := hostbridge.NewLocalAdmitter(socket, socketUID)
 	if err != nil {
 		return result, errAuthorityConfig
+	}
+	var execution *hostbridge.GuardedExecution
+	if guardedRaw != nil {
+		var guardedSocket string
+		var guardedUID uint32
+		var guardedPID int32
+		if !decodeAuthorityObject(guardedRaw, map[string]any{
+			"socket_path": &guardedSocket, "socket_uid": &guardedUID, "socket_pid": &guardedPID,
+		}, nil) || !authoritySocketProtected(guardedSocket, uid, guardedUID) {
+			return result, errAuthorityConfig
+		}
+		execution, err = hostbridge.NewGuardedExecution(guardedSocket, guardedUID, int(guardedPID))
+		if err != nil {
+			return result, errAuthorityConfig
+		}
 	}
 
 	registry := make(hostRegistry, len(entries))
@@ -89,7 +96,7 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 			"writer_generation": &id.WriterGeneration, "owner": &id.WriterOwner, "session": &id.WriterSession,
 			"provider": &reg.Provider, "provider_operation": &reg.ProviderOperation, "canonical_target": &reg.CanonicalTarget,
 			"resource_digest": &reg.ResourceDigest, "plan_digest": &reg.PlanDigest, "grant_digest": &reg.GrantDigest,
-		}) {
+		}, nil) {
 			return result, errAuthorityConfig
 		}
 		_, mutating, err := hostbridge.ClassifyOperation(reg.Provider, reg.ProviderOperation)
@@ -103,7 +110,22 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 		}
 		registry[key] = reg
 	}
-	return LocalAuthority{Registry: registry, Admitter: client}, nil
+	return LocalAuthority{Registry: registry, Admitter: client, Execution: execution}, nil
+}
+
+func authoritySocketProtected(path string, uid, socketUID uint32) bool {
+	if len(path) > 103 {
+		return false
+	}
+	dir, name, err := openAuthorityParent(path, uid, socketUID)
+	if err != nil {
+		return false
+	}
+	defer dir.Close()
+	var st unix.Stat_t
+	err = unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW)
+	return errors.Is(err, os.ErrNotExist) ||
+		(err == nil && st.Mode&unix.S_IFMT == unix.S_IFSOCK && st.Mode&07777 == 0600 && st.Uid == socketUID)
 }
 
 // openAuthorityParent walks the path using directory descriptors, checking that
@@ -142,8 +164,8 @@ func openAuthorityParent(path string, uid, serviceUID uint32) (*os.File, string,
 }
 
 // decodeAuthorityObject requires exact names and a single non-null value for
-// every field. encoding/json otherwise accepts duplicate and case-folded keys.
-func decodeAuthorityObject(raw []byte, fields map[string]any) bool {
+// every required field and any optional fields present.
+func decodeAuthorityObject(raw []byte, required, optional map[string]any) bool {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := d.Token(); err != nil || tok != json.Delim('{') {
 		return false
@@ -151,16 +173,21 @@ func decodeAuthorityObject(raw []byte, fields map[string]any) bool {
 	for d.More() {
 		key, err := d.Token()
 		name, ok := key.(string)
-		if err != nil || !ok || fields[name] == nil {
+		if err != nil || !ok {
 			return false
+		}
+		target := required[name]
+		if target == nil {
+			target = optional[name]
 		}
 		var value json.RawMessage
-		if d.Decode(&value) != nil || bytes.Equal(value, []byte("null")) || json.Unmarshal(value, fields[name]) != nil {
+		if target == nil || d.Decode(&value) != nil || bytes.Equal(value, []byte("null")) || json.Unmarshal(value, target) != nil {
 			return false
 		}
-		delete(fields, name)
+		delete(required, name)
+		delete(optional, name)
 	}
-	if tok, err := d.Token(); err != nil || tok != json.Delim('}') || len(fields) != 0 {
+	if tok, err := d.Token(); err != nil || tok != json.Delim('}') || len(required) != 0 {
 		return false
 	}
 	_, err := d.Token()
