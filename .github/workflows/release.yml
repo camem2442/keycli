@@ -126,7 +126,9 @@ jobs:
       - name: Unit and policy regression
         env:
           CGO_ENABLED: "0"
-        run: bash verify.sh --suite all
+        run: |
+          umask 022
+          bash verify.sh --suite all
 
   build:
     needs: [classify, verify]
