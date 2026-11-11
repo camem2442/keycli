@@ -180,6 +180,11 @@ func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.Auth
 	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
 		t.Fatalf("provider ledger should not exist: %v", err)
 	}
+	record, err := (journal.Store{Root: journalPath}).Status(want.MutationID)
+	if err != nil || record.Version != 2 || record.State != journal.ObservedNoEffect ||
+		record.Binding == nil || *record.Binding != want {
+		t.Fatalf("unexpected persisted Authority binding: %+v, %v", record, err)
+	}
 }
 
 func denyAtExecution(listener *net.UnixListener, want hostbridge.AuthorityBinding) error {

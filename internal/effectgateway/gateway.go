@@ -82,7 +82,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		PlanDigest:   req.PlanDigest,
 		GrantDigest:  req.GrantDigest,
 	}
-	record, err := g.Journal.Dispatch(intent, func() (journal.Observation, error) {
+	effect := func() (journal.Observation, error) {
 		// The journal is durable and locked. Recheck the writer and the exact
 		// authority binding before allowing any provider call.
 		noEffect := func(reason string) (journal.Observation, error) {
@@ -148,12 +148,21 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		default:
 			return journal.Observation{}, errors.New("provider result state is not recognised")
 		}
-	})
+	}
+	var record journal.Record
+	if local, ok := bound.(*localBoundAuthority); ok {
+		// Use the protected registration projection that was sent to Authority.
+		record, err = g.Journal.DispatchBound(intent, local.binding, effect)
+	} else {
+		record, err = g.Journal.Dispatch(intent, effect)
+	}
 
 	switch {
 	case errors.Is(err, journal.ErrDuplicate):
 		return Receipt{MutationID: req.MutationID, Status: StatusDuplicate, ProviderCalls: 0,
 			Note: "mutation already recorded; no provider call"}, nil
+	case errors.Is(err, journal.ErrIntentMismatch):
+		return Receipt{}, ErrMutationConflict
 	case errors.Is(err, journal.ErrTargetPending):
 		return Receipt{}, ErrTargetPending
 	case errors.Is(err, journal.ErrBusy):

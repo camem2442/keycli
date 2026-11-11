@@ -40,6 +40,22 @@ def serve(root, changed_head):
         evaluate = authority.evaluate_until
 
         def capture(request, *, peer_uid, deadline):
+            if request["method"] == "preview_execution":
+                intent = {field: request[field] for field in gateway.BINDINGS}
+                path = root / "journal" / f"{intent['mutation_id']}.json"
+                record = json.loads(path.read_text())
+                fixture.assertEqual(record["v"], 2)
+                fixture.assertEqual(record["state"], "DISPATCHED")
+                fixture.assertEqual(record["authority_binding"], intent)
+
+                def read_execution_journal(manifest, mutation_id, *, deadline):
+                    snapshot = fixture.read_journal(manifest, mutation_id, deadline=deadline)
+                    snapshot["open_operations"] = [mutation_id]
+                    return gateway.execution_journal(
+                        snapshot, {"state": record["state"], "intent": record["authority_binding"]}, intent,
+                    )
+
+                authority.read_journal = read_execution_journal
             reply = evaluate(request, peer_uid=peer_uid, deadline=deadline)
             requests.append(request)
             replies.append(reply)

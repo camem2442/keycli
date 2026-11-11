@@ -33,9 +33,11 @@ authentication.
 | `Session`, `Owner` | must equal the current claim session/owner |
 | `ExpiresAt` | required; must be in the future and at most 10 minutes ahead |
 
-Replay protection is durable: `MutationID` is the journal operation id, so a
-replayed envelope returns `DUPLICATE` with zero provider calls. `ExpiresAt` bounds
-the window in which a captured envelope could be attempted at all.
+Replay protection is durable: `MutationID` is the journal operation id. A
+replay matching the recorded intent returns `DUPLICATE` with zero provider calls.
+Reusing the same id with a different intent returns HTTP 409
+(`MUTATION_CONFLICT`). `ExpiresAt` bounds the window in which a captured
+envelope could be attempted at all.
 
 ## Order of checks
 
@@ -55,11 +57,13 @@ observation).
 | `ACKNOWLEDGED` | provider acknowledged (not value equality) | `APPLIED` |
 | `OBSERVED_NO_EFFECT` | no provider call (claim changed, or provider reported none) | `NO_EFFECT` |
 | `UNKNOWN_EFFECT` | provider may have applied; result lost | `UNKNOWN_EFFECT` |
-| duplicate operation id | already recorded | `DUPLICATE` (0 calls) |
+| duplicate operation id | recorded intent matches | `DUPLICATE` (0 calls) |
+| conflicting operation id | recorded intent differs | `MUTATION_CONFLICT` (0 calls) |
 | pending operation on same target | unresolved intent owns the target | `ErrTargetPending` |
 
-`UNKNOWN_EFFECT` is never settled by the gateway. Only journal `Reconcile` with an
-operation-bound proof can close it.
+`UNKNOWN_EFFECT` is never settled by the gateway. Legacy journal `Reconcile`
+can close version 1 records with an operation-bound proof. Authority-bound
+records require a future reconciliation path that verifies the original binding.
 
 ## Guarantees
 
@@ -133,6 +137,14 @@ V1 advisory replies carry `authorizes_execution: false`. The gateway
 records a local no-effect result when an advisory reply is the final
 execution check. Provider execution requires a shared journal owner and
 an execution handoff that remains fenced through dispatch and settlement.
+
+The Go journal uses record version 2 for these submissions. The
+`authority_binding` object in the durable intent and dispatch marker is the
+same metadata projection sent to Authority: goal, writer identity, provider,
+registered operation, mutation id, and resource, target, plan, and grant
+digests. Reads verify that the mutation id and overlapping digests match the
+outer intent. An exact replay must match the whole binding. Version 1 records
+remain readable and do not provide an Authority binding.
 
 The opt-in cross-language test
 `TestGatewayPythonTakeoverWaitsForJournal` runs the real Go journal and the

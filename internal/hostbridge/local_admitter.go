@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/camem2442/keycli/internal/authoritybinding"
 )
 
 const (
@@ -28,26 +30,11 @@ var (
 	ErrLocalAuthorityInvalid     = errors.New("AUTHORITY_REPLY_INVALID")
 	ErrExecutionFenceUnavailable = errors.New("EXECUTION_FENCE_UNAVAILABLE")
 	wireIdentifier               = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	wireOperation                = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
-	wireDigest                   = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	wireTimestamp                = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$`)
 )
 
 // AuthorityBinding is the protected registration projection for one exact intent.
-// Operation identifies the registration; MutationID identifies the dispatch.
-type AuthorityBinding struct {
-	GoalID           string `json:"goal_id"`
-	MutationID       string `json:"mutation_id"`
-	WriterGeneration int64  `json:"writer_generation"`
-	Owner            string `json:"owner"`
-	Session          string `json:"session"`
-	Provider         string `json:"provider"`
-	Operation        string `json:"operation"`
-	ResourceDigest   string `json:"resource_digest"`
-	TargetDigest     string `json:"target_digest"`
-	PlanDigest       string `json:"plan_digest"`
-	GrantDigest      string `json:"grant_digest"`
-}
+type AuthorityBinding = authoritybinding.Binding
 
 type authorityRequest struct {
 	Version   int    `json:"v"`
@@ -177,16 +164,6 @@ func (a *LocalAdmitter) exchange(ctx context.Context, method string, binding Aut
 		return fail()
 	}
 	return reply, err
-}
-
-// Valid reports whether every projected field can be represented in the v1 protocol.
-func (b AuthorityBinding) Valid() bool {
-	return wireIdentifier.MatchString(b.GoalID) && wireOperation.MatchString(b.MutationID) &&
-		wireOperation.MatchString(b.Operation) && b.WriterGeneration > 0 &&
-		hostID.MatchString(b.Owner) && wireIdentifier.MatchString(b.Session) &&
-		(b.Provider == "cloudflare" || b.Provider == "github" || b.Provider == "oracle") &&
-		wireDigest.MatchString(b.ResourceDigest) && wireDigest.MatchString(b.TargetDigest) &&
-		wireDigest.MatchString(b.PlanDigest) && wireDigest.MatchString(b.GrantDigest)
 }
 
 var replyFields = strings.Fields("v request_id status reason goal_id mutation_id writer_generation owner session provider operation resource_digest target_digest plan_digest grant_digest admission_digest expires_at mutation_state authorizes_execution")

@@ -10,6 +10,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/camem2442/keycli/internal/authoritybinding"
 )
 
 type State string
@@ -24,11 +26,12 @@ const (
 )
 
 var (
-	ErrNotFound      = errors.New("delivery operation not found")
-	ErrDuplicate     = errors.New("delivery operation already exists")
-	ErrTargetPending = errors.New("delivery target has an unresolved operation")
-	ErrBusy          = errors.New("delivery journal is locked")
-	ErrUnknownEffect = errors.New("delivery effect is unknown")
+	ErrNotFound       = errors.New("delivery operation not found")
+	ErrDuplicate      = errors.New("delivery operation already exists")
+	ErrIntentMismatch = errors.New("delivery operation identity mismatch")
+	ErrTargetPending  = errors.New("delivery target has an unresolved operation")
+	ErrBusy           = errors.New("delivery journal is locked")
+	ErrUnknownEffect  = errors.New("delivery effect is unknown")
 )
 
 var operationID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
@@ -54,8 +57,9 @@ type Intent struct {
 type Record struct {
 	Version int `json:"v"`
 	Intent
-	State       State  `json:"state"`
-	ProofDigest string `json:"proof_digest,omitempty"`
+	Binding     *authoritybinding.Binding `json:"authority_binding,omitempty"`
+	State       State                     `json:"state"`
+	ProofDigest string                    `json:"proof_digest,omitempty"`
 }
 
 // Observation is supplied only by a trusted host callback. Its digest
@@ -75,7 +79,17 @@ type Store struct {
 // dispatch marker before invoking effect exactly once, while holding the
 // writer lock. A provider acknowledgement is not a verification receipt.
 func (s Store) Dispatch(intent Intent, effect func() (Observation, error)) (Record, error) {
-	if !validIntent(intent) || effect == nil {
+	return s.dispatch(Record{Version: 1, Intent: intent, State: IntentWritten}, effect)
+}
+
+// DispatchBound persists the protected registration projection alongside the
+// intent in both durable markers. It grants no execution authority.
+func (s Store) DispatchBound(intent Intent, binding authoritybinding.Binding, effect func() (Observation, error)) (Record, error) {
+	return s.dispatch(Record{Version: 2, Intent: intent, Binding: &binding, State: IntentWritten}, effect)
+}
+
+func (s Store) dispatch(record Record, effect func() (Observation, error)) (Record, error) {
+	if !validIntent(record.Intent) || !validBinding(record) || effect == nil {
 		return Record{}, errors.New("invalid delivery journal dispatch")
 	}
 	dir, unlock, err := s.lock(true)
@@ -84,10 +98,9 @@ func (s Store) Dispatch(intent Intent, effect func() (Observation, error)) (Reco
 	}
 	defer unlock()
 
-	if err := admit(dir, intent); err != nil {
+	if err := admit(dir, record); err != nil {
 		return Record{}, err
 	}
-	record := Record{Version: 1, Intent: intent, State: IntentWritten}
 	if err := writeRecord(dir, record); err != nil {
 		return Record{}, fmt.Errorf("persist delivery intent: %w", err)
 	}
@@ -135,8 +148,9 @@ func (s Store) Reconcile(intent Intent, observe func(Record) (Observation, error
 	if err != nil {
 		return Record{}, err
 	}
-	if record.Intent != intent {
-		return Record{}, errors.New("delivery operation identity mismatch")
+	// This legacy path has no way to supply or verify an Authority binding.
+	if record.Intent != intent || record.Binding != nil {
+		return Record{}, ErrIntentMismatch
 	}
 	if !pending(record.State) {
 		return record, nil
@@ -154,6 +168,30 @@ func validIntent(intent Intent) bool {
 	return operationID.MatchString(intent.OperationID) &&
 		digest.MatchString(intent.TargetDigest) && digest.MatchString(intent.PlanDigest) &&
 		digest.MatchString(intent.GrantDigest)
+}
+
+func validBinding(record Record) bool {
+	b := record.Binding
+	switch record.Version {
+	case 1:
+		return b == nil
+	case 2:
+		return b != nil && b.Valid() &&
+			b.MutationID == record.OperationID && b.TargetDigest == record.TargetDigest &&
+			b.PlanDigest == record.PlanDigest && b.GrantDigest == record.GrantDigest
+	default:
+		return false
+	}
+}
+
+func sameIntent(a, b Record) bool {
+	if a.Intent != b.Intent || a.Version != b.Version {
+		return false
+	}
+	if a.Binding == nil || b.Binding == nil {
+		return a.Binding == nil && b.Binding == nil
+	}
+	return *a.Binding == *b.Binding
 }
 
 func pending(state State) bool {
@@ -177,9 +215,12 @@ func settle(dir *os.File, record Record, observation Observation) (Record, error
 	return record, nil
 }
 
-func admit(dir *os.File, intent Intent) error {
-	_, err := readRecord(dir, intent.OperationID)
+func admit(dir *os.File, candidate Record) error {
+	record, err := readRecord(dir, candidate.OperationID)
 	if err == nil {
+		if !sameIntent(record, candidate) {
+			return ErrIntentMismatch
+		}
 		return ErrDuplicate
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -196,7 +237,7 @@ func admit(dir *os.File, intent Intent) error {
 			if err != nil {
 				return fmt.Errorf("read delivery target latch: %w", err)
 			}
-			if record.TargetDigest == intent.TargetDigest && pending(record.State) {
+			if record.TargetDigest == candidate.TargetDigest && pending(record.State) {
 				return ErrTargetPending
 			}
 		}

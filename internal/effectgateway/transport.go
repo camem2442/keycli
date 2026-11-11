@@ -83,6 +83,8 @@ func errorStatus(err error) (int, string) {
 		return http.StatusConflict, "CLAIM_LEASE_EXPIRED"
 	case errors.Is(err, ErrTargetPending):
 		return http.StatusConflict, "TARGET_PENDING"
+	case errors.Is(err, ErrMutationConflict):
+		return http.StatusConflict, "MUTATION_CONFLICT"
 	case errors.Is(err, ErrGatewayBusy):
 		return http.StatusTooManyRequests, "GATEWAY_BUSY"
 	case errors.Is(err, ErrAdmissionRejected):

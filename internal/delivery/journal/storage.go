@@ -166,7 +166,7 @@ func readRecord(dir *os.File, id string) (Record, error) {
 	}
 	var record Record
 	if len(data) > recordLimit || json.Unmarshal(data, &record) != nil ||
-		record.Version != 1 || record.OperationID != id || !validIntent(record.Intent) || !validState(record) {
+		record.OperationID != id || !validIntent(record.Intent) || !validBinding(record) || !validState(record) {
 		return Record{}, errors.New("invalid delivery journal record")
 	}
 	// This also rejects unknown or duplicate fields and trailing input.

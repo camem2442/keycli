@@ -51,6 +51,7 @@ var (
 	ErrClaimLeaseExpired  = errors.New("effect gateway requires a live claim lease")
 	ErrAdmissionRejected  = errors.New("host admission rejected the effect")
 	ErrTargetPending      = errors.New("effect gateway has an unresolved operation for this target")
+	ErrMutationConflict   = errors.New("effect gateway mutation conflicts with recorded intent")
 	ErrJournalUnavailable = errors.New("effect gateway journal unavailable")
 	ErrGatewayBusy        = errors.New("effect gateway is busy for this journal")
 )

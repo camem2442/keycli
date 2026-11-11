@@ -153,7 +153,7 @@ func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.Author
 		if err != nil {
 			return err
 		}
-		if i == 0 && mode == "advisory expires" {
+		if i == 0 && (mode == "advisory expires" || mode == "admission only") {
 			return nil
 		}
 	}
@@ -198,10 +198,44 @@ func TestGatewayLocalAuthorityNeverAuthorizesV1(t *testing.T) {
 				t.Fatalf("unexpected fixed code: %v", receipt.Note)
 			}
 			record, err := h.gw.Journal.Status(req.MutationID)
-			if err != nil || record.State != journal.ObservedNoEffect {
+			if err != nil || record.State != journal.ObservedNoEffect ||
+				record.Version != 2 || record.Binding == nil || *record.Binding != want {
 				t.Fatalf("journal not settled: %+v, %v", record, err)
 			}
 		})
+	}
+}
+
+func TestGatewayLocalAuthorityReplayRequiresExactBinding(t *testing.T) {
+	h := newHarness(t)
+	reg, req := authorityRegistration()
+	listener, path := authoritySocket(t)
+	submit := func(reg RegisteredOperation, mode string) (Receipt, error) {
+		h.gw.Authority = localFixtureAuthority(t, path, uint32(os.Geteuid()), reg, h.gw.Now)
+		done := make(chan error, 1)
+		go func() { done <- runLocalAuthorityFixture(listener, reg.authorityBinding(), mode) }()
+		receipt, err := h.gw.Submit(context.Background(), Sign(req, []byte(testKey)))
+		if fixtureErr := <-done; fixtureErr != nil {
+			t.Fatal(fixtureErr)
+		}
+		return receipt, err
+	}
+	first, err := submit(reg, "execution preview")
+	if err != nil || first.Status != StatusNoEffect || first.ProviderCalls != 0 {
+		t.Fatalf("first dispatch: %+v, %v", first, err)
+	}
+	replay, err := submit(reg, "admission only")
+	if err != nil || replay.Status != StatusDuplicate || replay.ProviderCalls != 0 {
+		t.Fatalf("exact replay: %+v, %v", replay, err)
+	}
+	changed := reg
+	changed.ResourceDigest = strings.Repeat("f", 64)
+	if receipt, err := submit(changed, "admission only"); !errors.Is(err, ErrMutationConflict) || receipt.ProviderCalls != 0 {
+		t.Fatalf("changed registration reused mutation ID: %+v, %v", receipt, err)
+	}
+	record, err := h.gw.Journal.Status(req.MutationID)
+	if err != nil || record.Binding == nil || *record.Binding != reg.authorityBinding() || h.provider.calls != 0 {
+		t.Fatalf("replay changed the original binding or called provider: %+v, %v", record, err)
 	}
 }
 
