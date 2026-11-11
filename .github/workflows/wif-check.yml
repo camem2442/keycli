@@ -1,0 +1,64 @@
+name: PR-13 GitHub WIF check
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    if: >-
+      github.repository == 'camem2442/keycli-release-validation' &&
+      github.event.repository.visibility == 'private' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.repository.default_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: keycli-wif-pr13
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - name: Download and verify the approved KeyCLI binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          scratch="$(mktemp -d "$HOME/keycli-wif-pr13.XXXXXX")"
+          printf 'KEYCLI_WIF_DIR=%s\n' "$scratch" >>"$GITHUB_ENV"
+          cd "$scratch"
+          gh api repos/camem2442/keycli-release-validation/actions/artifacts/13901031303/zip >bundle.zip
+          printf '%s  bundle.zip\n' 24e907670cda0f65031e27d612384abba94fc9ebd73982c91ea6d6856eb859e1 | sha256sum -c -
+          unzip -p bundle.zip kc-linux-amd64 >kc
+          printf '%s  kc\n' 00f4486d5529c54fd5511cd335208269cda369c9851ddf208585f6297669fbe7 | sha256sum -c -
+          chmod 700 kc
+          test "$(./kc --version)" = 'kc version v0.10.0 (73be3400cfed00eedf6051bfee412da4fe9f8356)'
+
+      - name: Check registered OpenAI model access
+        shell: bash
+        env:
+          REGISTRATION: ${{ secrets.KEYCLI_WIF_REGISTRATION }}
+          REGISTRATION_SHA256: ${{ vars.KEYCLI_WIF_REGISTRATION_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$REGISTRATION_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s' "$REGISTRATION" >"$KEYCLI_WIF_DIR/registration.json"
+          unset REGISTRATION
+          jq -e --arg workflow "$GITHUB_WORKFLOW_SHA" \
+            '.provider == "github-actions-wif" and .binding.Binding.Mapping.WorkflowSHA == $workflow' \
+            "$KEYCLI_WIF_DIR/registration.json" >/dev/null
+          "$KEYCLI_WIF_DIR/kc" auth wif-check \
+            --registration "$KEYCLI_WIF_DIR/registration.json" \
+            --registration-sha256 "$REGISTRATION_SHA256"
+
+      - name: Remove the temporary files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${KEYCLI_WIF_DIR:-}" == "$HOME"/keycli-wif-pr13.* ]]; then
+            rm -rf -- "$KEYCLI_WIF_DIR"
+          fi
