@@ -24,7 +24,7 @@ if not __debug__:
     raise RuntimeError("fixture assertions must be enabled")
 
 
-def prepare_fixture(root, mode):
+def authority_fixture(root):
     fixture = fixtures.GatewayAuthorityTests()
     # Keep the upstream fixture in the Go test's private scratch directory
     # so the verifier can reopen the same registry, grant and SQLite store.
@@ -32,6 +32,11 @@ def prepare_fixture(root, mode):
     tempfile = SimpleNamespace(TemporaryDirectory=lambda: directory)
     with patch.object(fixtures, "tempfile", tempfile):
         fixture.setUp()
+    return fixture
+
+
+def prepare_fixture(root, mode):
+    fixture = authority_fixture(root)
     _, _, _, _, decision, admit, _, _, _ = fixture.mutation_fixture()
     overrides = {"resource_digest": "e" * 64} if mode == "reservation-mismatch" else {}
     result = admit(**overrides)

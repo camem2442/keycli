@@ -58,6 +58,8 @@ type authorityAdvisory struct {
 type authorityReply struct {
 	authorityAdvisory
 	AdmissionDigest *string `json:"admission_digest"`
+	LeaseExpiresAt  *string `json:"lease_expires_at,omitempty"`
+	RequestDigest   *string `json:"request_digest,omitempty"`
 }
 
 // LocalAdmitter uses one host-configured filesystem Unix stream endpoint for
@@ -152,18 +154,32 @@ func (a *LocalAdmitter) exchange(ctx context.Context, method string, binding Aut
 	if err != nil || !os.SameFile(info, connectedInfo) || connectedInfo.Mode().Perm() != 0600 || !authoritySocketOwner(connectedInfo, a.uid) {
 		return fail()
 	}
-	if n, err := unixConn.Write(payload); err != nil || n != len(payload) || unixConn.CloseWrite() != nil {
-		return fail()
-	}
-	raw, err := io.ReadAll(io.LimitReader(unixConn, localMaxFrame+1))
-	if err != nil || len(raw) == 0 || ctx.Err() != nil || !time.Now().Before(deadline) {
-		return fail()
-	}
-	reply, err := validateAuthorityReply(req, raw)
 	if ctx.Err() != nil || !time.Now().Before(deadline) {
 		return fail()
 	}
-	return reply, err
+	// Admit may reserve a mutation after the first send attempt. A transport
+	// or validation failure after that point leaves the reservation uncertain.
+	afterSend := func(err error) (authorityReply, error) {
+		if method == "admit" && err != nil {
+			err = errors.Join(ErrReservationUnknown, err)
+		}
+		return authorityReply{}, err
+	}
+	if n, err := unixConn.Write(payload); err != nil || n != len(payload) || unixConn.CloseWrite() != nil {
+		return afterSend(ErrLocalAuthorityUnavailable)
+	}
+	raw, err := io.ReadAll(io.LimitReader(unixConn, localMaxFrame+1))
+	if err != nil || len(raw) == 0 || ctx.Err() != nil || !time.Now().Before(deadline) {
+		return afterSend(ErrLocalAuthorityUnavailable)
+	}
+	reply, err := validateAuthorityReply(req, raw)
+	if ctx.Err() != nil || !time.Now().Before(deadline) {
+		return afterSend(ErrLocalAuthorityUnavailable)
+	}
+	if err != nil {
+		return afterSend(err)
+	}
+	return reply, nil
 }
 
 var replyFields = strings.Fields("v request_id status reason goal_id mutation_id writer_generation owner session provider operation resource_digest target_digest plan_digest grant_digest admission_digest expires_at mutation_state authorizes_execution")
@@ -177,7 +193,12 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 	if !ok {
 		return bad()
 	}
-	if len(fields) != len(replyFields) {
+	extended := req.Method == "admit" && fields["lease_expires_at"] != nil && fields["request_digest"] != nil
+	expected := len(replyFields)
+	if extended {
+		expected += 2
+	}
+	if len(fields) != expected {
 		return bad()
 	}
 	for _, name := range replyFields {
@@ -192,7 +213,11 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 		return bad()
 	}
 	switch {
-	case (req.Method == "preview_admission" || req.Method == "preview_execution") &&
+	case extended:
+		if !validReservationReply(req, reply) {
+			return bad()
+		}
+	case (req.Method == "preview_admission" || req.Method == "preview_execution" || req.Method == "admit") &&
 		reply.Status == "ADVISORY" && reply.MutationState == nil:
 		if _, ok := parseWireTime(reply.ExpiresAt); !ok || reply.AdmissionDigest == nil ||
 			*reply.AdmissionDigest != jsonDigest(reply.authorityAdvisory) {

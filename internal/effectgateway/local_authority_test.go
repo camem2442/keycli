@@ -105,7 +105,11 @@ func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.Author
 
 func runLocalAuthorityFixtureAt(listener *net.UnixListener, want hostbridge.AuthorityBinding, mode string, now time.Time) error {
 	var firstID string
-	for i, method := range []string{"preview_admission", "preview_execution"} {
+	methods := []string{"preview_admission", "preview_execution"}
+	if mode == "guarded" {
+		methods[1] = "admit"
+	}
+	for i, method := range methods {
 		if err := listener.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 			return err
 		}
@@ -128,6 +132,13 @@ func runLocalAuthorityFixtureAt(listener *net.UnixListener, want hostbridge.Auth
 				return errors.New("wire method, nonce or exact registration binding differs")
 			}
 			firstID = req.RequestID
+			bindings, _ := json.Marshal(req.AuthorityBinding)
+			if method == "admit" {
+				digest := sha256.Sum256(bindings)
+				_, err = fmt.Fprintf(conn, `{"v":1,"request_id":%q,"status":"OK","reason":"ADMITTED",%s,"expires_at":null,"mutation_state":"RUNNING","authorizes_execution":false,"admission_digest":%q,"lease_expires_at":%q,"request_digest":%q}`,
+					req.RequestID, string(bindings[1:len(bindings)-1]), want.PlanDigest, now.Add(time.Minute).Format(time.RFC3339), hex.EncodeToString(digest[:]))
+				return err
+			}
 			status, reason := "BLOCKED", "GRANT_REVOKED"
 			expiry, state := "null", "null"
 			switch {
@@ -143,7 +154,6 @@ func runLocalAuthorityFixtureAt(listener *net.UnixListener, want hostbridge.Auth
 			case mode == "socket drops":
 				return nil
 			}
-			bindings, _ := json.Marshal(req.AuthorityBinding)
 			body := fmt.Sprintf(`{"v":1,"request_id":%q,"status":%q,"reason":%q,%s,"expires_at":%s,"mutation_state":%s,"authorizes_execution":false}`,
 				req.RequestID, status, reason, string(bindings[1:len(bindings)-1]), expiry, state)
 			digest := "null"

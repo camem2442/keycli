@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -104,14 +105,14 @@ func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.Auth
 	t.Helper()
 	runGatewayProcessSubmit(t, dir, db, config, want, effectgateway.Receipt{
 		Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: wantNote,
-	}, func(_ int) {
+	}, false, func(_ int) {
 		if beforeSubmit != nil {
 			beforeSubmit()
 		}
 	})
 }
 
-func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbridge.AuthorityBinding, expected effectgateway.Receipt, beforeSubmit func(int)) {
+func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbridge.AuthorityBinding, expected effectgateway.Receipt, retryReservation bool, beforeSubmit func(int)) {
 	t.Helper()
 	address, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -177,10 +178,26 @@ func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbrid
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := client.Post(url+"/submit", "application/json", bytes.NewReader(payload))
-	if err != nil {
-		t.Fatal(err)
+	post := func() *http.Response {
+		res, err := client.Post(url+"/submit", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
 	}
+	if retryReservation {
+		res := post()
+		var response map[string]string
+		decodeErr := json.NewDecoder(res.Body).Decode(&response)
+		res.Body.Close()
+		if res.StatusCode != http.StatusServiceUnavailable || decodeErr != nil || response["error"] != "RESERVATION_UNKNOWN" {
+			t.Fatalf("expected unknown reservation: HTTP %d, %v, %v", res.StatusCode, response, decodeErr)
+		}
+		if _, err := (journal.Store{Root: journalPath}).Status(want.MutationID); !errors.Is(err, journal.ErrNotFound) {
+			t.Fatalf("unknown reservation created a Go dispatch record: %v", err)
+		}
+	}
+	res := post()
 	defer res.Body.Close()
 	var receipt effectgateway.Receipt
 	if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&receipt) != nil ||
@@ -200,6 +217,9 @@ func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbrid
 		}
 	}
 	record, err := (journal.Store{Root: journalPath}).Status(want.MutationID)
+	if expected.OperationState == "" && errors.Is(err, journal.ErrNotFound) {
+		return
+	}
 	if err != nil || record.Version != 2 || string(record.State) != expected.OperationState ||
 		record.Binding == nil || *record.Binding != want {
 		t.Fatalf("unexpected persisted Authority binding: %+v, %v", record, err)

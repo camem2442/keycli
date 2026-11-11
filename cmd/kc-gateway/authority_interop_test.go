@@ -40,6 +40,7 @@ func TestGatewayPythonGuardedExecution(t *testing.T) {
 		{"current", effectgateway.Receipt{Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged), ProviderCalls: 1}},
 		{"revoked", effectgateway.Receipt{Status: effectgateway.StatusNoEffect, OperationState: string(journal.ObservedNoEffect), Note: "EXECUTION_FENCE_REJECTED"}},
 		{"lost-reply", effectgateway.Receipt{Status: effectgateway.StatusUnknown, OperationState: string(journal.UnknownEffect)}},
+		{"lost-admission-reply", effectgateway.Receipt{Status: effectgateway.StatusDuplicate}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runGatewayPythonAuthority(t, "authority_guarded.py", tc.name, tc.receipt, true)
@@ -97,7 +98,7 @@ func runGatewayPythonAuthority(t *testing.T, filename, mode string, expected eff
 	if err := json.NewDecoder(stdout).Decode(&ready); err != nil {
 		t.Fatalf("Python Authority did not become ready: %v", err)
 	}
-	runGatewayProcessSubmit(t, dir, ready.DB, ready.Config, ready.Binding, expected, func(pid int) {
+	runGatewayProcessSubmit(t, dir, ready.DB, ready.Config, ready.Binding, expected, mode == "lost-admission-reply", func(pid int) {
 		if pinPID {
 			if _, err := fmt.Fprintln(stdin, pid); err != nil {
 				t.Fatal(err)

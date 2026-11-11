@@ -133,13 +133,12 @@ Each registration contains the following fields.
 | `provider`, `provider_operation`, `canonical_target` | Host-owned inputs used to compute the writer's target digest |
 | `resource_digest`, `plan_digest`, `grant_digest` | Host-supplied 64-character lowercase hex bindings |
 
-A writer cannot supply the socket, registry, or raw canonical target. Both
+A writer cannot supply the socket, registry, or raw canonical target. All
 Authority calls use the same per-submission binding. The Go client sends
 `preview_admission` before journal dispatch. By default it sends
 `preview_execution` inside the journal callback. These v1 methods evaluate authority without reserving
-a mutation, spending budget, or dispatching an effect. The client requires
-a server supporting the preview methods and does not fall back to the
-mutating `admit` or `verify_execution` methods.
+a mutation, spending budget, or dispatching an effect. In advisory mode the
+client only uses the preview methods.
 
 V1 advisory replies carry `authorizes_execution: false`. The gateway
 records a local no-effect result when an advisory reply is the final
@@ -173,18 +172,26 @@ A trusted host can explicitly compose `LocalAuthority.Execution` with
 `hostbridge.NewGuardedExecution` using a fixed filesystem Unix endpoint and
 the verifier's kernel UID and PID. At startup, the protected
 `guarded_execution` settings select this exchange while the top-level socket
-continues to serve v1 admission previews. The verifier must already support
-the version 2 method, and the exact reservation must exist by dispatch.
-A configured guarded exchange has no fallback to a preview or legacy
-mutating method.
+serves v1 `preview_admission` followed by `admit`. A new `ADMITTED` response
+must identify the exact bound mutation and its `RUNNING` reservation before
+Go opens a dispatch. `DUPLICATE` stops before the journal callback or any
+provider call. Both responses carry `authorizes_execution: false`.
+The verifier must support the version 2 method for guarded execution.
+The Python `serve` command currently supplies advisory Authority only. The
+guarded receiver needs a host-provisioned reservation and verification runtime.
+
+An unconfirmed reservation returns HTTP 503 `RESERVATION_UNKNOWN` before
+dispatch. An exact resubmission that finds the prior reservation returns
+`DUPLICATE` without spending budget again. The reservation remains subject
+to Authority recovery and settlement.
 
 The guarded client sends one EOF-framed JSON object and one `SCM_RIGHTS`
 descriptor, borrowed from the already-held Go dispatch lock. The object has
 `v: 2`, `method: "verify_guarded_execution"`, a fresh 32-character lowercase
 hex `request_id`, the exact `authority_binding` fields flattened into the
 object, and `expires_at` in UTC RFC3339 with optional fractional seconds.
-The expiry is the earlier of the signed Gateway request and the v1
-admission advisory. The client limits the exchange to three seconds, the
+The expiry is the earliest of the signed Gateway request, the v1 admission
+advisory, and the Authority reservation lease. The client limits the exchange to three seconds, the
 caller's remaining deadline, and the remaining admission lifetime.
 
 The verifier must authenticate the Gateway, verify the received descriptor
@@ -220,6 +227,8 @@ lost or stalled replies are covered. Set `KEYCLI_TEST_WORKSPACE_INFRA` to the
 workspace-infra checkout containing the Python mutation coordinator fixtures.
 `TestGatewayPythonGuardedExecution` also starts `kc-gateway` with the protected
 configuration and connects it to workspace-infra's `tooling.keycli_guarded_execution`
-receiver. This test prepares a synthetic reservation before submitting the
-request. The receiver borrows the journal lock for verification, and the test
-checks both the SQLite execution claim and the Go journal outcome.
+receiver. The signed submission creates the SQLite reservation through the
+PR-04 `admit` handler. The receiver borrows the Go journal lock for verification.
+The test checks the exact SQLite reservation and execution claim, budget spend,
+and Go journal outcome. A dropped admission reply and retry leave one unclaimed
+reservation and no Go dispatch.

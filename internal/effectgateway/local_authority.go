@@ -2,6 +2,7 @@ package effectgateway
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/hostbridge"
 )
+
+var errDuplicateReservation = errors.New("Authority already recorded the bound reservation")
 
 // RegisteredOperation is a trusted projection of a protected registration.
 // The registration resolves canonical target and independently verified digests.
@@ -94,10 +97,33 @@ type localBoundAuthority struct {
 
 func (a *localBoundAuthority) Preflight(ctx context.Context) error {
 	expiry, err := a.admitter.Preflight(ctx, a.binding, a.now)
-	if err == nil {
-		a.expiry = expiry
+	if err != nil {
+		return err
 	}
-	return err
+	a.expiry = expiry
+	if a.execution == nil {
+		return nil
+	}
+	remaining := a.executionExpiry().Sub(a.now())
+	if remaining <= 0 {
+		return hostbridge.ErrAdmissionInvalid
+	}
+	reserveCtx, cancel := context.WithTimeout(ctx, remaining)
+	defer cancel()
+	reservation, err := a.admitter.Reserve(reserveCtx, a.binding)
+	if err != nil {
+		return err
+	}
+	if reservation.Reason == "DUPLICATE" {
+		return errDuplicateReservation
+	}
+	if reservation.LeaseExpiresAt.Before(a.expiry) {
+		a.expiry = reservation.LeaseExpiresAt
+	}
+	if !a.executionCurrent() {
+		return hostbridge.ErrAdmissionInvalid
+	}
+	return nil
 }
 
 func (a *localBoundAuthority) VerifyExecution(ctx context.Context) error {

@@ -89,6 +89,8 @@ func errorStatus(err error) (int, string) {
 		return http.StatusTooManyRequests, "GATEWAY_BUSY"
 	case errors.Is(err, ErrAdmissionRejected):
 		return http.StatusForbidden, "ADMISSION_REJECTED"
+	case errors.Is(err, ErrReservationUnknown):
+		return http.StatusServiceUnavailable, "RESERVATION_UNKNOWN"
 	case errors.Is(err, ErrAuthorityUnavail):
 		return http.StatusServiceUnavailable, "AUTHORITY_UNAVAILABLE"
 	case errors.Is(err, ErrInvalidRequest):

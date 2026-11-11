@@ -70,6 +70,10 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		return Receipt{Status: StatusNoEffect}, authorityError(err)
 	}
 	if err := bound.Preflight(ctx); err != nil {
+		if errors.Is(err, errDuplicateReservation) {
+			return Receipt{MutationID: req.MutationID, Status: StatusDuplicate,
+				Note: "mutation already reserved by Authority; no provider call"}, nil
+		}
 		return Receipt{Status: StatusNoEffect}, authorityError(err)
 	}
 
@@ -192,7 +196,10 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 }
 
 func authorityError(err error) error {
-	if errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable) {
+	if errors.Is(err, hostbridge.ErrReservationUnknown) {
+		return ErrReservationUnknown
+	}
+	if errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable) || errors.Is(err, hostbridge.ErrExecutionFenceUnavailable) {
 		return ErrAuthorityUnavail
 	}
 	return ErrAdmissionRejected
