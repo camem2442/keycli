@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,15 +45,7 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 	if err != nil {
 		t.Skip("requires the gateway's sqlite3 runtime dependency")
 	}
-	base, err := filepath.EvalSymlinks("/tmp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir, err := os.MkdirTemp(base, "kc-gw-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	dir := gatewayTempDir(t)
 	socket := filepath.Join(dir, "a.sock")
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
@@ -84,6 +77,31 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 		INSERT INTO claims VALUES('test-goal',7,'ACTIVE','test-owner','test-session');`).CombinedOutput(); err != nil {
 		t.Fatalf("fixture sqlite: %v (%s)", err, out)
 	}
+	done := make(chan error, 1)
+	runGatewaySubmit(t, dir, db, config, want, "EXECUTION_FENCE_REJECTED", func() {
+		go func() { done <- denyAtExecution(listener, want) }()
+	})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func gatewayTempDir(t *testing.T) string {
+	t.Helper()
+	base, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(base, "kc-gw-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func runGatewaySubmit(t *testing.T, dir, db, config string, want hostbridge.AuthorityBinding, wantNote string, beforeSubmit func()) {
+	t.Helper()
 	address, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +111,7 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 	keyPath, ledgerPath, journalPath := filepath.Join(dir, "key"), filepath.Join(dir, "ledger"), filepath.Join(dir, "journal")
 	args := []string{"-test.run=^TestGatewayProcess$", "--", "-addr", addr,
 		"-journal", journalPath, "-claims", db, "-key-out", keyPath, "-ledger", ledgerPath,
-		"-goal", want.GoalID, "-owner", want.Owner, "-session", want.Session, "-generation", "7"}
+		"-goal", want.GoalID, "-owner", want.Owner, "-session", want.Session, "-generation", strconv.FormatInt(want.WriterGeneration, 10)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -135,8 +153,9 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid issued key format")
 	}
-	done := make(chan error, 1)
-	go func() { done <- denyAtExecution(listener, want) }()
+	if beforeSubmit != nil {
+		beforeSubmit()
+	}
 	req := effectgateway.Request{
 		GoalID: want.GoalID, MutationID: want.MutationID, Generation: want.WriterGeneration,
 		Owner: want.Owner, Session: want.Session, Provider: want.Provider, Action: "issue",
@@ -152,13 +171,10 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
 	var receipt effectgateway.Receipt
 	if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&receipt) != nil ||
 		receipt.Status != effectgateway.StatusNoEffect || receipt.ProviderCalls != 0 ||
-		receipt.OperationState != string(journal.ObservedNoEffect) || receipt.Note != "EXECUTION_FENCE_REJECTED" {
+		receipt.OperationState != string(journal.ObservedNoEffect) || receipt.Note != wantNote {
 		t.Fatalf("unexpected submit: HTTP %d, %+v", res.StatusCode, receipt)
 	}
 	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
