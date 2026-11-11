@@ -62,7 +62,10 @@ type Identity struct {
 	HeadSHA             string
 	BaseSHA             string
 	OperationID         string
+	MutationID          string
 	WriterGeneration    int64
+	WriterOwner         string
+	WriterSession       string
 	HostIdentity        string
 	Paths               []string
 	BudgetCost          int64
@@ -75,6 +78,7 @@ type Identity struct {
 type Request struct {
 	GoalID                    string
 	OperationID               string
+	MutationID                string
 	Repository                string
 	HeadSHA                   string
 	BaseSHA                   string
@@ -83,6 +87,8 @@ type Request struct {
 	TargetDigest              string
 	OperationDigest           string
 	WriterGeneration          int64
+	WriterOwner               string
+	WriterSession             string
 	HostIdentity              string
 	Paths                     []string
 	BudgetCost                int64
@@ -160,6 +166,7 @@ func (r Request) Digest() string {
 	return digestOf(
 		r.GoalID,
 		r.OperationID,
+		r.MutationID,
 		r.Repository,
 		r.HeadSHA,
 		r.BaseSHA,
@@ -168,6 +175,8 @@ func (r Request) Digest() string {
 		r.TargetDigest,
 		r.OperationDigest,
 		intString(r.WriterGeneration),
+		r.WriterOwner,
+		r.WriterSession,
 		r.HostIdentity,
 		strings.Join(paths, "\x01"),
 		intString(r.BudgetCost),

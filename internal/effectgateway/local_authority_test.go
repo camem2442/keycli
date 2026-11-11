@@ -1,0 +1,219 @@
+//go:build darwin || linux
+
+package effectgateway
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/camem2442/keycli/internal/delivery/journal"
+	"github.com/camem2442/keycli/internal/hostbridge"
+)
+
+type fixtureRegistry struct{ registration RegisteredOperation }
+
+func (r fixtureRegistry) Resolve(context.Context, string, string) (RegisteredOperation, error) {
+	return r.registration, nil
+}
+
+func authorityRegistration() (RegisteredOperation, Request) {
+	req := testRequest()
+	reg := RegisteredOperation{
+		Identity: hostbridge.Identity{
+			GoalID: req.GoalID, OperationID: "registered-operation-1", MutationID: req.MutationID,
+			WriterGeneration: req.Generation, WriterOwner: req.Owner, WriterSession: req.Session,
+		},
+		Provider: req.Provider, ProviderOperation: "create-account-token", CanonicalTarget: "account-1/token-family-1",
+		ResourceDigest: strings.Repeat("a", 64), PlanDigest: req.PlanDigest, GrantDigest: req.GrantDigest,
+	}
+	req.TargetDigest = hostbridge.TargetDigest(reg.Provider, reg.ProviderOperation, reg.CanonicalTarget)
+	return reg, req
+}
+
+func authoritySocket(t *testing.T) (*net.UnixListener, string) {
+	t.Helper()
+	root, err := os.MkdirTemp("/tmp", "kc-authority-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	path := filepath.Join(root, "authority.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	if err := os.Chmod(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return listener, path
+}
+
+func localFixtureAuthority(t *testing.T, path string, uid uint32, reg RegisteredOperation, now func() time.Time) LocalAuthority {
+	t.Helper()
+	client, err := hostbridge.NewLocalAdmitter(path, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return LocalAuthority{Registry: fixtureRegistry{reg}, Admitter: client, Now: now}
+}
+
+func TestLocalAuthorityRejectsUnregisteredWriterIntent(t *testing.T) {
+	reg, req := authorityRegistration()
+	path := filepath.Join(t.TempDir(), "absent.sock")
+	a := localFixtureAuthority(t, path, uint32(os.Geteuid()), reg, nil)
+	for name, change := range map[string]func(*Request){
+		"double hashed target": func(r *Request) {
+			r.TargetDigest = hostbridge.TargetDigest(reg.Provider, reg.ProviderOperation, r.TargetDigest)
+		},
+		"other plan":     func(r *Request) { r.PlanDigest = strings.Repeat("c", 64) },
+		"other grant":    func(r *Request) { r.GrantDigest = strings.Repeat("c", 64) },
+		"other session":  func(r *Request) { r.Session = "other" },
+		"other mutation": func(r *Request) { r.MutationID = "other" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			altered := req
+			change(&altered)
+			if bound, err := a.Bind(context.Background(), altered); bound != nil || !errors.Is(err, hostbridge.ErrBindingMismatch) {
+				t.Fatalf("unexpected result: %v, %v", bound, err)
+			}
+		})
+	}
+}
+
+type fixtureWireRequest struct {
+	Version   int    `json:"v"`
+	RequestID string `json:"request_id"`
+	Method    string `json:"method"`
+	hostbridge.AuthorityBinding
+}
+
+func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.AuthorityBinding, mode string) error {
+	var firstID string
+	for i, method := range []string{"admit", "verify_execution"} {
+		if err := listener.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			return err
+		}
+		conn, err := listener.AcceptUnix()
+		if err != nil {
+			return err
+		}
+		err = func() error {
+			defer conn.Close()
+			_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+			raw, err := io.ReadAll(conn)
+			if err != nil {
+				return err
+			}
+			var req fixtureWireRequest
+			if err := json.Unmarshal(raw, &req); err != nil {
+				return err
+			}
+			if req.Method != method || req.Version != 1 || req.AuthorityBinding != want || len(req.RequestID) != 32 || req.RequestID == firstID {
+				return errors.New("wire method, nonce or exact registration binding differs")
+			}
+			firstID = req.RequestID
+			status, reason := "BLOCKED", "GRANT_REVOKED"
+			expiry, state := "null", "null"
+			switch {
+			case i == 0:
+				status, reason = "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE"
+				expiry = `"` + testNow.Add(time.Minute).Format(time.RFC3339) + `"`
+				if mode == "advisory expires" {
+					expiry = `"` + testNow.Format(time.RFC3339) + `"`
+				}
+			case mode == "synthetic observation":
+				status, reason, state = "OK", "EXECUTION_OBSERVED", `"RUNNING"`
+			case mode == "socket drops":
+				return nil
+			}
+			bindings, _ := json.Marshal(req.AuthorityBinding)
+			body := fmt.Sprintf(`{"v":1,"request_id":%q,"status":%q,"reason":%q,%s,"expires_at":%s,"mutation_state":%s,"authorizes_execution":false}`,
+				req.RequestID, status, reason, string(bindings[1:len(bindings)-1]), expiry, state)
+			digest, extension := "null", ""
+			if i == 0 {
+				sum := sha256.Sum256([]byte(body))
+				digest = `"` + hex.EncodeToString(sum[:]) + `"`
+			} else if mode == "synthetic observation" {
+				sum := sha256.Sum256(bindings)
+				extension = fmt.Sprintf(`,"lease_expires_at":%q,"request_digest":%q`,
+					testNow.Add(time.Minute).Format(time.RFC3339), hex.EncodeToString(sum[:]))
+			}
+			_, err = fmt.Fprintf(conn, `%s,"admission_digest":%s%s}`, body[:len(body)-1], digest, extension)
+			return err
+		}()
+		if err != nil {
+			return err
+		}
+		if i == 0 && mode == "advisory expires" {
+			return nil
+		}
+	}
+	return nil
+}
+
+func TestGatewayLocalAuthorityNeverAuthorizesV1(t *testing.T) {
+	for _, mode := range []string{"revoke after advisory", "synthetic observation", "socket drops", "advisory expires"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t)
+			reg, req := authorityRegistration()
+			listener, path := authoritySocket(t)
+			h.gw.Authority = localFixtureAuthority(t, path, uint32(os.Geteuid()), reg, h.gw.Now)
+			want := hostbridge.AuthorityBinding{
+				GoalID: req.GoalID, MutationID: req.MutationID, WriterGeneration: req.Generation,
+				Owner: req.Owner, Session: req.Session, Provider: req.Provider, Operation: reg.Identity.OperationID,
+				ResourceDigest: reg.ResourceDigest, TargetDigest: req.TargetDigest, PlanDigest: req.PlanDigest, GrantDigest: req.GrantDigest,
+			}
+			done := make(chan error, 1)
+			go func() { done <- runLocalAuthorityFixture(listener, want, mode) }()
+			receipt, err := h.gw.Submit(context.Background(), Sign(req, []byte(testKey)))
+			if fixtureErr := <-done; fixtureErr != nil {
+				t.Fatal(fixtureErr)
+			}
+			if receipt.Status != StatusNoEffect || receipt.ProviderCalls != 0 || h.provider.calls != 0 {
+				t.Fatalf("provider was not blocked: %+v, %v", receipt, err)
+			}
+			if mode == "advisory expires" {
+				if !errors.Is(err, ErrAdmissionRejected) {
+					t.Fatalf("expiry: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			codes := map[string]string{
+				"socket drops": "AUTHORITY_UNAVAILABLE", "revoke after advisory": "EXECUTION_FENCE_REJECTED",
+				"synthetic observation": "EXECUTION_FENCE_UNAVAILABLE",
+			}
+			if receipt.Note != codes[mode] {
+				t.Fatalf("unexpected fixed code: %v", receipt.Note)
+			}
+			record, err := h.gw.Journal.Status(req.MutationID)
+			if err != nil || record.State != journal.ObservedNoEffect {
+				t.Fatalf("journal not settled: %+v, %v", record, err)
+			}
+		})
+	}
+}
+
+func TestGatewayLocalAuthorityUnavailable(t *testing.T) {
+	h := newHarness(t)
+	reg, req := authorityRegistration()
+	h.gw.Authority = localFixtureAuthority(t, filepath.Join(t.TempDir(), "missing.sock"), uint32(os.Geteuid()), reg, h.gw.Now)
+	receipt, err := h.gw.Submit(context.Background(), Sign(req, []byte(testKey)))
+	if !errors.Is(err, ErrAuthorityUnavail) || receipt.Status != StatusNoEffect || h.provider.calls != 0 {
+		t.Fatalf("socket outage: %+v, %v", receipt, err)
+	}
+}

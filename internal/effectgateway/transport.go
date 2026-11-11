@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -50,9 +49,6 @@ func (g *Gateway) Handler(timeout time.Duration) http.Handler {
 			return
 		}
 
-		log.Printf("submit received mutation=%s owner=%s session=%s generation=%d at=%s",
-			env.Request.MutationID, env.Request.Owner, env.Request.Session, env.Request.Generation,
-			time.Now().UTC().Format(time.RFC3339Nano))
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		receipt, err := g.Submit(ctx, env)
@@ -95,6 +91,8 @@ func errorStatus(err error) (int, string) {
 		return http.StatusServiceUnavailable, "AUTHORITY_UNAVAILABLE"
 	case errors.Is(err, ErrInvalidRequest):
 		return http.StatusBadRequest, "INVALID_REQUEST"
+	case errors.Is(err, ErrJournalUnavailable):
+		return http.StatusServiceUnavailable, "JOURNAL_UNAVAILABLE"
 	case errors.Is(err, ErrNotConfigured):
 		return http.StatusServiceUnavailable, "GATEWAY_NOT_CONFIGURED"
 	default:

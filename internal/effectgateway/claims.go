@@ -46,9 +46,9 @@ func (s SQLiteCLIClaims) Snapshot(ctx context.Context, goalID string) (ClaimSnap
 	cmd := exec.CommandContext(ctx, binary, "-readonly", "-noheader", "-separator", "|", s.DBPath, query)
 	out, err := cmd.Output()
 	if err != nil {
-		return ClaimSnapshot{}, fmt.Errorf("claim store read failed: %w", err)
+		return ClaimSnapshot{}, errors.New("claim store read failed")
 	}
-	line := strings.TrimSpace(string(out))
+	line := strings.TrimSuffix(string(out), "\n")
 	if line == "" {
 		return ClaimSnapshot{}, errors.New("claim not found")
 	}
@@ -56,16 +56,16 @@ func (s SQLiteCLIClaims) Snapshot(ctx context.Context, goalID string) (ClaimSnap
 	if len(parts) != 4 {
 		return ClaimSnapshot{}, errors.New("claim row shape is not recognised")
 	}
-	generation, convErr := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	generation, convErr := strconv.ParseInt(parts[0], 10, 64)
 	if convErr != nil || generation < 1 {
 		return ClaimSnapshot{}, errors.New("claim generation is not a positive integer")
 	}
 	return ClaimSnapshot{
 		GoalID:     goalID,
 		Generation: generation,
-		State:      strings.TrimSpace(parts[1]),
-		Owner:      strings.TrimSpace(parts[2]),
-		Session:    strings.TrimSpace(parts[3]),
+		State:      parts[1],
+		Owner:      parts[2],
+		Session:    parts[3],
 	}, nil
 }
 
@@ -81,7 +81,7 @@ func journalSafeID(value string) bool {
 	for i, r := range value {
 		switch {
 		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-		case (r == '.' || r == '_' || r == '-') && i > 0:
+		case (r == '.' || r == '_' || r == '-' || r == ':') && i > 0:
 		default:
 			return false
 		}

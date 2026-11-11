@@ -5,21 +5,21 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
+	"github.com/camem2442/keycli/internal/hostbridge"
 )
 
 // Gateway is the single effect boundary. Every field is a dependency the host
 // supplies; the gateway owns no storage of its own.
 type Gateway struct {
-	Claims   ClaimAuthority
-	Keys     KeyRing
-	Bridge   Authorizer
-	Journal  journal.Store
-	Provider Provider
-	Now      func() time.Time
+	Claims    ClaimAuthority
+	Keys      KeyRing
+	Authority Authority
+	Journal   journal.Store
+	Provider  Provider
+	Now       func() time.Time
 }
 
 func (g *Gateway) now() time.Time {
@@ -30,7 +30,7 @@ func (g *Gateway) now() time.Time {
 }
 
 func (g *Gateway) configured() bool {
-	return g != nil && g.Claims != nil && g.Keys != nil && g.Bridge != nil &&
+	return g != nil && g.Claims != nil && g.Keys != nil && g.Authority != nil &&
 		g.Provider != nil && g.Journal.Root != ""
 }
 
@@ -60,17 +60,22 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 
 	claim, err := g.Claims.Snapshot(ctx, req.GoalID)
 	if err != nil {
-		return Receipt{}, fmt.Errorf("%w: %v", ErrAuthorityUnavail, err)
+		return Receipt{}, ErrAuthorityUnavail
 	}
 	if err := checkClaim(claim, req, now); err != nil {
 		return Receipt{}, err
 	}
 
-	if err := g.Bridge.Authorize(ctx, req.Provider, req.Action, req.TargetDigest); err != nil {
-		return Receipt{}, fmt.Errorf("%w: %v", ErrAdmissionRejected, err)
+	bound, err := g.Authority.Bind(ctx, req)
+	if err != nil || bound == nil {
+		return Receipt{Status: StatusNoEffect}, authorityError(err)
+	}
+	if err := bound.Preflight(ctx); err != nil {
+		return Receipt{Status: StatusNoEffect}, authorityError(err)
 	}
 
 	calls := 0
+	noEffectCode := ""
 	intent := journal.Intent{
 		OperationID:  req.MutationID,
 		TargetDigest: req.TargetDigest,
@@ -78,22 +83,59 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		GrantDigest:  req.GrantDigest,
 	}
 	record, err := g.Journal.Dispatch(intent, func() (journal.Observation, error) {
-		// Effect boundary: the claim is re-read immediately before the provider
-		// call. Failure here means no provider call happened, so the journal is
-		// settled as OBSERVED_NO_EFFECT with a gateway-local proof.
+		// The journal is durable and locked. Recheck the writer and the exact
+		// authority binding before allowing any provider call.
+		noEffect := func(reason string) (journal.Observation, error) {
+			noEffectCode = reason
+			return journal.Observation{State: journal.ObservedNoEffect,
+				ProofDigest: localNoEffectProof(req.MutationID, reason)}, nil
+		}
+		if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
+			return noEffect("REQUEST_EXPIRED")
+		}
 		fresh, snapErr := g.Claims.Snapshot(ctx, req.GoalID)
 		if snapErr != nil {
-			return journal.Observation{State: journal.ObservedNoEffect,
-				ProofDigest: localNoEffectProof(req.MutationID, "authority-unavailable")}, nil
+			return noEffect("AUTHORITY_UNAVAILABLE")
 		}
-		if claimErr := checkClaim(fresh, req, g.now()); claimErr != nil {
-			return journal.Observation{State: journal.ObservedNoEffect,
-				ProofDigest: localNoEffectProof(req.MutationID, "stale-claim")}, nil
+		if checkClaim(fresh, req, g.now()) != nil {
+			return noEffect("STALE_CLAIM")
+		}
+		checkKey := func() bool {
+			key, err := g.Keys.Key(ctx, req.GoalID, req.Owner, req.Session, req.Generation)
+			return err == nil && verifySignature(env, key)
+		}
+		if !checkKey() {
+			return noEffect("SESSION_KEY_INVALID")
+		}
+		if err := bound.VerifyExecution(ctx); err != nil {
+			switch {
+			case errors.Is(err, hostbridge.ErrExecutionFenceUnavailable):
+				return noEffect("EXECUTION_FENCE_UNAVAILABLE")
+			case errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable):
+				return noEffect("AUTHORITY_UNAVAILABLE")
+			default:
+				return noEffect("EXECUTION_FENCE_REJECTED")
+			}
+		}
+		// Verification can block on IPC. Re-read the claim and signing key
+		// and recheck expiry before handing off to the provider.
+		fresh, snapErr = g.Claims.Snapshot(ctx, req.GoalID)
+		if snapErr != nil {
+			return noEffect("AUTHORITY_UNAVAILABLE")
+		}
+		if !checkKey() {
+			return noEffect("SESSION_KEY_INVALID")
+		}
+		if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
+			return noEffect("REQUEST_EXPIRED")
+		}
+		if checkClaim(fresh, req, g.now()) != nil {
+			return noEffect("STALE_CLAIM")
 		}
 		calls++
 		result, applyErr := g.Provider.Apply(ctx, req)
 		if applyErr != nil {
-			return journal.Observation{}, applyErr
+			return journal.Observation{}, errors.New("provider outcome unavailable")
 		}
 		if result.ProofDigest == "" || !journal.ValidDigest(result.ProofDigest) {
 			return journal.Observation{}, errors.New("provider result has no usable proof digest")
@@ -121,7 +163,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 			OperationState: string(record.State), ProofDigest: record.ProofDigest,
 			Note: "unknown provider result; reconcile before any retry"}, nil
 	case err != nil:
-		return Receipt{}, err
+		return Receipt{}, ErrJournalUnavailable
 	}
 
 	status := StatusNoEffect
@@ -129,7 +171,14 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		status = StatusApplied
 	}
 	return Receipt{MutationID: req.MutationID, Status: status, ProviderCalls: calls,
-		OperationState: string(record.State), ProofDigest: record.ProofDigest}, nil
+		OperationState: string(record.State), ProofDigest: record.ProofDigest, Note: noEffectCode}, nil
+}
+
+func authorityError(err error) error {
+	if errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable) {
+		return ErrAuthorityUnavail
+	}
+	return ErrAdmissionRejected
 }
 
 func checkClaim(claim ClaimSnapshot, req Request, now time.Time) error {
@@ -137,7 +186,7 @@ func checkClaim(claim ClaimSnapshot, req Request, now time.Time) error {
 		return ErrAuthorityUnavail
 	}
 	if claim.Generation != req.Generation {
-		return fmt.Errorf("%w: claim=%d request=%d", ErrStaleGeneration, claim.Generation, req.Generation)
+		return ErrStaleGeneration
 	}
 	if claim.Session != req.Session {
 		return ErrSessionMismatch

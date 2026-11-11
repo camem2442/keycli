@@ -87,13 +87,17 @@ type allowAdmission struct {
 	n  int
 }
 
-func (a *allowAdmission) Authorize(_ context.Context, provider, operation, target string) error {
+func (a *allowAdmission) Bind(_ context.Context, _ effectgateway.Request) (effectgateway.BoundAuthority, error) {
 	a.mu.Lock()
 	a.n++
 	a.mu.Unlock()
-	log.Printf("admission allow provider=%s action=%s target=%s", provider, operation, target)
-	return nil
+	log.Print("synthetic admission allow")
+	return a, nil
 }
+
+func (*allowAdmission) Preflight(context.Context) error { return nil }
+
+func (*allowAdmission) VerifyExecution(context.Context) error { return nil }
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18090", "loopback listen address")
@@ -193,11 +197,11 @@ func main() {
 	}
 
 	gw := &effectgateway.Gateway{
-		Claims:   claims,
-		Keys:     ring,
-		Bridge:   &allowAdmission{},
-		Journal:  journal.Store{Root: *journalPath},
-		Provider: &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
+		Claims:    claims,
+		Keys:      ring,
+		Authority: &allowAdmission{},
+		Journal:   journal.Store{Root: *journalPath},
+		Provider:  &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
 	}
 	server := &http.Server{
 		Addr:              *addr,

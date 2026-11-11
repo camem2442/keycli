@@ -39,19 +39,20 @@ const (
 )
 
 var (
-	ErrNotConfigured     = errors.New("effect gateway is not fully configured")
-	ErrInvalidRequest    = errors.New("effect gateway request is invalid")
-	ErrUnauthenticated   = errors.New("effect gateway request is not authenticated")
-	ErrExpired           = errors.New("effect gateway request is expired")
-	ErrAuthorityUnavail  = errors.New("effect gateway cannot verify the claim")
-	ErrStaleGeneration   = errors.New("effect gateway refused a stale writer generation")
-	ErrSessionMismatch   = errors.New("effect gateway refused a different writer session")
-	ErrOwnerMismatch     = errors.New("effect gateway refused a different writer owner")
-	ErrClaimNotActive    = errors.New("effect gateway requires an ACTIVE claim")
-	ErrClaimLeaseExpired = errors.New("effect gateway requires a live claim lease")
-	ErrAdmissionRejected = errors.New("host admission rejected the effect")
-	ErrTargetPending     = errors.New("effect gateway has an unresolved operation for this target")
-	ErrGatewayBusy       = errors.New("effect gateway is busy for this journal")
+	ErrNotConfigured      = errors.New("effect gateway is not fully configured")
+	ErrInvalidRequest     = errors.New("effect gateway request is invalid")
+	ErrUnauthenticated    = errors.New("effect gateway request is not authenticated")
+	ErrExpired            = errors.New("effect gateway request is expired")
+	ErrAuthorityUnavail   = errors.New("effect gateway cannot verify the claim")
+	ErrStaleGeneration    = errors.New("effect gateway refused a stale writer generation")
+	ErrSessionMismatch    = errors.New("effect gateway refused a different writer session")
+	ErrOwnerMismatch      = errors.New("effect gateway refused a different writer owner")
+	ErrClaimNotActive     = errors.New("effect gateway requires an ACTIVE claim")
+	ErrClaimLeaseExpired  = errors.New("effect gateway requires a live claim lease")
+	ErrAdmissionRejected  = errors.New("host admission rejected the effect")
+	ErrTargetPending      = errors.New("effect gateway has an unresolved operation for this target")
+	ErrJournalUnavailable = errors.New("effect gateway journal unavailable")
+	ErrGatewayBusy        = errors.New("effect gateway is busy for this journal")
 )
 
 // Request is the writer's intent. ExpiresAt bounds replay; MutationID is the
@@ -97,9 +98,16 @@ type KeyRing interface {
 	Key(ctx context.Context, goalID, owner, session string, generation int64) ([]byte, error)
 }
 
-// Authorizer is satisfied by *hostbridge.Bridge.
-type Authorizer interface {
-	Authorize(ctx context.Context, provider, operation, target string) error
+// Authority binds a host registration to one authenticated writer intent.
+// It must derive target, plan and grant bindings from trusted host inputs.
+type Authority interface {
+	Bind(ctx context.Context, req Request) (BoundAuthority, error)
+}
+
+// BoundAuthority belongs to one submission and is never shared between writers.
+type BoundAuthority interface {
+	Preflight(ctx context.Context) error
+	VerifyExecution(ctx context.Context) error
 }
 
 // EffectResult is what the provider adapter reports. A gateway-local decision that

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -17,7 +16,7 @@ import (
 // (goal, owner, session, generation) and expire with the session.
 type MemoryKeyRing struct {
 	mu     sync.Mutex
-	keys   map[string]keyEntry
+	keys   map[sessionIdentity]keyEntry
 	ttl    time.Duration
 	now    func() time.Time
 	issued int
@@ -36,11 +35,12 @@ func NewMemoryKeyRing(ttl time.Duration, now func() time.Time) *MemoryKeyRing {
 	if now == nil {
 		now = time.Now
 	}
-	return &MemoryKeyRing{keys: map[string]keyEntry{}, ttl: ttl, now: now}
+	return &MemoryKeyRing{keys: map[sessionIdentity]keyEntry{}, ttl: ttl, now: now}
 }
 
-func keyID(goalID, owner, session string, generation int64) string {
-	return fmt.Sprintf("%s|%s|%s|%d", goalID, owner, session, generation)
+type sessionIdentity struct {
+	goal, owner, session string
+	generation           int64
 }
 
 // Issue returns a fresh 32-byte key for one session. Re-issuing for the same
@@ -55,8 +55,8 @@ func (m *MemoryKeyRing) Issue(goalID, owner, session string, generation int64) (
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.keys[keyID(goalID, owner, session, generation)] = keyEntry{
-		key: key, expiresAt: m.now().Add(m.ttl),
+	m.keys[sessionIdentity{goalID, owner, session, generation}] = keyEntry{
+		key: append([]byte(nil), key...), expiresAt: m.now().Add(m.ttl),
 	}
 	m.issued++
 	return key, nil
@@ -66,26 +66,26 @@ func (m *MemoryKeyRing) Issue(goalID, owner, session string, generation int64) (
 func (m *MemoryKeyRing) Revoke(goalID, owner, session string, generation int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.keys, keyID(goalID, owner, session, generation))
+	delete(m.keys, sessionIdentity{goalID, owner, session, generation})
 }
 
 // RevokeAll drops every issued key (used on shutdown of a test harness).
 func (m *MemoryKeyRing) RevokeAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.keys = map[string]keyEntry{}
+	m.keys = map[sessionIdentity]keyEntry{}
 }
 
 // Key implements KeyRing.
 func (m *MemoryKeyRing) Key(_ context.Context, goalID, owner, session string, generation int64) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	entry, ok := m.keys[keyID(goalID, owner, session, generation)]
+	entry, ok := m.keys[sessionIdentity{goalID, owner, session, generation}]
 	if !ok {
 		return nil, errors.New("no session key for this claim identity")
 	}
 	if !m.now().Before(entry.expiresAt) {
-		delete(m.keys, keyID(goalID, owner, session, generation))
+		delete(m.keys, sessionIdentity{goalID, owner, session, generation})
 		return nil, errors.New("session key expired")
 	}
 	out := make([]byte, len(entry.key))

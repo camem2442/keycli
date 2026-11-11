@@ -56,7 +56,13 @@ type fakeBridge struct {
 	calls int32
 }
 
-func (f *fakeBridge) Authorize(context.Context, string, string, string) error {
+func (f *fakeBridge) Bind(context.Context, Request) (BoundAuthority, error) {
+	return f, nil
+}
+
+func (f *fakeBridge) VerifyExecution(context.Context) error { return nil }
+
+func (f *fakeBridge) Preflight(context.Context) error {
 	atomic.AddInt32(&f.calls, 1)
 	return f.err
 }
@@ -115,7 +121,7 @@ func newHarness(t *testing.T) *harness {
 		root:     root,
 	}
 	h.gw = &Gateway{
-		Claims: h.claims, Keys: h.keys, Bridge: h.bridge,
+		Claims: h.claims, Keys: h.keys, Authority: h.bridge,
 		Journal: journal.Store{Root: root}, Provider: h.provider,
 		Now: func() time.Time { return testNow },
 	}
@@ -335,7 +341,7 @@ func TestRestartDoesNotRedispatch(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	restarted := &Gateway{
-		Claims: h.claims, Keys: h.keys, Bridge: h.bridge,
+		Claims: h.claims, Keys: h.keys, Authority: h.bridge,
 		Journal: journal.Store{Root: h.root}, Provider: h.provider,
 		Now: func() time.Time { return testNow },
 	}
@@ -435,4 +441,88 @@ func (s *switchClaims) Snapshot(context.Context, string) (ClaimSnapshot, error) 
 		snap.Generation = 8 // takeover between admission and effect
 	}
 	return snap, nil
+}
+
+type boundaryAuthority struct {
+	before func()
+	verify func() error
+}
+
+func (a boundaryAuthority) Bind(context.Context, Request) (BoundAuthority, error) { return a, nil }
+func (a boundaryAuthority) Preflight(context.Context) error {
+	a.before()
+	return nil
+}
+func (a boundaryAuthority) VerifyExecution(context.Context) error { return a.verify() }
+
+func TestGatewayRechecksWriterAndFenceInsideJournal(t *testing.T) {
+	for _, tc := range []struct {
+		name, code string
+		change     func(*harness, *time.Time, *MemoryKeyRing, Request)
+		during     bool
+	}{
+		{"request at expiry", "REQUEST_EXPIRED", func(_ *harness, now *time.Time, _ *MemoryKeyRing, req Request) {
+			*now = req.ExpiresAt
+		}, false},
+		{"key at expiry", "SESSION_KEY_INVALID", func(_ *harness, now *time.Time, _ *MemoryKeyRing, _ Request) {
+			*now = testNow.Add(time.Second)
+		}, false},
+		{"key replaced during verification", "SESSION_KEY_INVALID", func(_ *harness, _ *time.Time, keys *MemoryKeyRing, req Request) {
+			_, _ = keys.Issue(req.GoalID, req.Owner, req.Session, req.Generation)
+		}, true},
+		{"writer session replaced", "STALE_CLAIM", func(h *harness, _ *time.Time, _ *MemoryKeyRing, _ Request) {
+			h.claims.snapshot.Session = "new-session"
+		}, false},
+		{"writer session replaced during verification", "STALE_CLAIM", func(h *harness, _ *time.Time, _ *MemoryKeyRing, _ Request) {
+			h.claims.snapshot.Session = "new-session"
+		}, true},
+		{"request expires during verification", "REQUEST_EXPIRED", func(_ *harness, now *time.Time, _ *MemoryKeyRing, req Request) {
+			*now = req.ExpiresAt
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			req := testRequest()
+			now := testNow
+			h.gw.Now = func() time.Time { return now }
+			lifetime := 3 * time.Minute
+			if tc.name == "key at expiry" {
+				lifetime = time.Second
+			}
+			keys := NewMemoryKeyRing(lifetime, h.gw.Now)
+			key, err := keys.Issue(req.GoalID, req.Owner, req.Session, req.Generation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.gw.Keys = keys
+			verifyCalls := 0
+			change := func() { tc.change(h, &now, keys, req) }
+			h.gw.Authority = boundaryAuthority{
+				before: func() {
+					if !tc.during {
+						change()
+					}
+				},
+				verify: func() error {
+					verifyCalls++
+					// Dispatch must already have durably marked the journal.
+					record, err := h.gw.Journal.Status(req.MutationID)
+					if err != nil || record.State != journal.UnknownEffect {
+						t.Fatalf("missing dispatch marker at final fence: %+v, %v", record, err)
+					}
+					if tc.during {
+						change()
+					}
+					return nil
+				},
+			}
+			receipt, err := h.gw.Submit(context.Background(), Sign(req, key))
+			if err != nil || receipt.Status != StatusNoEffect || receipt.Note != tc.code || h.provider.calls != 0 {
+				t.Fatalf("unfenced attempt: %+v, %v", receipt, err)
+			}
+			if (verifyCalls == 1) != tc.during {
+				t.Fatalf("final fence calls: %d", verifyCalls)
+			}
+		})
+	}
 }
