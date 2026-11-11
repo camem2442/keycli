@@ -149,7 +149,16 @@ func stat(file *os.File) (unix.Stat_t, error) {
 }
 
 func readRecord(dir *os.File, id string) (Record, error) {
-	return readNamedRecord(dir, id, id+".json")
+	record, err := readNamedRecord(dir, id, id+".json")
+	if err != nil || record.Version != 3 {
+		return record, err
+	}
+	original, err := readNamedRecord(dir, id, "."+id+".v1")
+	if err != nil || original.Version != 1 || original.Intent != record.Intent || !pending(original.State) ||
+		(pending(record.State) && original.State != record.State) {
+		return Record{}, errors.New("invalid delivery journal migration archive")
+	}
+	return record, nil
 }
 
 func readNamedRecord(dir *os.File, id, name string) (Record, error) {

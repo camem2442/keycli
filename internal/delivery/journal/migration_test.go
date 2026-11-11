@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,10 +60,34 @@ func TestMigratePendingV1PreservesOriginalAndResourceFence(t *testing.T) {
 	if data, err := os.ReadFile(backup); err != nil || !bytes.Equal(data, original) {
 		t.Fatalf("archived bytes differ: %v", err)
 	}
+	t.Run("Authority reads the Go migration", func(t *testing.T) {
+		infra := os.Getenv("KEYCLI_TEST_WORKSPACE_INFRA")
+		if infra == "" {
+			t.Skip("workspace-infra worktree is required")
+		}
+		const verify = `import sys, time
+from tooling.keycli_go_journal import GoJournal
+with GoJournal(sys.argv[1]).locked(deadline=time.monotonic() + 3) as view:
+    record = view.read(sys.argv[2])
+    assert record['v'] == 3 and record['state'] == 'UNKNOWN_EFFECT'
+    assert record['resource_digest'] == record['authority_binding']['resource_digest'] == sys.argv[3]
+`
+		cmd := exec.Command("python3", "-B", "-c", verify, store.Root, legacy.OperationID, binding.ResourceDigest)
+		cmd.Dir = infra
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Authority journal reader: %v\n%s", err, out)
+		}
+	})
 	next := testIntent("mapped-alias")
 	next.TargetDigest = strings.Repeat("a", 64)
 	binding.MutationID, binding.TargetDigest = next.OperationID, next.TargetDigest
 	if _, err := store.DispatchBound(next, binding, neverBoundEffect(t)); !errors.Is(err, ErrTargetPending) {
 		t.Fatalf("mapped resource did not fence alias: %v", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Status(legacy.OperationID); err == nil {
+		t.Fatal("accepted a migrated record without its original")
 	}
 }
