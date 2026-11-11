@@ -133,3 +133,16 @@ V1 advisory replies carry `authorizes_execution: false`. The gateway
 records a local no-effect result when an advisory reply is the final
 execution check. Provider execution requires a shared journal owner and
 an execution handoff that remains fenced through dispatch and settlement.
+
+The opt-in cross-language test
+`TestGatewayPythonTakeoverWaitsForJournal` runs the real Go journal and the
+Python takeover coordinator with a synthetic provider. The fixture checks
+that takeover waits on the Go journal's existing lock while the effect is
+running. It reads the persisted acknowledgement before advancing the claim.
+Set `KEYCLI_TEST_WORKSPACE_INFRA` to the workspace-infra preview checkout to
+include this test and the Go/Python Unix preview regression.
+
+A future authorizing exchange must bind the execution check to the same
+journal ownership used by takeover. It must preserve that ownership through
+effect handoff and durable settlement. A timed-out or disconnected exchange
+must keep an unresolved effect fenced until independent reconciliation.
