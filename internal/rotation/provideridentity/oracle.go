@@ -27,6 +27,16 @@ type OracleVaultVersion struct {
 }
 
 func (o OracleVaultVersion) Verify(ctx context.Context, p rotation.PreparationPlan, handle string) (rotation.VerifiedOldCredential, error) {
+	return o.verify(ctx, p, handle, nil)
+}
+
+// VerifyScheduledDeletion corroborates the exact scheduled time using the
+// same independent management reads as Verify.
+func (o OracleVaultVersion) VerifyScheduledDeletion(ctx context.Context, p rotation.PreparationPlan, handle string, deleteAt time.Time) (rotation.VerifiedOldCredential, error) {
+	return o.verify(ctx, p, handle, &deleteAt)
+}
+
+func (o OracleVaultVersion) verify(ctx context.Context, p rotation.PreparationPlan, handle string, deleteAt *time.Time) (rotation.VerifiedOldCredential, error) {
 	invalid := errors.New("Oracle Vault old version identity unavailable or changed")
 	if p.Old.Provider != "oracle" || p.Old.Kind != rotation.StaticServiceKey || !validPlan(p) || p.Old.Target != o.PlanTarget ||
 		!strings.HasPrefix(o.TenancyID, "ocid1.tenancy.") || !strings.HasPrefix(o.CompartmentID, "ocid1.") ||
@@ -62,8 +72,15 @@ func (o OracleVaultVersion) Verify(ctx context.Context, p rotation.PreparationPl
 	if err := o.Reader.read(ctx, origin, path+"/version/"+handle, &v, nil); err != nil {
 		return rotation.VerifiedOldCredential{}, invalid
 	}
-	if v.SecretID != o.SecretID || v.VersionNumber != o.Version || v.TimeOfDeletion != nil || len(v.Stages) == 0 {
+	if v.SecretID != o.SecretID || v.VersionNumber != o.Version || len(v.Stages) == 0 ||
+		(v.TimeOfDeletion == nil) != (deleteAt == nil) {
 		return rotation.VerifiedOldCredential{}, invalid
+	}
+	if deleteAt != nil {
+		observed, err := fixedTime(*v.TimeOfDeletion)
+		if err != nil || !observed.Equal(*deleteAt) {
+			return rotation.VerifiedOldCredential{}, invalid
+		}
 	}
 	deprecated := false
 	for _, state := range v.Stages {
