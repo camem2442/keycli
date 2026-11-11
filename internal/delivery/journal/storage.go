@@ -149,10 +149,14 @@ func stat(file *os.File) (unix.Stat_t, error) {
 }
 
 func readRecord(dir *os.File, id string) (Record, error) {
+	return readNamedRecord(dir, id, id+".json")
+}
+
+func readNamedRecord(dir *os.File, id, name string) (Record, error) {
 	if !operationID.MatchString(id) {
 		return Record{}, errors.New("invalid delivery operation record name")
 	}
-	file, err := openPrivateFile(dir, id+".json", unix.O_RDONLY)
+	file, err := openPrivateFile(dir, name, unix.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
 		return Record{}, ErrNotFound
 	}
@@ -189,6 +193,10 @@ func validState(record Record) bool {
 }
 
 func writeRecord(dir *os.File, record Record) error {
+	return writeNamedRecord(dir, record.OperationID+".json", record)
+}
+
+func writeNamedRecord(dir *os.File, destination string, record Record) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -210,7 +218,7 @@ func writeRecord(dir *os.File, record Record) error {
 	if err = errors.Join(err, file.Close()); err != nil {
 		return err
 	}
-	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), record.OperationID+".json"); err != nil {
+	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), destination); err != nil {
 		return err
 	}
 	return dir.Sync()

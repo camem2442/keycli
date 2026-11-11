@@ -57,9 +57,10 @@ type Intent struct {
 type Record struct {
 	Version int `json:"v"`
 	Intent
-	Binding     *authoritybinding.Binding `json:"authority_binding,omitempty"`
-	State       State                     `json:"state"`
-	ProofDigest string                    `json:"proof_digest,omitempty"`
+	ResourceDigest string                    `json:"resource_digest,omitempty"`
+	Binding        *authoritybinding.Binding `json:"authority_binding,omitempty"`
+	State          State                     `json:"state"`
+	ProofDigest    string                    `json:"proof_digest,omitempty"`
 }
 
 // Observation is supplied only by a trusted host callback. Its digest
@@ -199,9 +200,11 @@ func validBinding(record Record) bool {
 	b := record.Binding
 	switch record.Version {
 	case 1:
-		return b == nil
-	case 2:
+		return b == nil && record.ResourceDigest == ""
+	case 2, 3:
 		return b != nil && b.Valid() &&
+			((record.Version == 2 && record.ResourceDigest == "") ||
+				(record.Version == 3 && record.ResourceDigest == b.ResourceDigest)) &&
 			b.MutationID == record.OperationID && b.TargetDigest == record.TargetDigest &&
 			b.PlanDigest == record.PlanDigest && b.GrantDigest == record.GrantDigest
 	default:
@@ -210,11 +213,11 @@ func validBinding(record Record) bool {
 }
 
 func sameIntent(a, b Record) bool {
-	if a.Intent != b.Intent || a.Version != b.Version {
+	if a.Intent != b.Intent {
 		return false
 	}
 	if a.Binding == nil || b.Binding == nil {
-		return a.Binding == nil && b.Binding == nil
+		return a.Binding == nil && b.Binding == nil || a.Version == 3 && b.Version == 1
 	}
 	return *a.Binding == *b.Binding
 }
