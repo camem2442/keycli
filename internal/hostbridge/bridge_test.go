@@ -242,6 +242,7 @@ func TestClassifyOperationTable(t *testing.T) {
 		{"cloudflare", "create-account-token", ActionIssue, true},
 		{"cloudflare", "delete-exact-account-token", ActionRevoke, true},
 		{"github", "delete-exact-repository-secret", ActionRevoke, true},
+		{"github", "stage-repository-generation-secret", ActionStage, true},
 		{"oracle", "stage-pending-vault-version", ActionStage, true},
 		{"oracle", "schedule-deprecated-vault-version-deletion", ActionRevoke, true},
 	}

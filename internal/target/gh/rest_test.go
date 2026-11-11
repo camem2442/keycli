@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -338,5 +339,92 @@ func TestVerifyTargetRESTChecksAllPagesWithoutFollowingLink(t *testing.T) {
 	}
 	if len(requests) != 3 {
 		t.Fatalf("read-only verification made %d requests", len(requests))
+	}
+}
+
+func TestCreateRepositoryGenerationChecksFenceAtWriteBoundary(t *testing.T) {
+	public, _, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyReply := fmt.Sprintf(`{"key_id":"fixture-key","key":"%s"}`, base64.StdEncoding.EncodeToString(public[:]))
+	target := SecretRESTTarget{Scope: "repository", Repository: "example/fixture", Destination: "FIXTURE_GEN_2", RepositoryID: 11, RepositoryOwnerID: 22}
+	const secretPath = restRepoPath + "/actions/secrets"
+	for _, tc := range []struct {
+		name string
+		want SecretWriteOutcome
+	}{
+		{"created", SecretWriteAcknowledged},
+		{"already exists", SecretNotWritten},
+		{"identity changed", SecretNotWritten},
+		{"fence denied", SecretNotWritten},
+		{"provider reply lost", SecretWriteUnknown},
+		{"overwrote concurrent generation", SecretWriteUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			repoReads := 0
+			client, err := newSecretRESTClient(restTokenFixture, fakeRESTTransport(func(req *http.Request) (*http.Response, error) {
+				calls = append(calls, req.Method+" "+req.URL.Path)
+				switch req.Method + " " + req.URL.Path {
+				case "GET " + restRepoPath:
+					repoReads++
+					if repoReads == 2 && tc.name == "identity changed" {
+						return fakeRESTResponse(http.StatusOK, strings.Replace(restRepoFixture, "11", "12", 1)), nil
+					}
+					return fakeRESTResponse(http.StatusOK, restRepoFixture), nil
+				case "GET " + secretPath + "/public-key":
+					return fakeRESTResponse(http.StatusOK, keyReply), nil
+				case "GET " + secretPath + "/" + target.Destination:
+					if tc.name == "already exists" {
+						return fakeRESTResponse(http.StatusOK, "{}"), nil
+					}
+					return fakeRESTResponse(http.StatusNotFound, "{}"), nil
+				case "PUT " + secretPath + "/" + target.Destination:
+					switch tc.name {
+					case "provider reply lost":
+						return nil, io.ErrUnexpectedEOF
+					case "overwrote concurrent generation":
+						return fakeRESTResponse(http.StatusNoContent, ""), nil
+					default:
+						return fakeRESTResponse(http.StatusCreated, ""), nil
+					}
+				default:
+					t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+					return nil, nil
+				}
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := []byte("test value")
+			outcome, err := client.CreateRepositoryGenerationFrom(context.Background(), target,
+				func(context.Context) ([]byte, error) {
+					calls = append(calls, "load")
+					return value, nil
+				}, func(context.Context) error {
+					calls = append(calls, "fence")
+					if tc.name == "fence denied" {
+						return io.ErrClosedPipe
+					}
+					return nil
+				})
+			if outcome != tc.want || (err != nil) != (tc.want != SecretWriteAcknowledged) {
+				t.Fatalf("outcome=%s error=%v", outcome, err)
+			}
+			want := []string{"GET " + restRepoPath, "GET " + secretPath + "/public-key", "load", "GET " + restRepoPath}
+			if tc.name != "identity changed" {
+				want = append(want, "GET "+secretPath+"/"+target.Destination)
+				if tc.name != "already exists" {
+					want = append(want, "fence")
+					if tc.name != "fence denied" {
+						want = append(want, "PUT "+secretPath+"/"+target.Destination)
+					}
+				}
+			}
+			if !slices.Equal(calls, want) || !bytes.Equal(value, make([]byte, len(value))) {
+				t.Fatalf("calls=%v want=%v, value cleared=%t", calls, want, bytes.Equal(value, make([]byte, len(value))))
+			}
+		})
 	}
 }
