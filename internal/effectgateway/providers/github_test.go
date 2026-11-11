@@ -88,6 +88,7 @@ func TestGitHubStageUsesGatewayJournalAndFinalFence(t *testing.T) {
 		{"created", effectgateway.StatusApplied, 1},
 		{"lost response", effectgateway.StatusUnknown, 1},
 		{"denied after reads", effectgateway.StatusNoEffect, 0},
+		{"wrong generation", effectgateway.StatusNoEffect, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -140,9 +141,21 @@ func TestGitHubStageUsesGatewayJournalAndFinalFence(t *testing.T) {
 					return gh.SecretWriteAcknowledged, nil
 				}),
 			}
+			if tc.name == "wrong generation" {
+				stage.Target.Destination = "FIXTURE_GEN_1"
+			}
 			gateway.RotationActions = GitHubRotation{Plan: plan, Stage: &stage}
 			envelope := effectgateway.Sign(req, key)
 			result, err := gateway.Submit(ctx, envelope)
+			if tc.name == "wrong generation" {
+				if !errors.Is(err, effectgateway.ErrAdmissionRejected) || result.Status != tc.status || reads != 0 || fences != 0 || puts != 0 {
+					t.Fatalf("generation substitution reached the provider: result=%+v reads=%d fences=%d puts=%d error=%v", result, reads, fences, puts, err)
+				}
+				if _, err := gateway.Journal.Status(req.MutationID); !errors.Is(err, journal.ErrNotFound) {
+					t.Fatalf("generation substitution created a dispatch: %v", err)
+				}
+				return
+			}
 			if err != nil || result.Status != tc.status || result.ProviderCalls != tc.puts || puts != tc.puts || fences != 1 {
 				t.Fatalf("result=%+v puts=%d fences=%d error=%v", result, puts, fences, err)
 			}
@@ -184,7 +197,8 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 			}
 			gateway, req, key, plan := githubGateway(t, githubDeleteOperation, hostbridge.ActionRevoke, canonical)
 			reads, fences, deletes := 0, 0, 0
-			githubSecretPresent := true
+			const issuerStatus = "https://issuer.invalid/credentials/fixture"
+			present := map[string]bool{"https://api.github.com" + path: true, issuerStatus: true}
 			pin := true
 			reader, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(req *http.Request) (*http.Response, error) {
 				if req.Method != http.MethodGet || req.URL.Host != "api.github.com" {
@@ -217,19 +231,23 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 			}
 			pin = false
 			reads = 0
-			client, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, githubTransport(func(request *http.Request) (*http.Response, error) {
+			transport := githubTransport(func(request *http.Request) (*http.Response, error) {
+				if request.Method == http.MethodGet && request.URL.String() == issuerStatus && present[issuerStatus] {
+					return githubResponse(http.StatusOK, `{"active":true}`), nil
+				}
 				record, err := gateway.Journal.Status(req.MutationID)
 				if request.Method != http.MethodDelete || request.URL.Host != "api.github.com" || request.URL.Path != path ||
 					err != nil || record.State != journal.UnknownEffect || reads != 2 || fences != 1 {
 					t.Fatalf("unexpected deletion %s %s, record=%+v reads=%d fences=%d error=%v", request.Method, request.URL, record, reads, fences, err)
 				}
 				deletes++
-				githubSecretPresent = false
+				delete(present, request.URL.String())
 				if tc.name == "delete reply lost" {
 					return nil, io.ErrUnexpectedEOF
 				}
 				return githubResponse(http.StatusNoContent, ""), nil
-			}))
+			})
+			client, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, transport)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,8 +281,20 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 			envelope := effectgateway.Sign(req, key)
 			result, err := gateway.Submit(ctx, envelope)
 			if err != nil || result.Status != tc.status || result.ProviderCalls != tc.deletes || deletes != tc.deletes ||
-				githubSecretPresent != (tc.deletes == 0) {
-				t.Fatalf("receipt=%+v deletes=%d secret present=%t error=%v", result, deletes, githubSecretPresent, err)
+				present["https://api.github.com"+path] != (tc.deletes == 0) {
+				t.Fatalf("receipt=%+v deletes=%d secret present=%t error=%v", result, deletes, present["https://api.github.com"+path], err)
+			}
+			status, err := http.NewRequestWithContext(ctx, http.MethodGet, issuerStatus, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issuerReply, err := (&http.Client{Transport: transport}).Do(status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issuerReply.Body.Close()
+			if issuerReply.StatusCode != http.StatusOK {
+				t.Fatal("repository secret deletion affected the issuer credential")
 			}
 			replay, err := gateway.Submit(ctx, envelope)
 			if err != nil || replay.Status != effectgateway.StatusDuplicate || deletes != tc.deletes {

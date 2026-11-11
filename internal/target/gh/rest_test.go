@@ -356,6 +356,7 @@ func TestCreateRepositoryGenerationChecksFenceAtWriteBoundary(t *testing.T) {
 	}{
 		{"created", SecretWriteAcknowledged},
 		{"already exists", SecretNotWritten},
+		{"appeared during preparation", SecretNotWritten},
 		{"identity changed", SecretNotWritten},
 		{"fence denied", SecretNotWritten},
 		{"provider reply lost", SecretWriteUnknown},
@@ -363,7 +364,7 @@ func TestCreateRepositoryGenerationChecksFenceAtWriteBoundary(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls []string
-			repoReads := 0
+			repoReads, secretReads := 0, 0
 			client, err := newSecretRESTClient(restTokenFixture, fakeRESTTransport(func(req *http.Request) (*http.Response, error) {
 				calls = append(calls, req.Method+" "+req.URL.Path)
 				switch req.Method + " " + req.URL.Path {
@@ -376,7 +377,8 @@ func TestCreateRepositoryGenerationChecksFenceAtWriteBoundary(t *testing.T) {
 				case "GET " + secretPath + "/public-key":
 					return fakeRESTResponse(http.StatusOK, keyReply), nil
 				case "GET " + secretPath + "/" + target.Destination:
-					if tc.name == "already exists" {
+					secretReads++
+					if tc.name == "already exists" || tc.name == "appeared during preparation" && secretReads == 2 {
 						return fakeRESTResponse(http.StatusOK, "{}"), nil
 					}
 					return fakeRESTResponse(http.StatusNotFound, "{}"), nil
@@ -412,17 +414,20 @@ func TestCreateRepositoryGenerationChecksFenceAtWriteBoundary(t *testing.T) {
 			if outcome != tc.want || (err != nil) != (tc.want != SecretWriteAcknowledged) {
 				t.Fatalf("outcome=%s error=%v", outcome, err)
 			}
-			want := []string{"GET " + restRepoPath, "GET " + secretPath + "/public-key", "load", "GET " + restRepoPath}
-			if tc.name != "identity changed" {
+			want := []string{"GET " + restRepoPath, "GET " + secretPath + "/public-key", "GET " + secretPath + "/" + target.Destination}
+			if tc.name != "already exists" {
+				want = append(want, "load", "GET "+restRepoPath)
+			}
+			if tc.name != "identity changed" && tc.name != "already exists" {
 				want = append(want, "GET "+secretPath+"/"+target.Destination)
-				if tc.name != "already exists" {
+				if tc.name != "appeared during preparation" {
 					want = append(want, "fence")
 					if tc.name != "fence denied" {
 						want = append(want, "PUT "+secretPath+"/"+target.Destination)
 					}
 				}
 			}
-			if !slices.Equal(calls, want) || !bytes.Equal(value, make([]byte, len(value))) {
+			if !slices.Equal(calls, want) || bytes.Equal(value, make([]byte, len(value))) == (tc.name == "already exists") {
 				t.Fatalf("calls=%v want=%v, value cleared=%t", calls, want, bytes.Equal(value, make([]byte, len(value))))
 			}
 		})
