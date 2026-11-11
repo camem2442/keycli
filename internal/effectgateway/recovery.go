@@ -42,7 +42,20 @@ type RecoveryObserver interface {
 // the original binding and retains its writer lock through observation and
 // settlement. The caller has no way to propose a resulting state or digest.
 func (g *Gateway) Reconcile(ctx context.Context, operationID string) (journal.Record, error) {
-	if g == nil || g.Journal.Root == "" || g.RecoveryAuthority == nil || g.RecoveryObserver == nil {
+	if g == nil || g.RecoveryAuthority == nil {
+		return journal.Record{}, ErrNotConfigured
+	}
+	return g.reconcile(ctx, operationID, g.RecoveryAuthority.AuthorizeRecovery, nil)
+}
+
+func validRecoveryGrant(grant RecoveryGrant, binding authoritybinding.Binding, now time.Time) bool {
+	return grant.Binding == binding && grant.GrantDigest != binding.GrantDigest &&
+		journal.ValidDigest(grant.GrantDigest) && journal.ValidDigest(grant.ProviderIdentityDigest) &&
+		now.Before(grant.ExpiresAt)
+}
+
+func (g *Gateway) reconcile(ctx context.Context, operationID string, authorize func(context.Context, authoritybinding.Binding) (RecoveryGrant, error), after func(context.Context) error) (journal.Record, error) {
+	if g == nil || g.Journal.Root == "" || g.RecoveryObserver == nil {
 		return journal.Record{}, ErrNotConfigured
 	}
 	if ctx == nil || ctx.Err() != nil {
@@ -50,16 +63,19 @@ func (g *Gateway) Reconcile(ctx context.Context, operationID string) (journal.Re
 	}
 	return g.Journal.ReconcileBound(operationID, func(record journal.Record) (journal.Observation, error) {
 		binding := *record.Binding
-		grant, err := g.RecoveryAuthority.AuthorizeRecovery(ctx, binding)
+		grant, err := authorize(ctx, binding)
 		started := g.now()
-		if err != nil || ctx.Err() != nil || grant.Binding != binding ||
-			grant.GrantDigest == binding.GrantDigest || !journal.ValidDigest(grant.GrantDigest) ||
-			!journal.ValidDigest(grant.ProviderIdentityDigest) || !started.Before(grant.ExpiresAt) {
+		if err != nil || ctx.Err() != nil || !validRecoveryGrant(grant, binding, started) {
 			return journal.Observation{}, ErrAdmissionRejected
 		}
 		readCtx, cancel := context.WithTimeout(ctx, grant.ExpiresAt.Sub(started))
 		defer cancel()
 		evidence, err := g.RecoveryObserver.ObserveRecovery(readCtx, binding)
+		if after != nil {
+			if err := after(readCtx); err != nil {
+				return journal.Observation{}, err
+			}
+		}
 		finished := g.now()
 		if err != nil || readCtx.Err() != nil || !finished.Before(grant.ExpiresAt) ||
 			evidence.ObservedAt.Before(started) || evidence.ObservedAt.After(finished) ||

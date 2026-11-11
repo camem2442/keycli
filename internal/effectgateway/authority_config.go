@@ -34,6 +34,16 @@ func (r hostRegistry) Resolve(_ context.Context, goalID, mutationID string) (Reg
 // LoadLocalAuthority snapshots an owner-only registration file at startup. A
 // restart is required to change fixed sockets, peer credentials or registrations.
 func LoadLocalAuthority(path string) (LocalAuthority, error) {
+	return loadLocalAuthority(path, false)
+}
+
+// LoadOperationalAuthority also requires both protected socket entries to
+// exist at startup. Each actual request still checks the connected peer.
+func LoadOperationalAuthority(path string) (LocalAuthority, error) {
+	return loadLocalAuthority(path, true)
+}
+
+func loadLocalAuthority(path string, operational bool) (LocalAuthority, error) {
 	var result LocalAuthority
 	uid := uint32(os.Geteuid())
 	dir, name, err := openAuthorityParent(path, uid, uid)
@@ -64,7 +74,7 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 	if !decodeAuthorityObject(raw, map[string]any{
 		"v": &version, "socket_path": &socket, "socket_uid": &socketUID, "registrations": &entries,
 	}, map[string]any{"guarded_execution": &guardedRaw}) || version != 1 || len(entries) == 0 ||
-		!authoritySocketProtected(socket, uid, socketUID) {
+		!authoritySocketProtected(socket, uid, socketUID, operational) {
 		return result, errAuthorityConfig
 	}
 	client, err := hostbridge.NewLocalAdmitter(socket, socketUID)
@@ -72,13 +82,16 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 		return result, errAuthorityConfig
 	}
 	var execution *hostbridge.GuardedExecution
+	if operational && guardedRaw == nil {
+		return result, errAuthorityConfig
+	}
 	if guardedRaw != nil {
 		var guardedSocket string
 		var guardedUID uint32
 		var guardedPID int32
 		if !decodeAuthorityObject(guardedRaw, map[string]any{
 			"socket_path": &guardedSocket, "socket_uid": &guardedUID, "socket_pid": &guardedPID,
-		}, nil) || !authoritySocketProtected(guardedSocket, uid, guardedUID) {
+		}, nil) || !authoritySocketProtected(guardedSocket, uid, guardedUID, operational) {
 			return result, errAuthorityConfig
 		}
 		execution, err = hostbridge.NewGuardedExecution(guardedSocket, guardedUID, int(guardedPID))
@@ -113,7 +126,7 @@ func LoadLocalAuthority(path string) (LocalAuthority, error) {
 	return LocalAuthority{Registry: registry, Admitter: client, Execution: execution}, nil
 }
 
-func authoritySocketProtected(path string, uid, socketUID uint32) bool {
+func authoritySocketProtected(path string, uid, socketUID uint32, mustExist bool) bool {
 	if len(path) > 103 {
 		return false
 	}
@@ -124,7 +137,7 @@ func authoritySocketProtected(path string, uid, socketUID uint32) bool {
 	defer dir.Close()
 	var st unix.Stat_t
 	err = unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW)
-	return errors.Is(err, os.ErrNotExist) ||
+	return (!mustExist && errors.Is(err, os.ErrNotExist)) ||
 		(err == nil && st.Mode&unix.S_IFMT == unix.S_IFSOCK && st.Mode&07777 == 0600 && st.Uid == socketUID)
 }
 

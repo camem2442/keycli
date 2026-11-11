@@ -121,7 +121,7 @@ func runGatewayProcessSubmit(t *testing.T, dir, db, config string, want hostbrid
 	addr := address.Addr().String()
 	_ = address.Close()
 	keyPath, ledgerPath, journalPath := filepath.Join(dir, "key"), filepath.Join(dir, "ledger"), filepath.Join(dir, "journal")
-	args := []string{"-test.run=^TestGatewayProcess$", "--", "-addr", addr,
+	args := []string{"-test.run=^TestGatewayProcess$", "--", "-provider", "synthetic", "-addr", addr,
 		"-journal", journalPath, "-claims", db, "-key-out", keyPath, "-ledger", ledgerPath,
 		"-goal", want.GoalID, "-owner", want.Owner, "-session", want.Session, "-generation", strconv.FormatInt(want.WriterGeneration, 10)}
 

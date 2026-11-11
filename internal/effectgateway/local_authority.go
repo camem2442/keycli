@@ -75,6 +75,25 @@ func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, 
 	}, nil
 }
 
+// RegisteredOperations returns the loaded registration snapshot for product
+// wiring to check that it handles every operation configured on this gateway.
+func (a LocalAuthority) RegisteredOperations() []RegisteredOperation {
+	registry, ok := a.Registry.(hostRegistry)
+	if !ok {
+		return nil
+	}
+	out := make([]RegisteredOperation, 0, len(registry))
+	for _, operation := range registry {
+		out = append(out, operation)
+	}
+	return out
+}
+
+// Binding projects the exact Authority and journal identity for the operation.
+func (reg RegisteredOperation) Binding() hostbridge.AuthorityBinding {
+	return reg.authorityBinding()
+}
+
 func (reg RegisteredOperation) authorityBinding() hostbridge.AuthorityBinding {
 	id := reg.Identity
 	return hostbridge.AuthorityBinding{

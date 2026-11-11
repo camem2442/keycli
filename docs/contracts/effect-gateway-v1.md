@@ -61,9 +61,14 @@ observation).
 | conflicting operation id | recorded intent differs | `MUTATION_CONFLICT` (0 calls) |
 | pending operation on same target | unresolved intent owns the target | `ErrTargetPending` |
 
-`UNKNOWN_EFFECT` is never settled by the gateway. Legacy journal `Reconcile`
-can close version 1 records with an operation-bound proof. Authority-bound
-records require a future reconciliation path that verifies the original binding.
+The Gateway keeps an uncertain mutation at `UNKNOWN_EFFECT` until an
+independent observer corroborates the exact stored operation. Operational
+`POST /status` and `POST /reconcile` require a signed read envelope, the
+current claim, and a separate host-registered grant for the original binding.
+Each read grant selects one endpoint and one session. A host-approved
+`RECONCILING` successor receives a recovery-only key. It can settle an earlier
+operation with matching provider evidence. A role change or restart requires a
+new key. Recovery never sends the original mutation again.
 
 ## Guarantees
 
@@ -94,13 +99,36 @@ records require a future reconciliation path that verifies the original binding.
 
 ## Configuring the local Authority client
 
-Start `kc-gateway` with `-authority-config /absolute/path/authority.json` and
-its existing claim, session, journal, and ledger flags. This selects local
-Authority admission for every submission. An explicitly empty or invalid
-configuration aborts startup before key issuance. The legacy invocation
-without this flag still runs the synthetic ledger harness. The live adapter
-remains unavailable, and the Authority-configured invocation refuses the
-synthetic reconcile and lost-response flags.
+Start the synthetic ledger harness with `kc-gateway -provider synthetic`.
+Its optional `-authority-config /absolute/path/authority.json` selects the
+local Authority. An explicitly empty or invalid configuration aborts startup
+before key issuance. The Authority-configured harness refuses synthetic
+reconcile and lost-response flags.
+
+Operational startup uses `-provider live` and requires the operational build
+channel, the provider-effects runtime switch, protected Authority and product
+configuration, separate read grants, and an exact current claim. The listen
+address must be a literal loopback IP. The host delivers the selected
+owner-only session key through its authenticated transfer path. The key file
+must have a new name after restart. Use a registered HTTPS origin with
+`kc-effectclient -config` and a private `-key-file`. After an ambiguous submit
+response the client queries the original mutation on `/status`.
+
+The operational profile takes these additional protected inputs.
+
+| Input | Required fields or contents |
+|---|---|
+| `-product-config` | `v: 1`, `issuer_file`, `reader_file`, `secret_store`, and an `operations` array covering the Authority registrations |
+| Cloudflare issue entry | `goal_id`, `mutation_id`, `account_id`, `token_name`, `permission_group_id`, `token_expires_at`, `grant_expires_at`, `credential_alias`, `old_generation`, `new_generation`, and `required_consumers` |
+| `-read-config` | `v: 1` and a `grants` array. Each grant has the complete original journal `binding`, current `owner`, `session`, `generation`, `action`, `grant_digest`, `provider_identity_digest`, and `expires_at` |
+| Client `-config` | `v: 1` and the registered HTTPS `origin` |
+
+The installed profile currently enrolls Cloudflare account-token issuance
+and read-only recovery. Startup rejects an unsupported provider operation or
+a product entry that differs from its Authority registration. Issuer and
+reader tokens are loaded from separate private files. The service-owned
+private store holds the issued value and its provider ID under the original
+mutation ID. The client receives the session key file only.
 
 The host supervisor creates the configuration from trusted registration data.
 Use a regular, single-link file with mode `0600` owned by the gateway's

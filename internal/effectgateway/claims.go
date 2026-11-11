@@ -43,7 +43,7 @@ func (s SQLiteCLIClaims) Snapshot(ctx context.Context, goalID string) (ClaimSnap
 		"SELECT generation, state, owner, COALESCE(owner_session,'') FROM claims WHERE goal_id=%s;",
 		sqlQuote(goalID),
 	)
-	cmd := exec.CommandContext(ctx, binary, "-readonly", "-noheader", "-separator", "|", s.DBPath, query)
+	cmd := exec.CommandContext(ctx, binary, "-batch", "-init", "/dev/null", "-readonly", "-noheader", "-separator", "|", s.DBPath, query)
 	out, err := cmd.Output()
 	if err != nil {
 		return ClaimSnapshot{}, errors.New("claim store read failed")

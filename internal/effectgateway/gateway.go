@@ -25,6 +25,8 @@ type Gateway struct {
 	RotationActions   RotationResolver
 	RecoveryAuthority RecoveryAuthorizer
 	RecoveryObserver  RecoveryObserver
+	ReadAuthority     ReadAuthorizer
+	Operational       bool
 }
 
 func (g *Gateway) now() time.Time {
@@ -35,8 +37,16 @@ func (g *Gateway) now() time.Time {
 }
 
 func (g *Gateway) configured() bool {
-	return g != nil && g.Claims != nil && g.Keys != nil && g.Authority != nil &&
-		(g.Provider != nil || g.RotationActions != nil) && g.Journal.Root != ""
+	if g == nil || g.Claims == nil || g.Keys == nil || g.Authority == nil || g.Journal.Root == "" {
+		return false
+	}
+	if !g.Operational {
+		return g.Provider != nil || g.RotationActions != nil
+	}
+	local, ok := g.Authority.(LocalAuthority)
+	_, keysOK := g.Keys.(recoveryKeyRing)
+	return ok && local.Admitter != nil && local.Execution != nil && local.Registry != nil && keysOK &&
+		g.Provider == nil && g.RotationActions != nil && g.ReadAuthority != nil && g.RecoveryObserver != nil
 }
 
 // Submit authenticates, authorises and executes exactly one intent.
@@ -47,6 +57,9 @@ func (g *Gateway) configured() bool {
 func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if !g.configured() {
 		return Receipt{}, ErrNotConfigured
+	}
+	if g.Operational && AllowRealProvider("kc-gateway") != nil {
+		return Receipt{}, ErrProviderLocked
 	}
 	if ctx == nil || ctx.Err() != nil {
 		return Receipt{Status: StatusNoEffect}, ErrAuthorityUnavail
@@ -68,6 +81,17 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	}
 	if err := checkClaim(claim, req, now); err != nil {
 		return Receipt{}, err
+	}
+
+	if g.Operational {
+		replay, err := g.operationalReplay(ctx, req)
+		if replay || err != nil {
+			if err != nil {
+				return Receipt{}, err
+			}
+			return Receipt{MutationID: req.MutationID, Status: StatusDuplicate,
+				Note: "mutation already recorded; no provider call"}, nil
+		}
 	}
 
 	bound, err := g.Authority.Bind(ctx, req)
@@ -252,6 +276,37 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	return Receipt{MutationID: req.MutationID, Status: status, ProviderCalls: calls,
 		OperationState: string(record.State), ProofDigest: record.ProofDigest,
 		AuthoritySettlement: settlement, Note: note}, nil
+}
+
+// operationalReplay compares the immutable effect, including the original
+// registration, before a current successor can reserve another execution.
+func (g *Gateway) operationalReplay(ctx context.Context, req Request) (bool, error) {
+	record, err := g.Journal.Status(req.MutationID)
+	if errors.Is(err, journal.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, ErrJournalUnavailable
+	}
+	if record.Binding == nil || record.Binding.GoalID != req.GoalID {
+		return false, ErrAdmissionRejected
+	}
+	binding := *record.Binding
+	if binding.Provider != req.Provider || binding.TargetDigest != req.TargetDigest ||
+		binding.PlanDigest != req.PlanDigest || binding.GrantDigest != req.GrantDigest ||
+		binding.WriterGeneration > req.Generation {
+		return false, ErrMutationConflict
+	}
+	local := g.Authority.(LocalAuthority)
+	reg, err := local.Registry.Resolve(ctx, req.GoalID, req.MutationID)
+	if err != nil || reg.authorityBinding() != binding {
+		return false, ErrAdmissionRejected
+	}
+	action, mutating, err := hostbridge.ClassifyOperation(reg.Provider, reg.ProviderOperation)
+	if err != nil || !mutating || action != req.Action {
+		return false, ErrMutationConflict
+	}
+	return true, nil
 }
 
 func authorityError(err error) error {

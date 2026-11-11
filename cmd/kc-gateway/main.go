@@ -1,6 +1,5 @@
-// Command kc-gateway serves the effect gateway. With -authority-config, it
-// uses the host's protected registry and fixed local Authority endpoint. The
-// legacy synthetic harness uses an allow fixture and a local ledger provider.
+// Command kc-gateway serves the operational gateway or an explicitly selected
+// synthetic harness.
 package main
 
 import (
@@ -10,11 +9,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -96,6 +98,8 @@ func (*allowAdmission) Preflight(context.Context) error { return nil }
 func (*allowAdmission) VerifyExecution(context.Context) error { return nil }
 
 func main() {
+	flag.CommandLine.Init("kc-gateway", flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
 	addr := flag.String("addr", "127.0.0.1:18090", "loopback listen address")
 	journalPath := flag.String("journal", "", "journal root (required)")
 	claimsPath := flag.String("claims", "", "claim store sqlite path (required, read-only)")
@@ -104,12 +108,13 @@ func main() {
 	goal := flag.String("goal", "", "goal id the session key is bound to")
 	owner := flag.String("owner", "", "claim owner identity")
 	session := flag.String("session", "", "claim session id")
+	sessionState := flag.String("session-state", "ACTIVE", "trusted host session state: ACTIVE|RECONCILING")
 	generation := flag.Int64("generation", 0, "claim generation")
 	ttl := flag.Duration("session-ttl", 15*time.Minute, "session key lifetime")
 	credential := flag.String("credential", "", "synthetic provider credential file the service owns (0600)")
 	showVersion := flag.Bool("version", false, "print the build version and source commit")
 	lockReport := flag.Bool("lock-report", false, "print the provider lock report and exit")
-	providerKind := flag.String("provider", "synthetic", "provider adapter: synthetic|live")
+	providerKind := flag.String("provider", "", "provider adapter: synthetic|live")
 	failAfterApply := flag.Bool("fail-after-apply", false, "apply the effect, then fail (lost response)")
 	reconcile := flag.String("synthetic-reconcile", "", "settle a synthetic fixture mutation and exit")
 	proof := flag.String("proof", "", "fixture proof digest for -synthetic-reconcile")
@@ -117,7 +122,16 @@ func main() {
 	planFlag := flag.String("plan", "", "fixture plan digest for -synthetic-reconcile")
 	grantFlag := flag.String("grant", "", "fixture grant digest for -synthetic-reconcile")
 	authorityConfig := flag.String("authority-config", "", "absolute path to the protected host Authority configuration")
-	flag.Parse()
+	productConfig := flag.String("product-config", "", "absolute path to the protected provider configuration")
+	readConfig := flag.String("read-config", "", "absolute path to the protected read grant configuration")
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			flag.CommandLine.SetOutput(os.Stderr)
+			flag.CommandLine.PrintDefaults()
+			return
+		}
+		log.Fatal("invalid gateway options")
+	}
 
 	if *showVersion {
 		fmt.Println(version.String())
@@ -127,23 +141,39 @@ func main() {
 		fmt.Println(effectgateway.ReportJSON())
 		return
 	}
+	seen := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	if flag.NArg() != 0 {
+		log.Fatal("unexpected positional arguments")
+	}
 	if *providerKind == "live" {
 		if err := effectgateway.AllowRealProvider("kc-gateway"); err != nil {
-			log.Fatalf("provider refused: %v", err)
+			log.Fatal("provider effects are locked")
 		}
-		log.Fatal("live provider adapter is unavailable")
-	} else if *providerKind != "synthetic" {
-		log.Fatalf("unknown -provider %q", *providerKind)
+		for _, option := range []string{"ledger", "credential", "fail-after-apply", "synthetic-reconcile", "proof", "target", "plan", "grant"} {
+			if seen[option] {
+				log.Fatal("synthetic options are unavailable in operational mode")
+			}
+		}
+		if *authorityConfig == "" || *productConfig == "" || *readConfig == "" {
+			log.Fatal("operational gateway requires Authority, product and read grant configuration")
+		}
+		runOperational(operationalOptions{
+			addr: *addr, journal: *journalPath, claims: *claimsPath, keyOut: *keyOut,
+			goal: *goal, owner: *owner, session: *session, state: *sessionState, generation: *generation, ttl: *ttl,
+			authorityConfig: *authorityConfig, productConfig: *productConfig, readConfig: *readConfig,
+		})
+		return
+	}
+	if *providerKind != "synthetic" {
+		log.Fatal("select -provider live or -provider synthetic explicitly")
+	}
+	if seen["product-config"] || seen["read-config"] || seen["session-state"] {
+		log.Fatal("operational options are unavailable in synthetic mode")
 	}
 
-	// An explicitly supplied empty value is a configuration error, not an
-	// invitation to fall back to synthetic admission.
-	var useLocalAuthority bool
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "authority-config" {
-			useLocalAuthority = true
-		}
-	})
+	// A supplied empty path must not fall back to synthetic admission.
+	useLocalAuthority := seen["authority-config"]
 	var authority effectgateway.Authority
 	if useLocalAuthority {
 		if *reconcile != "" || *failAfterApply {
@@ -158,6 +188,9 @@ func main() {
 		authority = &allowAdmission{}
 	}
 
+	if !literalLoopback(*addr) {
+		log.Fatal("listen address must be a literal loopback IP and port")
+	}
 	if *journalPath == "" {
 		log.Fatal("-journal is required")
 	}
@@ -195,15 +228,6 @@ func main() {
 		log.Fatalf("claim does not match the requested session: %+v", snapshot)
 	}
 
-	ring := effectgateway.NewMemoryKeyRing(*ttl, nil)
-	key, err := ring.Issue(*goal, *owner, *session, *generation)
-	if err != nil {
-		log.Fatalf("issue key: %v", err)
-	}
-	if err := os.WriteFile(*keyOut, []byte(effectgateway.HexKey(key)+"\n"), 0o600); err != nil {
-		log.Fatalf("write key: %v", err)
-	}
-
 	if *credential != "" {
 		info, statErr := os.Stat(*credential)
 		if statErr != nil {
@@ -215,6 +239,21 @@ func main() {
 		log.Printf("credential readable by service uid only (mode=%o size=%d)", info.Mode().Perm(), info.Size())
 	}
 
+	listener, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal("listen failed")
+	}
+	defer listener.Close()
+
+	ring := effectgateway.NewMemoryKeyRing(*ttl, nil)
+	key, err := ring.Issue(*goal, *owner, *session, *generation)
+	if err != nil {
+		log.Fatalf("issue key: %v", err)
+	}
+	if err := effectgateway.WriteSessionKeyFile(*keyOut, key); err != nil {
+		log.Fatalf("write key: %v", err)
+	}
+
 	gw := &effectgateway.Gateway{
 		Claims:    claims,
 		Keys:      ring,
@@ -222,30 +261,54 @@ func main() {
 		Journal:   journal.Store{Root: *journalPath},
 		Provider:  &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
 	}
+	serve(listener, gw, ring.RevokeAll)
+}
+
+func literalLoopback(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil || !ip.IsLoopback() || ip.Zone() != "" || port == "" || len(port) > 5 {
+		return false
+	}
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	_, err = strconv.ParseUint(port, 10, 16)
+	return err == nil
+}
+
+func serve(listener net.Listener, gateway *effectgateway.Gateway, revoke func()) {
 	server := &http.Server{
-		Addr:              *addr,
-		Handler:           gw.Handler(30 * time.Second),
+		Handler:           gateway.Handler(30 * time.Second),
+		ErrorLog:          log.New(io.Discard, "", 0),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Printf("gateway listening on %s (loopback only; expose via portbridge preview)", *addr)
-	log.Printf("journal=%s claims=%s ledger=%s key=%s", *journalPath, *claimsPath, *ledger, *keyOut)
-	log.Printf("session key written (%s); deliver it out of band", filepath.Base(*keyOut))
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	defer revoke()
+	done := make(chan struct{})
 	go func() {
-		<-stop
-		log.Print("shutting down")
-		ring.RevokeAll()
-		_ = server.Shutdown(context.Background())
+		defer close(done)
+		<-ctx.Done()
+		revoke()
+		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
 	}()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("listen: %v", err)
+	log.Print("gateway listening on loopback")
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		log.Fatal("gateway serve failed")
 	}
-	fmt.Println("gateway stopped")
+	stop()
+	<-done
 }

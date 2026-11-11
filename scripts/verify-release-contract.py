@@ -326,7 +326,7 @@ class ReleaseContractTests(unittest.TestCase):
                     live = subprocess.run([binary, "-provider", "live", "-journal", journal],
                                           env=env, capture_output=True, text=True)
                     self.assertNotEqual(live.returncode, 0)
-                    self.assertIn("live provider adapter is unavailable" if unlocked else
+                    self.assertIn("operational gateway requires Authority, product and read grant configuration" if unlocked else
                                   "provider effects are locked", live.stderr)
                     self.assertFalse(journal.exists())
                 if channel == "rc":
