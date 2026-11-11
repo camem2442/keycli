@@ -58,7 +58,8 @@ release_artifacts() {
   esac
   local gateway_ldflags="$LDFLAGS -X github.com/camem2442/keycli/internal/effectgateway.channel=$channel"
   local assets=(kc-darwin-arm64 kc-darwin-amd64 kc-linux-arm64 kc-linux-amd64
-                kc-gateway-linux-amd64 kc-gateway-linux-arm64 keycli-linux-amd64)
+                kc-gateway-linux-amd64 kc-gateway-linux-arm64
+                kc-effectclient-linux-amd64 kc-effectclient-linux-arm64 keycli-linux-amd64)
   local pairs=(
     "darwin arm64 kc-darwin-arm64"
     "darwin amd64 kc-darwin-amd64"
@@ -73,6 +74,8 @@ release_artifacts() {
   for arch in amd64 arm64; do
     GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$gateway_ldflags" \
       -o "$DIST/kc-gateway-linux-$arch" ./cmd/kc-gateway
+    GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" \
+      -o "$DIST/kc-effectclient-linux-$arch" ./cmd/kc-effectclient
   done
   (
     cd "$DIST"

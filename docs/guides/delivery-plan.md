@@ -74,7 +74,7 @@ effect = "immediate-secret-update"
 
 ## 승인 호스트의 실행 경계
 
-K09-02의 GitHub WIF 실행기는 신뢰 호스트가 결속한 프로필 alias, OpenAI mapping ID, GitHub repository/owner ID와 workflow SHA를 사용한다. 승인된 GitHub Actions job의 OIDC 값을 취득한 뒤 claim을 검사하고 OpenAI 교환으로 전달한다. 공식 Go SDK의 현재 툴체인 요구사항과 KeyCLI의 Go 1.22 기준이 달라 기본 경로는 공식 HTTP 교환이다. 호환 SDK 교환기를 신뢰 호스트가 사전 등록하면 해당 실행은 SDK 경로를 고정한다. 교환 실패는 다른 경로나 장기 API 키로 전환하지 않는다. 토큰과 절대 만료 시각은 프로세스 메모리에서만 유지한다.
+GitHub WIF 등록 호스트는 프로필 alias와 audience, OpenAI mapping ID, GitHub repository/owner ID, workflow SHA, 정확한 subject를 결속한다. 승인된 GitHub Actions job의 OIDC 환경에서 토큰을 요청하고, 반환된 claim을 확인한 뒤 공식 OpenAI HTTP 교환을 사용한다. 교환 실패는 장기 API 키로 전환하지 않는다. 토큰과 절대 만료 시각은 프로세스 메모리에서만 유지한다. [호스트 등록 및 실행 계약](../contracts/github-openai-wif-v1.md)을 참조한다.
 
 GitHub Secret 쓰기는 범위에 맞는 immutable ID를 다시 확인하고 해당 범위의 공개키로 sealed-box 암호화한 뒤 한 번의 PUT을 시도한다. 조직 쓰기는 선택한 저장소 ID가 승인된 조직 소속임을 조회한 경우에만 진행한다. GitHub의 이름 기반 쓰기 경로에는 CAS 보장이 없으므로 호스트에서 동시 변경을 제어한다.
 

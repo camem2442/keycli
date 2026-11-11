@@ -42,9 +42,9 @@ var (
 	tenancyOCID            = regexp.MustCompile(`^ocid1\.tenancy\.[A-Za-z0-9._-]{3,256}$`)
 )
 
-// revocationIdentityDigest is a grant binding, not a token fingerprint or
+// RevocationIdentityDigest is a grant binding, not a token fingerprint or
 // a producer attestation. Never persist provider access tokens in this input.
-func revocationIdentityDigest(id VerifiedOldCredential) string {
+func RevocationIdentityDigest(id VerifiedOldCredential) string {
 	id.ObservedAt = time.Time{} // fresh provider GET may have a different observation time
 	b, _ := json.Marshal(id)
 	h := sha256.Sum256(b)

@@ -16,7 +16,8 @@ WORKFLOW = ROOT / ".github/workflows/release.yml"
 VERSION = "v0.10.0-rc.2"
 ASSETS = (
     "kc-darwin-arm64", "kc-darwin-amd64", "kc-linux-arm64", "kc-linux-amd64",
-    "kc-gateway-linux-amd64", "kc-gateway-linux-arm64", "keycli-linux-amd64",
+    "kc-gateway-linux-amd64", "kc-gateway-linux-arm64",
+    "kc-effectclient-linux-amd64", "kc-effectclient-linux-arm64", "keycli-linux-amd64",
     "provenance.json",
 )
 
@@ -326,7 +327,7 @@ class ReleaseContractTests(unittest.TestCase):
                     live = subprocess.run([binary, "-provider", "live", "-journal", journal],
                                           env=env, capture_output=True, text=True)
                     self.assertNotEqual(live.returncode, 0)
-                    self.assertIn("live provider adapter is unavailable" if unlocked else
+                    self.assertIn("operational gateway requires Authority, product and read grant configuration" if unlocked else
                                   "provider effects are locked", live.stderr)
                     self.assertFalse(journal.exists())
                 if channel == "rc":
@@ -335,6 +336,7 @@ class ReleaseContractTests(unittest.TestCase):
                     dist.mkdir()
                     shutil.copyfile(binary, dist / f"kc-gateway-linux-{arch}")
                     for asset, package in ((f"kc-linux-{arch}", "./cmd/kc"),
+                                           (f"kc-effectclient-linux-{arch}", "./cmd/kc-effectclient"),
                                            ("keycli-linux-amd64", "./cmd/keycli")):
                         subprocess.run(["go", "build", "-ldflags", ldflags, "-o", str(dist / asset),
                                         package], cwd=ROOT, check=True)

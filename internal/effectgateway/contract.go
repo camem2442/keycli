@@ -39,19 +39,22 @@ const (
 )
 
 var (
-	ErrNotConfigured     = errors.New("effect gateway is not fully configured")
-	ErrInvalidRequest    = errors.New("effect gateway request is invalid")
-	ErrUnauthenticated   = errors.New("effect gateway request is not authenticated")
-	ErrExpired           = errors.New("effect gateway request is expired")
-	ErrAuthorityUnavail  = errors.New("effect gateway cannot verify the claim")
-	ErrStaleGeneration   = errors.New("effect gateway refused a stale writer generation")
-	ErrSessionMismatch   = errors.New("effect gateway refused a different writer session")
-	ErrOwnerMismatch     = errors.New("effect gateway refused a different writer owner")
-	ErrClaimNotActive    = errors.New("effect gateway requires an ACTIVE claim")
-	ErrClaimLeaseExpired = errors.New("effect gateway requires a live claim lease")
-	ErrAdmissionRejected = errors.New("host admission rejected the effect")
-	ErrTargetPending     = errors.New("effect gateway has an unresolved operation for this target")
-	ErrGatewayBusy       = errors.New("effect gateway is busy for this journal")
+	ErrNotConfigured      = errors.New("effect gateway is not fully configured")
+	ErrInvalidRequest     = errors.New("effect gateway request is invalid")
+	ErrUnauthenticated    = errors.New("effect gateway request is not authenticated")
+	ErrExpired            = errors.New("effect gateway request is expired")
+	ErrAuthorityUnavail   = errors.New("effect gateway cannot verify the claim")
+	ErrStaleGeneration    = errors.New("effect gateway refused a stale writer generation")
+	ErrSessionMismatch    = errors.New("effect gateway refused a different writer session")
+	ErrOwnerMismatch      = errors.New("effect gateway refused a different writer owner")
+	ErrClaimNotActive     = errors.New("effect gateway requires an ACTIVE claim")
+	ErrClaimLeaseExpired  = errors.New("effect gateway requires a live claim lease")
+	ErrAdmissionRejected  = errors.New("host admission rejected the effect")
+	ErrReservationUnknown = errors.New("effect gateway cannot confirm the Authority reservation")
+	ErrTargetPending      = errors.New("effect gateway has an unresolved operation for this target")
+	ErrMutationConflict   = errors.New("effect gateway mutation conflicts with recorded intent")
+	ErrJournalUnavailable = errors.New("effect gateway journal unavailable")
+	ErrGatewayBusy        = errors.New("effect gateway is busy for this journal")
 )
 
 // Request is the writer's intent. ExpiresAt bounds replay; MutationID is the
@@ -97,9 +100,16 @@ type KeyRing interface {
 	Key(ctx context.Context, goalID, owner, session string, generation int64) ([]byte, error)
 }
 
-// Authorizer is satisfied by *hostbridge.Bridge.
-type Authorizer interface {
-	Authorize(ctx context.Context, provider, operation, target string) error
+// Authority binds a host registration to one authenticated writer intent.
+// It must derive target, plan and grant bindings from trusted host inputs.
+type Authority interface {
+	Bind(ctx context.Context, req Request) (BoundAuthority, error)
+}
+
+// BoundAuthority belongs to one submission and is never shared between writers.
+type BoundAuthority interface {
+	Preflight(ctx context.Context) error
+	VerifyExecution(ctx context.Context) error
 }
 
 // EffectResult is what the provider adapter reports. A gateway-local decision that
@@ -121,13 +131,20 @@ type Provider interface {
 
 // Receipt is the writer-visible outcome. It never claims provider truth.
 type Receipt struct {
-	MutationID     string `json:"mutation_id"`
-	Status         string `json:"status"`
-	ProviderCalls  int    `json:"provider_calls"`
-	OperationState string `json:"operation_state,omitempty"`
-	ProofDigest    string `json:"proof_digest,omitempty"`
-	Note           string `json:"note,omitempty"`
+	MutationID          string `json:"mutation_id"`
+	Status              string `json:"status"`
+	ProviderCalls       int    `json:"provider_calls"`
+	OperationState      string `json:"operation_state,omitempty"`
+	ProofDigest         string `json:"proof_digest,omitempty"`
+	AuthoritySettlement string `json:"authority_settlement,omitempty"`
+	Note                string `json:"note,omitempty"`
 }
+
+const (
+	SettlementDone        = "DONE"
+	SettlementFailed      = "FAILED"
+	SettlementUnconfirmed = "UNCONFIRMED"
+)
 
 const (
 	maxRequestTTL = 10 * time.Minute

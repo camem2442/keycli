@@ -40,7 +40,7 @@ func TestFinalizeRejectsProviderMismatchesBeforeEffect(t *testing.T) {
 			revoked := 0
 			_, err := Finalize(context.Background(), rotationStore(t), "revoke-one", p, activation, consumers, now, verifyActivationOK, verifyConsumerOK,
 				func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
-					d := revocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle()))
+					d := RevocationIdentityDigest(fixtureOldCredential(p, cloudflareOldHandle()))
 					if test.grantDigestWrong {
 						d = strings.Repeat("f", 64)
 					}
@@ -98,7 +98,7 @@ func TestFinalizeExactProviderRevokers(t *testing.T) {
 				func(context.Context, PreparationPlan, ConsumerEvidence) error { return nil },
 				func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
 					return RevocationGrant{PlanDigest: p.ID, GrantDigest: strings.Repeat("d", 64), OldCredentialHandle: tc.oldID,
-						OldIdentityDigest: revocationIdentityDigest(fixtureOldCredential(p, tc.oldID)),
+						OldIdentityDigest: RevocationIdentityDigest(fixtureOldCredential(p, tc.oldID)),
 						EvidenceDigest:    hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Minute)}, nil
 				},
 				fixtureIdentityVerifier,

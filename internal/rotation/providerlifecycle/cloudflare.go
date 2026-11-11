@@ -17,27 +17,62 @@ type CloudflarePolicy struct {
 	} `json:"permission_groups"`
 }
 
-// SecretSink stores the newly issued token only in a host-owned secret store,
-// never on disk/logs/CLI stdout. A successful provider Create followed by a
-// sink failure is UNKNOWN_EFFECT and MUST be reconciled, not retried.
-type SecretSink func(context.Context, []byte) error
+// SecretSink stores the issued value and its token ID under an operation ID.
+// Lookup reports only the token ID from a committed store record.
+type SecretSink interface {
+	Store(ctx context.Context, operationID, tokenID string, value []byte) error
+	Lookup(ctx context.Context, operationID string) (tokenID string, found bool, err error)
+}
 
-// CreateCloudflareAccountToken uses a separately authenticated account-token
-// issuer (Account API Tokens Write). The host pins the allowed permission group.
-func (c Client) CreateCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, expiresAt time.Time, sink SecretSink) (Receipt, error) {
+// CreateCloudflareAccountToken preserves the original host callback API.
+func (c Client) CreateCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, expiresAt time.Time, sink func(context.Context, []byte) error) (Receipt, error) {
+	if sink == nil {
+		return Receipt{}, errors.New("Cloudflare token storage required")
+	}
+	return c.createCloudflareAccountToken(ctx, gate, account, name, permissionGroupID, expiresAt, func(ctx context.Context, _ string, value []byte) error {
+		return sink(ctx, value)
+	})
+}
+
+// IssueCloudflareAccountToken binds storage to the journal operation and the
+// provider token ID. On uncertainty callers reconcile via Lookup before acting.
+func (c Client) IssueCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, expiresAt time.Time, operationID string, sink SecretSink) (Receipt, error) {
+	if sink == nil || operationID == "" {
+		return Receipt{}, errors.New("Cloudflare token storage binding required")
+	}
+	return c.createCloudflareAccountToken(ctx, gate, account, name, permissionGroupID, expiresAt, func(ctx context.Context, tokenID string, value []byte) error {
+		return sink.Store(ctx, operationID, tokenID, value)
+	})
+}
+
+func validCloudflareTokenExpiry(expiresAt, now time.Time) bool {
+	return !expiresAt.Before(now.Add(5*time.Minute)) && !expiresAt.After(now.Add(24*time.Hour))
+}
+
+func (c Client) createCloudflareAccountToken(ctx context.Context, gate HostAuthorize, account, name, permissionGroupID string, expiresAt time.Time, store func(context.Context, string, []byte) error) (Receipt, error) {
+	expiresAt = expiresAt.UTC().Truncate(time.Second)
 	if !accountID.MatchString(account) || !segment.MatchString(name) || !strings.HasPrefix(name, "kc-rot-") ||
-		!accountID.MatchString(permissionGroupID) || sink == nil || expiresAt.Before(time.Now().Add(5*time.Minute)) || expiresAt.After(time.Now().Add(24*time.Hour)) {
+		!accountID.MatchString(permissionGroupID) || !validCloudflareTokenExpiry(expiresAt, time.Now()) {
 		return Receipt{}, errors.New("invalid narrow Cloudflare issuer scope")
 	}
 	target := account + "/tokens/" + name + "/permission-group/" + permissionGroupID
-	if err := authorize(ctx, gate, "cloudflare", "create-account-token", target); err != nil {
-		return Receipt{}, err
-	}
 	body, _ := json.Marshal(map[string]any{"name": name, "expires_on": expiresAt.UTC().Format(time.RFC3339), "policies": []any{map[string]any{
 		"effect": "allow", "resources": map[string]string{"com.cloudflare.api.account." + account: "*"},
 		"permission_groups": []any{map[string]string{"id": permissionGroupID}},
 	}}})
-	data, err := c.call(ctx, http.MethodPost, "https://api.cloudflare.com", "/client/v4/accounts/"+account+"/tokens", body, http.StatusOK, http.StatusCreated)
+	beforeSend := func(ctx context.Context) error {
+		if !validCloudflareTokenExpiry(expiresAt, time.Now()) {
+			return errors.New("Cloudflare token expiration outside issuance window")
+		}
+		if err := authorize(ctx, gate, "cloudflare", "create-account-token", target); err != nil {
+			return err
+		}
+		if !validCloudflareTokenExpiry(expiresAt, time.Now()) {
+			return errors.New("Cloudflare token expiration outside issuance window")
+		}
+		return nil
+	}
+	data, err := c.callBeforeSend(ctx, http.MethodPost, "https://api.cloudflare.com", "/client/v4/accounts/"+account+"/tokens", body, nil, beforeSend, http.StatusOK, http.StatusCreated)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -58,7 +93,7 @@ func (c Client) CreateCloudflareAccountToken(ctx context.Context, gate HostAutho
 			value[i] = 0
 		}
 	}()
-	if err := sink(ctx, value); err != nil {
+	if err := store(ctx, response.Result.ID, value); err != nil {
 		return Receipt{}, errors.New("Cloudflare issued token but storage outcome unknown")
 	}
 	return receipt("cloudflare", "create-account-token", account, response.Result.ID), nil

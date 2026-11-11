@@ -54,6 +54,10 @@ func NewReader(auth Authenticate, transport http.RoundTripper) (Reader, error) {
 }
 
 func (r Reader) read(ctx context.Context, origin, path string, out any, headers map[string]string) error {
+	return r.readWithResponseHeaders(ctx, origin, path, out, headers, nil)
+}
+
+func (r Reader) readWithResponseHeaders(ctx context.Context, origin, path string, out any, headers map[string]string, responseHeaders *http.Header) error {
 	if r.client == nil || r.auth == nil || ctx.Err() != nil {
 		return errors.New("trusted provider reader unavailable")
 	}
@@ -86,13 +90,15 @@ func (r Reader) read(ctx context.Context, origin, path string, out any, headers 
 	if resp.StatusCode != http.StatusOK {
 		return errors.New("provider identity GET rejected or unavailable")
 	}
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxReadBytes+1))
-	if err := decoder.Decode(out); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes+1))
+	if err != nil || len(body) > maxReadBytes {
+		return errors.New("unavailable or oversized provider metadata")
+	}
+	if err := json.Unmarshal(body, out); err != nil {
 		return errors.New("invalid provider metadata JSON")
 	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
-		return errors.New("trailing or oversized provider metadata")
+	if responseHeaders != nil {
+		*responseHeaders = resp.Header.Clone()
 	}
 	return nil
 }

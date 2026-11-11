@@ -51,17 +51,22 @@ func (s Store) open(create bool) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parentInfo.Uid != uint32(os.Geteuid()) || parentInfo.Mode&0022 != 0 {
+	uid := uint32(os.Geteuid())
+	if (parentInfo.Uid != uid && parentInfo.Uid != 0) || parentInfo.Mode&0022 != 0 {
 		return nil, errors.New("unsafe delivery journal parent")
 	}
 	name := parts[len(parts)-1]
-	if create {
-		err := unix.Mkdirat(int(parent.Fd()), name, 0700)
+	dir, err := openDirectory(int(parent.Fd()), name)
+	if errors.Is(err, os.ErrNotExist) && create {
+		if parentInfo.Uid != uid {
+			return nil, errors.New("delivery journal must be provisioned under a root-owned parent")
+		}
+		err = unix.Mkdirat(int(parent.Fd()), name, 0700)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("create delivery journal: %w", err)
 		}
+		dir, err = openDirectory(int(parent.Fd()), name)
 	}
-	dir, err := openDirectory(int(parent.Fd()), name)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound
 	}
@@ -72,7 +77,7 @@ func (s Store) open(create bool) (*os.File, error) {
 	if err == nil && (info.Uid != uint32(os.Geteuid()) || info.Mode&07777 != 0700) {
 		err = errors.New("delivery journal must be owned by this user with mode 0700")
 	}
-	if err == nil && create {
+	if err == nil && create && parentInfo.Uid == uid {
 		err = parent.Sync()
 	}
 	if err != nil {
@@ -90,10 +95,10 @@ func openDirectory(parent int, name string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), name), nil
 }
 
-func (s Store) lock(create bool) (*os.File, func(), error) {
+func (s Store) lock(create bool) (*os.File, *os.File, func(), error) {
 	dir, err := s.open(create)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	flags := unix.O_RDWR
 	if create {
@@ -102,7 +107,7 @@ func (s Store) lock(create bool) (*os.File, func(), error) {
 	lock, err := openPrivateFile(dir, ".lock", flags)
 	if err != nil {
 		_ = dir.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	unlock := func() {
 		_ = lock.Close()
@@ -111,17 +116,17 @@ func (s Store) lock(create bool) (*os.File, func(), error) {
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		unlock()
 		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, nil, ErrBusy
+			return nil, nil, nil, ErrBusy
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Persist any visible rename left by a prior failed directory sync before
 	// allowing a new operation to rely on that terminal state.
 	if err := dir.Sync(); err != nil {
 		unlock()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return dir, unlock, nil
+	return dir, lock, unlock, nil
 }
 
 func openPrivateFile(dir *os.File, name string, flags int) (*os.File, error) {
@@ -149,10 +154,23 @@ func stat(file *os.File) (unix.Stat_t, error) {
 }
 
 func readRecord(dir *os.File, id string) (Record, error) {
+	record, err := readNamedRecord(dir, id, id+".json")
+	if err != nil || record.Version != 3 {
+		return record, err
+	}
+	original, err := readNamedRecord(dir, id, "."+id+".v1")
+	if err != nil || original.Version != 1 || original.Intent != record.Intent || !pending(original.State) ||
+		(pending(record.State) && original.State != record.State) {
+		return Record{}, errors.New("invalid delivery journal migration archive")
+	}
+	return record, nil
+}
+
+func readNamedRecord(dir *os.File, id, name string) (Record, error) {
 	if !operationID.MatchString(id) {
 		return Record{}, errors.New("invalid delivery operation record name")
 	}
-	file, err := openPrivateFile(dir, id+".json", unix.O_RDONLY)
+	file, err := openPrivateFile(dir, name, unix.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
 		return Record{}, ErrNotFound
 	}
@@ -166,7 +184,7 @@ func readRecord(dir *os.File, id string) (Record, error) {
 	}
 	var record Record
 	if len(data) > recordLimit || json.Unmarshal(data, &record) != nil ||
-		record.Version != 1 || record.OperationID != id || !validIntent(record.Intent) || !validState(record) {
+		record.OperationID != id || !validIntent(record.Intent) || !validBinding(record) || !validState(record) {
 		return Record{}, errors.New("invalid delivery journal record")
 	}
 	// This also rejects unknown or duplicate fields and trailing input.
@@ -189,10 +207,22 @@ func validState(record Record) bool {
 }
 
 func writeRecord(dir *os.File, record Record) error {
+	return writeNamedRecord(dir, record.OperationID+".json", record)
+}
+
+func writeNamedRecord(dir *os.File, destination string, record Record) error {
+	return writeNamedRecordSync(dir, destination, record, (*os.File).Sync)
+}
+
+func writeNamedRecordSync(dir *os.File, destination string, record Record, syncDirectory func(*os.File) error) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
+	return writeNamedBytes(dir, destination, data, syncDirectory)
+}
+
+func writeNamedBytes(dir *os.File, destination string, data []byte, syncDirectory func(*os.File) error) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -210,8 +240,8 @@ func writeRecord(dir *os.File, record Record) error {
 	if err = errors.Join(err, file.Close()); err != nil {
 		return err
 	}
-	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), record.OperationID+".json"); err != nil {
+	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), destination); err != nil {
 		return err
 	}
-	return dir.Sync()
+	return syncDirectory(dir)
 }

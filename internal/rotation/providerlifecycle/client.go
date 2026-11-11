@@ -34,7 +34,9 @@ var regionID = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9]$`)
 type HostAuthorize func(context.Context, string, string, string) error
 
 // Authenticate is supplied by a separately privileged provider host.
-// OCI must sign the exact full request AFTER the immutable body is set.
+// OCI must sign the supplied method, URL, host and body and preserve the fixed
+// headers. It may set Authorization, Date and X-Date, and restore an identical
+// readable body after reading it.
 type Authenticate func(*http.Request) error
 
 type Client struct {
@@ -61,6 +63,10 @@ func (c Client) call(ctx context.Context, method, origin, path string, body []by
 }
 
 func (c Client) callHeaders(ctx context.Context, method, origin, path string, body []byte, headers map[string]string, expected ...int) ([]byte, error) {
+	return c.callBeforeSend(ctx, method, origin, path, body, headers, nil, expected...)
+}
+
+func (c Client) callBeforeSend(ctx context.Context, method, origin, path string, body []byte, headers map[string]string, beforeSend func(context.Context) error, expected ...int) ([]byte, error) {
 	if c.http == nil || c.sign == nil || ctx.Err() != nil {
 		return nil, errors.New("provider mutation client unavailable")
 	}
@@ -88,9 +94,18 @@ func (c Client) callHeaders(ctx context.Context, method, origin, path string, bo
 	if err := c.sign(req); err != nil {
 		return nil, errors.New("provider signer refused operation")
 	}
-	if req.Method != method || req.URL.String() != u.String() || (req.Host != "" && req.Host != u.Host) || req.Body != initialBody || req.GetBody != nil {
+	if req.Method != method || req.URL == nil || req.URL.String() != u.String() || (req.Host != "" && req.Host != u.Host) || req.Body != initialBody || req.GetBody != nil {
 		return nil, errors.New("provider signer mutated immutable effect")
 	}
+	if beforeSend != nil {
+		if err := beforeSend(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return c.send(req, expected...)
+}
+
+func (c Client) send(req *http.Request, expected ...int) ([]byte, error) {
 	res, err := c.http.Do(req)
 	if err != nil {
 		return nil, errors.New("provider effect response unknown")

@@ -14,7 +14,10 @@ import (
 
 func rotationStore(t *testing.T) journal.Store {
 	t.Helper()
-	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if e := os.Chmod(parent, 0700); e != nil {
 		t.Fatal(e)
 	}

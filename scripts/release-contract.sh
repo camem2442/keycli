@@ -98,12 +98,15 @@ verify_binary() {
   validate_identity
   local arch="$1" cli="dist/kc-linux-$1" gateway="dist/kc-gateway-linux-$1"
   local expected="$RELEASE_VERSION ($SOURCE_SHA)"
-  chmod +x "$cli" "$gateway"
+  local effectclient="dist/kc-effectclient-linux-$arch"
+  chmod +x "$cli" "$gateway" "$effectclient"
   local actual
   actual="$("$cli" --version)" || fail "CLI version command failed"
   [[ "$actual" == "kc version $expected" ]] || fail "unexpected CLI version or commit"
   actual="$("$gateway" --version)" || fail "gateway version command failed"
   [[ "$actual" == "$expected" ]] || fail "unexpected gateway version or commit"
+  actual="$("$effectclient" --version)" || fail "effect client version command failed"
+  [[ "$actual" == "$expected" ]] || fail "unexpected effect client version or commit"
   if [[ "$arch" == amd64 ]]; then
     chmod +x dist/keycli-linux-amd64
     actual="$(dist/keycli-linux-amd64 --version)" || fail "legacy CLI version command failed"
@@ -171,7 +174,8 @@ case "${1:-}" in
     (
       cd dist
       assets=(kc-darwin-arm64 kc-darwin-amd64 kc-linux-arm64 kc-linux-amd64
-              kc-gateway-linux-amd64 kc-gateway-linux-arm64 keycli-linux-amd64 provenance.json)
+              kc-gateway-linux-amd64 kc-gateway-linux-arm64
+              kc-effectclient-linux-amd64 kc-effectclient-linux-arm64 keycli-linux-amd64 provenance.json)
       expected="$(printf '%s\n' "${assets[@]}" SHA256SUMS | LC_ALL=C sort)"
       actual="$(find . -mindepth 1 -maxdepth 1 -print | sed 's|^./||' | LC_ALL=C sort)"
       [[ "$actual" == "$expected" ]] || fail "unexpected artifact file set"

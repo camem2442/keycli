@@ -43,6 +43,9 @@ func (f *fakeObserver) Observe(_ context.Context, account, worker string) (cloud
 	return f.before, nil
 }
 func (f *fakeObserver) GetVersion(_ context.Context, account, worker, id string) (cloudflare.VersionMetadata, error) {
+	if id == previous {
+		return cloudflare.VersionMetadata{ID: id}, nil
+	}
 	if f.badBinding {
 		return cloudflare.VersionMetadata{ID: id, Tag: f.tag}, nil
 	}

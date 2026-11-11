@@ -1,0 +1,112 @@
+package journal
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/camem2442/keycli/internal/authoritybinding"
+)
+
+func TestMigratePendingV1PreservesOriginalAndResourceFence(t *testing.T) {
+	store := newTestStore(t)
+	legacy := testIntent("legacy-mapping")
+	if _, err := store.Dispatch(legacy, func() (Observation, error) {
+		return Observation{}, errors.New("response lost")
+	}); !errors.Is(err, ErrUnknownEffect) {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.Root, legacy.OperationID+".json")
+	backup := filepath.Join(store.Root, "."+legacy.OperationID+".v1")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := authoritybinding.Binding{
+		GoalID: "goal", MutationID: legacy.OperationID, WriterGeneration: 1, Owner: "owner",
+		Session: "session", Provider: "cloudflare", Operation: "rotate", ResourceDigest: strings.Repeat("f", 64),
+		TargetDigest: legacy.TargetDigest, PlanDigest: legacy.PlanDigest, GrantDigest: legacy.GrantDigest,
+	}
+	verify := func(intent Intent) (authoritybinding.Binding, error) {
+		if intent != legacy {
+			t.Fatalf("mapping saw incorrect intent: %+v", intent)
+		}
+		return binding, nil
+	}
+	// A failed backup publication must leave the original bytes untouched.
+	if err := os.Mkdir(backup, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MigratePendingV1(legacy.OperationID, verify); err == nil {
+		t.Fatal("migration accepted an unusable backup destination")
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, original) {
+		t.Fatalf("failed migration changed the original: %v", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	fault := errors.New("injected publish failure")
+	_, err = store.migratePendingV1(legacy.OperationID, verify, func(dir *os.File, name string, record Record) error {
+		if record.Version == 3 {
+			return fault
+		}
+		return writeNamedRecord(dir, name, record)
+	})
+	if !errors.Is(err, fault) {
+		t.Fatalf("active record write failure was not reported: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, original) {
+		t.Fatalf("failed active write changed the original: %v", err)
+	}
+	_, err = store.migratePendingV1(legacy.OperationID, verify, func(dir *os.File, name string, record Record) error {
+		return writeNamedRecordSync(dir, name, record, func(*os.File) error { return fault })
+	})
+	if !errors.Is(err, fault) {
+		t.Fatalf("directory sync failure was not reported: %v", err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		record, err := store.MigratePendingV1(legacy.OperationID, verify)
+		if err != nil || record.Version != 3 || record.State != UnknownEffect || record.Binding == nil ||
+			*record.Binding != binding || record.ResourceDigest != binding.ResourceDigest {
+			t.Fatalf("mapped record: %+v, %v", record, err)
+		}
+	}
+	if data, err := os.ReadFile(backup); err != nil || !bytes.Equal(data, original) {
+		t.Fatalf("archived bytes differ: %v", err)
+	}
+	t.Run("Authority reads the Go migration", func(t *testing.T) {
+		infra := os.Getenv("KEYCLI_TEST_WORKSPACE_INFRA")
+		if infra == "" {
+			t.Skip("workspace-infra worktree is required")
+		}
+		const verify = `import sys, time
+from tooling.keycli_go_journal import GoJournal
+with GoJournal(sys.argv[1]).locked(deadline=time.monotonic() + 3) as view:
+    record = view.read(sys.argv[2])
+    assert record['v'] == 3 and record['state'] == 'UNKNOWN_EFFECT'
+    assert record['resource_digest'] == record['authority_binding']['resource_digest'] == sys.argv[3]
+`
+		cmd := exec.Command("python3", "-B", "-c", verify, store.Root, legacy.OperationID, binding.ResourceDigest)
+		cmd.Dir = infra
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Authority journal reader: %v\n%s", err, out)
+		}
+	})
+	next := testIntent("mapped-alias")
+	next.TargetDigest = strings.Repeat("a", 64)
+	binding.MutationID, binding.TargetDigest = next.OperationID, next.TargetDigest
+	if _, err := store.DispatchBound(next, binding, neverBoundEffect(t)); !errors.Is(err, ErrTargetPending) {
+		t.Fatalf("mapped resource did not fence alias: %v", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Status(legacy.OperationID); err == nil {
+		t.Fatal("accepted a migrated record without its original")
+	}
+}

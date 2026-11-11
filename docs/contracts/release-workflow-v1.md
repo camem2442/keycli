@@ -53,6 +53,7 @@ gh workflow run release.yml -f tag=v0.10.0 -f candidate_channel=operational \
 | `kc-{darwin,linux}-{arm64,amd64}` | CLI 4종 |
 | `keycli-linux-amd64` | 레거시 이름 호환 |
 | `kc-gateway-linux-{arm64,amd64}` | Gateway 2종 |
+| `kc-effectclient-linux-{arm64,amd64}` | 등록 세션으로 Gateway를 호출하는 클라이언트 2종 |
 | `provenance.json` | 소스 SHA, 워크플로 SHA, 버전, 채널, 실행 ID와 시도 번호, 태그 객체 또는 후보 승인 참조 |
 | `SHA256SUMS` | 위 자산 전체 |
 

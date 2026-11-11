@@ -3,6 +3,8 @@ package cloudflare
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -46,6 +48,7 @@ var (
 	stageSecret     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	stageTag        = regexp.MustCompile(`^kc-[A-Za-z0-9_-]{1,96}$`)
 	stageAccount    = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	stageDigest     = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	allowedStageEnv = map[string]bool{
 		"PATH": true, "HOME": true, "TMPDIR": true, "XDG_CONFIG_HOME": true,
 		"CLOUDFLARE_API_TOKEN": true, "CLOUDFLARE_ACCOUNT_ID": true, "CI": true,
@@ -59,36 +62,64 @@ var (
 // inherited. The host owns provider observation and promotion admission.
 // load returns a uniquely owned buffer; this adapter clears it on return.
 func StageVersionSecret(ctx context.Context, req VersionStageRequest, load func(context.Context) ([]byte, error)) (VersionStageResult, error) {
+	return stageVersionSecret(ctx, req, "", load, nil)
+}
+
+// StagePinnedVersionSecret verifies the host-pinned Wrangler SHA-256 before
+// resolving the secret and again before calling beforeStart. The mandatory
+// hook is the last host callback before process start. The caller must keep the
+// executable path and its ancestors under trusted control through launch.
+func StagePinnedVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSHA256 string, load func(context.Context) ([]byte, error), beforeStart func(context.Context) error) (VersionStageResult, error) {
+	if !stageDigest.MatchString(wranglerSHA256) || beforeStart == nil {
+		return VersionStageResult{State: VersionNotAttempted}, errors.New("inactive-version command requires an executable pin and start guard")
+	}
+	return stageVersionSecret(ctx, req, wranglerSHA256, load, beforeStart)
+}
+
+func stageVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSHA256 string, load func(context.Context) ([]byte, error), beforeStart func(context.Context) error) (VersionStageResult, error) {
 	notAttempted := VersionStageResult{State: VersionNotAttempted}
+	req.Env = slices.Clone(req.Env)
 	if load == nil || !validVersionStageRequest(req) {
 		return notAttempted, errors.New("invalid inactive-version target or environment")
 	}
-	if err := ctx.Err(); err != nil {
+	bounded, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	if err := bounded.Err(); err != nil {
 		return notAttempted, err
 	}
-	secret, err := load(ctx)
+	if wranglerSHA256 != "" && !matchesStageExecutable(bounded, req.WranglerPath, wranglerSHA256) {
+		return notAttempted, errors.New("inactive-version executable does not match its pin")
+	}
+	secret, err := load(bounded)
+	defer clearVersionBytes(secret)
 	if err != nil {
 		return notAttempted, errors.New("cannot resolve inactive-version secret")
 	}
-	defer clearVersionBytes(secret)
 	if len(secret) == 0 || len(secret) > 8192 {
 		return notAttempted, errors.New("invalid inactive-version secret length")
 	}
-	if err := ctx.Err(); err != nil {
+	if err := bounded.Err(); err != nil {
 		return notAttempted, err
 	}
-	bounded, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
 	args := []string{"versions", "secret", "put", req.SecretName, "--name", req.Worker, "--env", req.Environment, "--config", req.ConfigPath}
 	if req.VersionTag != "" {
 		args = append(args, "--tag", req.VersionTag)
 	}
 	cmd := exec.CommandContext(bounded, req.WranglerPath, args...)
 	cmd.Dir = req.WorkDirectory
-	cmd.Env = slices.Clone(req.Env)
+	cmd.Env = req.Env
 	cmd.Stdin = bytes.NewReader(secret)
 	cmd.Stdout = io.Discard // Never expose Wrangler output; it may echo a value.
 	cmd.Stderr = io.Discard
+	cmd.WaitDelay = time.Second
+	if beforeStart != nil {
+		if !matchesStageExecutable(bounded, req.WranglerPath, wranglerSHA256) {
+			return notAttempted, errors.New("inactive-version executable does not match its pin")
+		}
+		if err := beforeStart(bounded); err != nil {
+			return notAttempted, errors.New("inactive-version command start was denied")
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		return notAttempted, errors.New("could not start inactive-version command")
 	}
@@ -99,6 +130,36 @@ func StageVersionSecret(ctx context.Context, req VersionStageRequest, load func(
 	// A successful process exit is not proof of version identity, unchanged
 	// active traffic, or equivalence of the stored secret value.
 	return VersionStageResult{State: VersionAcknowledgedUnverified}, nil
+}
+
+func matchesStageExecutable(ctx context.Context, path, digest string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return false
+	}
+	hash := sha256.New()
+	var buffer [32 * 1024]byte
+	for ctx.Err() == nil {
+		n, err := file.Read(buffer[:])
+		_, _ = hash.Write(buffer[:n])
+		if err == io.EOF {
+			current, statErr := os.Lstat(path)
+			return statErr == nil && os.SameFile(opened, current) && hex.EncodeToString(hash.Sum(nil)) == digest && ctx.Err() == nil
+		}
+		if err != nil {
+			return false
+		}
+	}
+	return false
 }
 
 func validVersionStageRequest(r VersionStageRequest) bool {
