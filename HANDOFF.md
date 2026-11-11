@@ -1,5 +1,22 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-10 — v0.9/v0.10 소스 랜딩 후보 (MERGE_HOLD)
+
+Draft PR #47~#63(검증 전용 #54/#57/#61 제외)의 고유 변경분만으로 후보 Tree
+`ee735340`(`landing/keycli-v010-source-history-20261110` @ `80bdd82b`, 22커밋)를
+재구성했다. `main 4c972d98` 기준이며 #61 CI Run `42787409731`(Go 1.22.12 linux/amd64,
+`verify.sh --suite all`, 37 pkg ok)과 **코드 동등**이다. 유일한 차이는
+`docs/guides/credential-rotation-lifecycle.md` 1건으로, 후보가 #56의 K10-04R 절을 보존한다.
+`internal/rotation`(K10)은 아직 CLI에 배선되지 않아 사용자 표면 변화는
+`kc delivery plan|status`, `kc auth probe`(offline)뿐이다.
+
+- 상세·재현: [소스 랜딩 증거](docs/reviews/2026-11-10-v010-source-landing/README.md)
+- 판정: `SOURCE_PARITY=PASS(문서 1건 drift)` · `INTEGRATION_CI=REUSED_VERIFIED(코드 동등)` ·
+  `MAIN_LANDING=CANDIDATE_READY` · `TRUSTED_HOST=SOURCE_PARTIAL` ·
+  `PROVIDER_LIVE=NOT_VERIFIED` · `RELEASE=BLOCKED`
+- 블로커: PR 생성·병합·태그 권한(사용자 결정), mac-smoke 미실행, WI-KC-02 미구현
+- 이번 작업의 실제 외부 효과: push/PR/merge/tag 0, provider mutation 0, Keychain·`~/.kc` 변경 0
+
 ## 2026-11-08 — policy deny + 라이브 적용 검증
 
 `[policy.agent.*] deny = [...]`를 추가했다(PR #30, `b69c3b6`). Cursor Cloud 단일 VM 파일럿은 릴리스 `v0.7.2`로 **allowlist 계약 PASS**(A/B/C = 0/5/2, 허용일 때만 자식 실행, 합성 시크릿만) — [영수증](docs/reviews/2026-11-08-kc-cursor-cloud-p3-01.md). `policy_digest` 재현·`pin_match`·`deny` 기능·실제 provider 자격증명은 **NOT VERIFIED**. `deny`는 `allow`보다 먼저 평가되고, 잘못된 글로브는 진단 명령(`doctor`/`policy`/`rules`)을 제외한 모든 명령에서 명시적으로 거부되며(PR #32) 평가 단계에서도 fail-closed다. Mac 로컬 `cursor` 기준으로 `get`/`exec`/`ls`/`policy check` 네 경로의 허용·거부·오류를 합성 probe로 확인했다([검증](docs/reviews/2026-11-08-policy-deny-live-enforcement.md)). 다중 에이전트 동시 적용·Cloud Agent·`kc push` 경로는 **NOT VERIFIED**이며, 이 정책은 보안 경계가 아닌 **실수 방지 가드레일**이다. `kc policy show`(적용 규칙·출처·강제 여부)와 `kc policy validate`(전체 패턴 사전 검증)를 추가했다. Cursor Cloud 별칭 경유 실 PUT → 목록 → DELETE 왕복은 합성 값으로 **COMPLETE**([영수증](docs/reviews/2026-11-08-kc-p4-cursor-alias-put.md)); `--repos` 범위·충돌·상한·GUI 주입은 **NOT VERIFIED**. `kc push cloudflare`는 일회성 Worker에 실 PUT 후 삭제까지 **COMPLETE**([영수증](docs/reviews/2026-11-08-kc-p4-cloudflare-push.md)); 범위·한도·롤백은 **NOT VERIFIED**. Editor 토큰은 자기 자신을 삭제할 수 없어 발급 주체로 회수해야 한다. 만료·회전·정리 소유권은 [문서](docs/reviews/2026-11-08-credential-lifecycle-ownership.md)로 고정했고, unguarded `kc import`는 기존 이름 덮어쓰기를 **거부**하며(`--force` 필요) 만료 없음 경고를 남긴다. 자동 갱신·전역 스윕은 비목표다.
