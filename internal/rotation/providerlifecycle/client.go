@@ -34,7 +34,9 @@ var regionID = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9]$`)
 type HostAuthorize func(context.Context, string, string, string) error
 
 // Authenticate is supplied by a separately privileged provider host.
-// OCI must sign the exact full request AFTER the immutable body is set.
+// OCI must sign the supplied method, URL, host and body and preserve the fixed
+// headers. It may set Authorization, Date and X-Date, and restore an identical
+// readable body after reading it.
 type Authenticate func(*http.Request) error
 
 type Client struct {
@@ -92,7 +94,7 @@ func (c Client) callBeforeSend(ctx context.Context, method, origin, path string,
 	if err := c.sign(req); err != nil {
 		return nil, errors.New("provider signer refused operation")
 	}
-	if req.Method != method || req.URL.String() != u.String() || (req.Host != "" && req.Host != u.Host) || req.Body != initialBody || req.GetBody != nil {
+	if req.Method != method || req.URL == nil || req.URL.String() != u.String() || (req.Host != "" && req.Host != u.Host) || req.Body != initialBody || req.GetBody != nil {
 		return nil, errors.New("provider signer mutated immutable effect")
 	}
 	if beforeSend != nil {
@@ -100,6 +102,10 @@ func (c Client) callBeforeSend(ctx context.Context, method, origin, path string,
 			return nil, err
 		}
 	}
+	return c.send(req, expected...)
+}
+
+func (c Client) send(req *http.Request, expected ...int) ([]byte, error) {
 	res, err := c.http.Do(req)
 	if err != nil {
 		return nil, errors.New("provider effect response unknown")

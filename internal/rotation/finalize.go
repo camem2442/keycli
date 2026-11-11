@@ -26,6 +26,7 @@ type RevocationGrant struct {
 
 type AuthorizeRevocation func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error)
 type RevokeOldGeneration func(context.Context, Generation, string) (journal.Observation, error)
+type RevokeWithFence func(context.Context, Generation, string, func(context.Context) error) (journal.Observation, error)
 
 // FinalizeAction binds a separately authorized revocation to its exact plan,
 // retirement evidence and old credential. The caller owns journal dispatch.
@@ -38,7 +39,7 @@ type FinalizeAction struct {
 	verifyConsumer   VerifyConsumer
 	grant            RevocationGrant
 	verifyOld        VerifyOldCredential
-	revoke           RevokeOldGeneration
+	revoke           RevokeWithFence
 }
 
 // Finalize attests activation, every required consumer and the old credential
@@ -72,6 +73,24 @@ func NewFinalizeAction(ctx context.Context, operationID string, plan Preparation
 	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
 	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
 	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeOldGeneration) (FinalizeAction, error) {
+	if revoke == nil {
+		return FinalizeAction{}, errors.New("credential revocation unavailable")
+	}
+	return NewFinalizeActionWithFence(ctx, operationID, plan, activation, consumers, now, verifyActivation, verifyConsumer, authorizeRevoker, verifyOld,
+		func(ctx context.Context, old Generation, handle string, fence func(context.Context) error) (journal.Observation, error) {
+			if err := fence(ctx); err != nil {
+				return journal.Observation{}, err
+			}
+			return revoke(ctx, old, handle)
+		})
+}
+
+// NewFinalizeActionWithFence lets a trusted adapter sign its exact request
+// before invoking the single journal's execution fence at the send boundary.
+func NewFinalizeActionWithFence(ctx context.Context, operationID string, plan PreparationPlan,
+	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
+	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
+	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeWithFence) (FinalizeAction, error) {
 	wall := time.Now()
 	if authorizeRevoker == nil || verifyOld == nil || revoke == nil || operationID == "" || ctx == nil || ctx.Err() != nil || now.Before(wall.Add(-30*time.Second)) || now.After(wall.Add(30*time.Second)) {
 		return FinalizeAction{}, errors.New("credential revocation host authorization missing")
@@ -138,13 +157,34 @@ func (a FinalizeAction) revokeVerified(ctx context.Context, retirement Retiremen
 	if !a.evidenceCurrent(retirement, identity) {
 		return journal.Observation{}, ErrActionNotCurrent
 	}
-	if err := verifyActionBoundary(ctx, a.grant.ExpiresAt, beforeEffect); err != nil {
-		return journal.Observation{}, err
+	called := false
+	var fenceErr error
+	observation, err := a.revoke(ctx, a.plan.Old, a.grant.OldCredentialHandle, func(boundary context.Context) error {
+		if called {
+			fenceErr = ErrActionNotCurrent
+			return fenceErr
+		}
+		called = true
+		if !a.evidenceCurrent(retirement, identity) {
+			fenceErr = ErrActionNotCurrent
+		} else {
+			fenceErr = verifyActionBoundary(boundary, a.grant.ExpiresAt, beforeEffect)
+		}
+		if fenceErr == nil && beforeEffect != nil && !a.evidenceCurrent(retirement, identity) {
+			fenceErr = ErrActionNotCurrent
+		}
+		return fenceErr
+	})
+	if fenceErr != nil {
+		return journal.Observation{}, fenceErr
 	}
-	if beforeEffect != nil && !a.evidenceCurrent(retirement, identity) {
+	if errors.Is(err, ErrActionNotCurrent) {
 		return journal.Observation{}, ErrActionNotCurrent
 	}
-	return acknowledged(a.revoke(ctx, a.plan.Old, a.grant.OldCredentialHandle))
+	if !called {
+		return journal.Observation{}, journal.ErrUnknownEffect
+	}
+	return acknowledged(observation, err)
 }
 
 func (a FinalizeAction) evidenceCurrent(retirement RetirementInput, identity VerifiedOldCredential) bool {

@@ -238,8 +238,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	}
 
 	status := StatusNoEffect
+	note := noEffectCode
 	if record.State == journal.Acknowledged {
 		status = StatusApplied
+		if action != nil && req.Provider == "oracle" && req.Action == hostbridge.ActionRevoke {
+			note = "OCI Vault acknowledged the deletion schedule; permanent deletion requires separate observation"
+		}
 	}
 	var settlement string
 	if local != nil && local.execution != nil {
@@ -247,7 +251,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	}
 	return Receipt{MutationID: req.MutationID, Status: status, ProviderCalls: calls,
 		OperationState: string(record.State), ProofDigest: record.ProofDigest,
-		AuthoritySettlement: settlement, Note: noEffectCode}, nil
+		AuthoritySettlement: settlement, Note: note}, nil
 }
 
 func authorityError(err error) error {
