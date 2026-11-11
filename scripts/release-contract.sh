@@ -90,15 +90,30 @@ verify_binary() {
   validate_identity
   local arch="$1" cli="dist/kc-linux-$1" gateway="dist/kc-gateway-linux-$1"
   local expected="$RELEASE_VERSION ($SOURCE_SHA)"
+  local legacy="dist/keycli-linux-amd64"
   chmod +x "$cli" "$gateway"
+  if [[ "$arch" == amd64 && "$(uname -m)" == aarch64 ]]; then
+    [[ -x "${KC_CI_QEMU_X86_64:-}" ]] || fail "x86_64 emulator unavailable"
+    chmod +x "$legacy"
+    local wrapper_dir
+    wrapper_dir="$(mktemp -d)"
+    for name in kc-linux-amd64 kc-gateway-linux-amd64 keycli-linux-amd64; do
+      printf '#!/bin/sh\nexec "%s" "%s/dist/%s" "$@"\n' \
+        "$KC_CI_QEMU_X86_64" "$PWD" "$name" > "$wrapper_dir/$name"
+      chmod 700 "$wrapper_dir/$name"
+    done
+    cli="$wrapper_dir/kc-linux-amd64"
+    gateway="$wrapper_dir/kc-gateway-linux-amd64"
+    legacy="$wrapper_dir/keycli-linux-amd64"
+  fi
   local actual
   actual="$("$cli" --version)" || fail "CLI version command failed"
   [[ "$actual" == "kc version $expected" ]] || fail "unexpected CLI version or commit"
   actual="$("$gateway" --version)" || fail "gateway version command failed"
   [[ "$actual" == "$expected" ]] || fail "unexpected gateway version or commit"
   if [[ "$arch" == amd64 ]]; then
-    chmod +x dist/keycli-linux-amd64
-    actual="$(dist/keycli-linux-amd64 --version)" || fail "legacy CLI version command failed"
+    chmod +x "$legacy"
+    actual="$("$legacy" --version)" || fail "legacy CLI version command failed"
     [[ "$actual" == "kc version $expected" ]] || fail "unexpected legacy CLI identity"
   fi
   bash "$(dirname "$0")/verify-mcp-binary.sh" "$cli" "kc version $expected"
