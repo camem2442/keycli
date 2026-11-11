@@ -205,8 +205,15 @@ def receive_guard(connection, deadline):
             return
         assert len(received) == 1
         wire = gateway._json(frame)
-        gateway._exact(wire, {"v", "method", "request_id", "expires_at", *gateway.BINDINGS})
-        assert type(wire["v"]) is int and wire["v"] == 2
+        expected_version = 3 if sys.platform == "darwin" else 2
+        fields = {"v", "method", "request_id", "expires_at", *gateway.BINDINGS}
+        if expected_version == 3:
+            fields.add("lock_offset_digest")
+        gateway._exact(wire, fields)
+        assert type(wire["v"]) is int and wire["v"] == expected_version
+        if expected_version == 3:
+            offset = os.lseek(received[0], 0, os.SEEK_CUR)
+            assert wire["lock_offset_digest"] == gateway._digest(str(offset).encode("ascii"))
         assert wire["method"] == "verify_guarded_execution"
         assert re.fullmatch(r"[0-9a-f]{32}", wire["request_id"])
         yield wire, received[0]

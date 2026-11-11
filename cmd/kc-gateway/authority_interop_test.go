@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -52,9 +51,6 @@ func TestGatewayPythonGuardedExecution(t *testing.T) {
 }
 
 func TestGatewayPythonDurableAuthority(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux borrowed flock proof required")
-	}
 	t.Run("current", func(t *testing.T) {
 		runGatewayPythonAuthority(t, "authority_durable.py", "current", effectgateway.Receipt{
 			Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged),
@@ -69,9 +65,6 @@ func TestGatewayPythonDurableAuthority(t *testing.T) {
 }
 
 func TestGatewayPythonAuthorityCLI(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux borrowed flock proof required")
-	}
 	t.Run("current", func(t *testing.T) {
 		runGatewayPythonAuthority(t, "authority_cli.py", "current", effectgateway.Receipt{
 			Status: effectgateway.StatusApplied, OperationState: string(journal.Acknowledged),

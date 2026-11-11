@@ -5,11 +5,15 @@ package hostbridge
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,7 +28,8 @@ type guardedExecutionRequest struct {
 	Method    string `json:"method"`
 	RequestID string `json:"request_id"`
 	AuthorityBinding
-	ExpiresAt string `json:"expires_at"`
+	ExpiresAt        string `json:"expires_at"`
+	LockOffsetDigest string `json:"lock_offset_digest,omitempty"`
 }
 
 var guardedExecutionFields = strings.Fields("v method request_id goal_id mutation_id writer_generation owner session provider operation resource_digest target_digest plan_digest grant_digest expires_at")
@@ -41,11 +46,6 @@ func (a *GuardedExecution) exchange(ctx context.Context, binding AuthorityBindin
 		Version: 2, Method: guardedExecutionMethod, RequestID: hex.EncodeToString(nonce[:]),
 		AuthorityBinding: binding, ExpiresAt: expiry.UTC().Format(time.RFC3339Nano),
 	}
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return ErrLocalAuthorityUnavailable
-	}
-
 	info, err := os.Lstat(a.path)
 	if err != nil || info.Mode() != os.ModeSocket|0600 || !authoritySocketOwner(info, a.uid) {
 		return ErrLocalAuthorityUnavailable
@@ -65,6 +65,17 @@ func (a *GuardedExecution) exchange(ctx context.Context, binding AuthorityBindin
 	connected, err := os.Lstat(a.path)
 	if err != nil || connected.Mode() != os.ModeSocket|0600 || !os.SameFile(info, connected) ||
 		!authoritySocketOwner(connected, a.uid) || !authorityPeerProcess(unixConn, a.uid, a.pid) {
+		return ErrLocalAuthorityUnavailable
+	}
+	if runtime.GOOS == "darwin" {
+		req.Version = 3
+		req.LockOffsetDigest, err = proveGuardedLockOffset(lock)
+		if err != nil {
+			return ErrLocalAuthorityUnavailable
+		}
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
 		return ErrLocalAuthorityUnavailable
 	}
 	fresh := func() bool {
@@ -108,7 +119,14 @@ func validateGuardedExecutionReply(req guardedExecutionRequest, raw []byte) stri
 		return ""
 	}
 	fields, ok := exactWireObject(reply["request"])
-	if !ok || len(fields) != len(guardedExecutionFields) {
+	expectedFields := len(guardedExecutionFields)
+	if req.Version == 3 {
+		expectedFields++
+		if fields["lock_offset_digest"] == nil {
+			return ""
+		}
+	}
+	if !ok || len(fields) != expectedFields {
 		return ""
 	}
 	for _, name := range guardedExecutionFields {
@@ -122,4 +140,21 @@ func validateGuardedExecutionReply(req guardedExecutionRequest, raw []byte) stri
 		return ""
 	}
 	return verdict
+}
+
+// Darwin flock does not by itself distinguish a duplicate descriptor from a
+// separately opened descriptor. Seek a duplicate of the held file to a fresh
+// offset so the authenticated receiver can prove it shares the open description.
+func proveGuardedLockOffset(lock *os.File) (string, error) {
+	const lower, upper = 1 << 40, 1 << 61
+	delta, err := rand.Int(rand.Reader, big.NewInt(upper-lower))
+	if err != nil {
+		return "", err
+	}
+	offset, err := lock.Seek(lower+delta.Int64(), io.SeekStart)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(strconv.AppendInt(nil, offset, 10))
+	return hex.EncodeToString(digest[:]), nil
 }

@@ -176,9 +176,9 @@ serves v1 `preview_admission` followed by `admit`. A new `ADMITTED` response
 must identify the exact bound mutation and its `RUNNING` reservation before
 Go opens a dispatch. `DUPLICATE` stops before the journal callback or any
 provider call. Both responses carry `authorizes_execution: false`.
-The verifier must support the version 2 method for guarded execution.
+The verifier must support the platform's guarded execution wire version.
 The Python `serve` command enables the guarded runtime with an owner-private
-Linux service configuration, an inherited guarded listener and a trusted
+Linux or macOS service configuration, an inherited guarded listener and a trusted
 observer. Its default configuration serves advisory Authority.
 
 An unconfirmed reservation returns HTTP 503 `RESERVATION_UNKNOWN` before
@@ -188,12 +188,16 @@ to Authority recovery and settlement.
 
 The guarded client sends one EOF-framed JSON object and one `SCM_RIGHTS`
 descriptor, borrowed from the already-held Go dispatch lock. The object has
-`v: 2`, `method: "verify_guarded_execution"`, a fresh 32-character lowercase
+`v: 2` on Linux or `v: 3` on macOS, `method: "verify_guarded_execution"`, a fresh 32-character lowercase
 hex `request_id`, the exact `authority_binding` fields flattened into the
 object, and `expires_at` in UTC RFC3339 with optional fractional seconds.
 The expiry is the earliest of the signed Gateway request, the v1 admission
 advisory, and the Authority reservation lease. The client limits the exchange to three seconds, the
-caller's remaining deadline, and the remaining admission lifetime.
+caller's remaining deadline, and the remaining admission lifetime. The
+macOS version adds `lock_offset_digest`. Go sets a fresh private offset on
+the held open file description and sends its SHA-256 digest, using the
+ASCII decimal encoding. The verifier checks the borrowed offset without
+changing it and confirms exclusive contention on the same lock inode.
 
 The verifier must authenticate the Gateway, verify the received descriptor
 shares the held open file description, and check the current durable v2
@@ -246,11 +250,11 @@ The fixture corroborates acknowledgment against a separate synthetic provider
 ledger and checks no-effect evidence under the same lock. It also verifies that
 unavailable observation keeps the reservation open, and a lost `finish` reply
 can leave a completed reservation with an unconfirmed Gateway receipt.
-On Linux, `TestGatewayPythonDurableAuthority` uses the protected Go journal
+On Linux and macOS, `TestGatewayPythonDurableAuthority` uses the protected Go journal
 reader, persisted admission decisions, and the guarded Authority runtime.
 It reconstructs Authority from disk between reservation, execution and
 settlement. The dropped-verdict case keeps the dispatch and reservation
 unresolved after reconstruction.
-`TestGatewayPythonAuthorityCLI` exercises the real Linux `serve` command
+`TestGatewayPythonAuthorityCLI` exercises the real `serve` command
 and starts a fresh service process over the same decisions, journal and
 SQLite database. It verifies both settled and unresolved outcomes after restart.

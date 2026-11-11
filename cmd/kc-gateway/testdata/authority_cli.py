@@ -14,8 +14,7 @@ from test_keycli_gateway_authority import ROOT_DIGEST
 
 
 def bind_and_exec(root):
-    # Linux reports the credentials of the process that called listen().
-    # Keep this PID across exec so KeyCLI can pin the real server.
+    # Keep the process that calls listen() across exec so the peer PID stays pinned.
     with gateway.listen(root / "a.sock") as advisory, gateway.listen(root / "g.sock") as guarded:
         print("listeners-ready", flush=True)
         gateway_pid = int(sys.stdin.readline())
