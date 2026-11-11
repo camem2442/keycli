@@ -25,6 +25,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectgateway"
+	"github.com/camem2442/keycli/internal/version"
 )
 
 type ledgerEntry struct {
@@ -106,6 +107,7 @@ func main() {
 	generation := flag.Int64("generation", 0, "claim generation")
 	ttl := flag.Duration("session-ttl", 15*time.Minute, "session key lifetime")
 	credential := flag.String("credential", "", "synthetic provider credential file the service owns (0600)")
+	showVersion := flag.Bool("version", false, "print the build version and source commit")
 	lockReport := flag.Bool("lock-report", false, "print the provider lock report and exit")
 	providerKind := flag.String("provider", "synthetic", "provider adapter: synthetic|live")
 	failAfterApply := flag.Bool("fail-after-apply", false, "apply the effect, then fail (lost response)")
@@ -116,6 +118,10 @@ func main() {
 	grantFlag := flag.String("grant", "", "grant digest (required for -reconcile)")
 	flag.Parse()
 
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
 	if *lockReport {
 		fmt.Println(effectgateway.ReportJSON())
 		return
@@ -124,6 +130,7 @@ func main() {
 		if err := effectgateway.AllowRealProvider("kc-gateway"); err != nil {
 			log.Fatalf("provider refused: %v", err)
 		}
+		log.Fatal("live provider adapter is unavailable")
 	} else if *providerKind != "synthetic" {
 		log.Fatalf("unknown -provider %q", *providerKind)
 	}

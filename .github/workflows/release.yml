@@ -1,7 +1,5 @@
 name: release
 
-# Only the three release shapes are accepted. Anything else (v1, v0.10, vnext)
-# does not trigger this workflow at all.
 on:
   push:
     tags:
@@ -11,204 +9,273 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to verify (no publish unless dry_run=false and the tag is dev/rc)"
+        description: "Existing tag, or intended final version for an operational candidate"
         required: true
+        type: string
       dry_run:
-        description: "Verify and build only; never publish"
+        description: "Verify and build only; dev/rc publication requires false"
         type: boolean
         default: true
+      candidate_channel:
+        description: "Select operational only for a private candidate"
+        type: choice
+        options:
+          - tagged
+          - operational
+        default: tagged
+      candidate_source_sha:
+        description: "Reviewed 40-character source SHA for an operational candidate"
+        type: string
+      candidate_approval_ref:
+        description: "Approval record for the exact operational candidate"
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
+
+env:
+  REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
+  WORKFLOW_SHA: ${{ github.workflow_sha }}
 
 jobs:
   classify:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.c.outputs.tag }}
-      channel: ${{ steps.c.outputs.channel }}
-      prerelease: ${{ steps.c.outputs.prerelease }}
+      version: ${{ steps.classify.outputs.version }}
+      source_sha: ${{ steps.classify.outputs.source_sha }}
+      tag_object: ${{ steps.classify.outputs.tag_object }}
+      channel: ${{ steps.classify.outputs.channel }}
+      approval_ref: ${{ steps.classify.outputs.approval_ref }}
     steps:
-      - name: Classify the tag
-        id: c
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Select one release source
+        id: classify
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          tag="${REF_NAME}"
-          if [ "${EVENT}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*-dev.[0-9]*)  channel=dev;    prerelease=true ;;
-            v[0-9]*.[0-9]*.[0-9]*-rc.[0-9]*)   channel=rc;     prerelease=true ;;
-            v[0-9]*.[0-9]*.[0-9]*)             channel=stable; prerelease=false ;;
-            *) echo "unrecognised release tag: $tag" >&2; exit 2 ;;
-          esac
-          # Reject loose matches such as v1.2.3.4 or v1.2.3-rc (no number).
-          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9]+)?$'; then
-            echo "tag does not match the release contract: $tag" >&2; exit 2
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "classified $tag as $channel (prerelease=$prerelease)"
+          EVENT_SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          CANDIDATE_CHANNEL: ${{ inputs.candidate_channel }}
+          SOURCE_SHA: ${{ inputs.candidate_source_sha }}
+          APPROVAL_REF: ${{ inputs.candidate_approval_ref }}
+        run: bash scripts/release-contract.sh classify
 
-  # Stable tags are refused here on purpose: the operational channel needs the
-  # S5-O acceptance (independent host, credential isolation, provider live) and a
-  # separate approval. Failing closed is better than publishing a dev build as
-  # "latest".
   guard:
     needs: classify
     runs-on: ubuntu-latest
     steps:
-      - name: Refuse the operational channel before S5-O
+      - name: Hold stable publication pending independent acceptance
+        env:
+          RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
         run: |
           set -euo pipefail
-          if [ "${{ needs.classify.outputs.channel }}" = "stable" ]; then
-            echo "::error::operational release requires S5-O acceptance and explicit approval"
-            exit 3
-          fi
-          echo "channel ${{ needs.classify.outputs.channel }} may proceed"
+          case "$RELEASE_CHANNEL" in
+            dev|rc|operational) ;;
+            stable) echo "::error::stable release requires PR-14 operational acceptance and explicit publication approval"; exit 3 ;;
+            *) echo "::error::missing or unknown release channel"; exit 3 ;;
+          esac
 
   verify:
     needs: [classify, guard]
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    env:
+      RELEASE_VERSION: ${{ needs.classify.outputs.version }}
+      SOURCE_SHA: ${{ needs.classify.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.classify.outputs.tag_object }}
+      RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
+      APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.classify.outputs.tag }}
-          fetch-depth: 0
+          ref: ${{ github.workflow_sha }}
+          path: release-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Bind checkout and release source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ../release-control/scripts/release-contract.sh bind
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-      - name: Bind the checked-out commit to the tag
-        run: |
-          set -euo pipefail
-          tag_sha="$(git rev-parse "refs/tags/${{ needs.classify.outputs.tag }}^{commit}")"
-          head_sha="$(git rev-parse HEAD)"
-          [ "$tag_sha" = "$head_sha" ] || { echo "::error::tag $tag_sha != HEAD $head_sha"; exit 4; }
-          echo "tag_sha=$tag_sha" >> "$GITHUB_STEP_SUMMARY"
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
       - name: Unit and policy regression
         env:
           CGO_ENABLED: "0"
-        run: ./verify.sh --suite all
-      - name: Provider lock must be off in this artifact
-        run: |
-          set -euo pipefail
-          CGO_ENABLED=0 go build -o /tmp/kc-gateway ./cmd/kc-gateway
-          report="$(/tmp/kc-gateway -lock-report)"
-          echo "$report"
-          echo "$report" | grep -q '"provider_enabled":false' || { echo "::error::provider effects are enabled"; exit 5; }
-          echo "$report" | grep -q "\"channel\":\"dev\"" || { echo "::error::unexpected build channel"; exit 5; }
-      - name: Lock cannot be opened by environment or request data
-        run: |
-          set -euo pipefail
-          KC_PROVIDER_EFFECTS=enabled /tmp/kc-gateway -lock-report | grep -q '"provider_enabled":false'
-          if KC_PROVIDER_EFFECTS=enabled /tmp/kc-gateway -provider live \
-               -journal /tmp/j -claims /tmp/c -ledger /tmp/l -key-out /tmp/k \
-               -goal G -owner o -session s -generation 1 2>/tmp/live.err; then
-            echo "::error::a locked build started a live provider"; exit 6
-          fi
-          grep -q "provider effects are locked" /tmp/live.err
+        run: bash verify.sh --suite all
 
   build:
-    needs: verify
+    needs: [classify, verify]
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    env:
+      RELEASE_VERSION: ${{ needs.classify.outputs.version }}
+      SOURCE_SHA: ${{ needs.classify.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.classify.outputs.tag_object }}
+      RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
+      APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest_sha: ${{ steps.build.outputs.manifest_sha }}
+      run_attempt: ${{ steps.build.outputs.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.classify.outputs.tag }}
+          ref: ${{ github.workflow_sha }}
+          path: release-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Bind checkout and release source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ../release-control/scripts/release-contract.sh bind
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-      - name: Build the release assets
-        id: v
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+      - name: Build the selected source once
+        id: build
         run: |
           set -euo pipefail
-          export CGO_ENABLED=0
-          tag="${{ needs.classify.outputs.tag }}"
-          commit="$(git rev-parse HEAD)"
-          ldflags="-s -w -X github.com/camem2442/keycli/internal/version.Version=${tag} -X github.com/camem2442/keycli/internal/version.Commit=${commit:0:7}"
-          mkdir -p dist
-          for spec in "darwin arm64 kc-darwin-arm64" "darwin amd64 kc-darwin-amd64" "linux amd64 kc-linux-amd64" "linux arm64 kc-linux-arm64"; do
-            set -- $spec
-            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "$ldflags" -o "dist/$3" ./cmd/kc
-          done
-          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o dist/keycli-linux-amd64 ./cmd/keycli
-          (cd dist && sha256sum kc-* keycli-* > SHA256SUMS && cat SHA256SUMS)
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          rm -rf dist
+          KC_VERSION="$RELEASE_VERSION" KC_COMMIT="$SOURCE_SHA" KC_BUILD_CHANNEL="$RELEASE_CHANNEL" \
+            bash scripts/lifecycle.sh release
+          bash ../release-control/scripts/release-contract.sh provenance > dist/provenance.json
+          (cd dist && sha256sum provenance.json >> SHA256SUMS)
+          echo "manifest_sha=$(sha256sum dist/SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
+        id: upload
         with:
-          name: release-assets
-          path: dist/*
+          name: release-assets-${{ github.run_attempt }}
+          path: source/dist/*
           if-no-files-found: error
 
   gate:
     needs: [classify, build]
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: source
+    env:
+      RELEASE_VERSION: ${{ needs.classify.outputs.version }}
+      SOURCE_SHA: ${{ needs.classify.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.classify.outputs.tag_object }}
+      RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
+      APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
+      BUILD_RUN_ATTEMPT: ${{ needs.build.outputs.run_attempt }}
+      MANIFEST_SHA: ${{ needs.build.outputs.manifest_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.classify.outputs.tag }}
+          ref: ${{ github.workflow_sha }}
+          path: release-control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Bind checkout and release source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ../release-control/scripts/release-contract.sh bind
+      - name: Require the exact uploaded artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]'
       - uses: actions/download-artifact@v4
         with:
-          name: release-assets
-          path: dist
-      - name: Verify checksums and version identity
-        run: |
-          set -euo pipefail
-          (cd dist && sha256sum -c SHA256SUMS)
-          chmod +x ./dist/kc-linux-amd64 ./dist/keycli-linux-amd64
-          ./dist/kc-linux-amd64 --version | grep -q "${{ needs.classify.outputs.tag }}"
-          bash scripts/verify-mcp-binary.sh ./dist/kc-linux-amd64 "${{ needs.classify.outputs.tag }}"
-      - name: Artifact lock report
-        run: |
-          set -euo pipefail
-          CGO_ENABLED=0 go build -o /tmp/kc-gateway ./cmd/kc-gateway
-          /tmp/kc-gateway -lock-report | tee /tmp/lock.json | grep -q '"provider_enabled":false'
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: source/dist
+          merge-multiple: true
+      - name: Verify the complete artifact bundle
+        run: bash ../release-control/scripts/release-contract.sh verify-bundle
+      - name: Check the downloaded Linux binaries
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bash ../release-control/scripts/release-contract.sh verify-binary "$ARCH"
 
   publish:
     needs: [classify, verify, build, gate]
-    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+    if: ${{ (needs.classify.outputs.channel == 'dev' || needs.classify.outputs.channel == 'rc') && (github.event_name == 'push' || inputs.dry_run == false) }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
       contents: write
       id-token: write
       attestations: write
+    env:
+      RELEASE_VERSION: ${{ needs.classify.outputs.version }}
+      SOURCE_SHA: ${{ needs.classify.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.classify.outputs.tag_object }}
+      RELEASE_CHANNEL: ${{ needs.classify.outputs.channel }}
+      APPROVAL_REF: ${{ needs.classify.outputs.approval_ref }}
+      MANIFEST_SHA: ${{ needs.build.outputs.manifest_sha }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: release-assets
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: dist
-      - name: Publish as a pre-release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.classify.outputs.tag }}
+          merge-multiple: true
+      - name: Verify the gated manifest before publication
         run: |
           set -euo pipefail
-          [ "${{ needs.classify.outputs.prerelease }}" = "true" ] || { echo "::error::stable publish is not allowed here"; exit 6; }
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --verify-tag \
-            --prerelease \
-            --title "$TAG (development)" \
-            --notes "Development build. Provider effects are locked; no live acceptance." \
-            dist/kc-darwin-arm64 dist/kc-darwin-amd64 dist/kc-linux-amd64 dist/kc-linux-arm64 dist/keycli-linux-amd64 dist/SHA256SUMS
-      - name: Attest the release assets
+          cd dist
+          [[ "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" == "$MANIFEST_SHA" ]]
+          sha256sum --strict -c SHA256SUMS
+      - name: Attest the prerelease assets
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: |
-            dist/kc-darwin-arm64
-            dist/kc-darwin-amd64
-            dist/kc-linux-amd64
-            dist/kc-linux-arm64
-            dist/keycli-linux-amd64
-            dist/SHA256SUMS
+          subject-path: dist/*
+      - name: Recheck the tag and publish the verified prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ref="refs/tags/$RELEASE_VERSION"
+          matches="$(git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+            ls-remote --exit-code "$REPOSITORY_URL" "$ref" "$ref^{}")"
+          object="$(awk -v ref="$ref" '$2 == ref { print $1 }' <<<"$matches")"
+          peeled="$(awk -v ref="$ref^{}" '$2 == ref { print $1 }' <<<"$matches")"
+          [[ "$object" == "$TAG_OBJECT" && "${peeled:-$object}" == "$SOURCE_SHA" ]] || {
+            echo "::error::release tag moved since classification"
+            exit 1
+          }
+          gh release create "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "$RELEASE_VERSION ($RELEASE_CHANNEL)" \
+            --notes "Source: $SOURCE_SHA. Provider effects are locked. Operational acceptance: HOLD." \
+            dist/*
