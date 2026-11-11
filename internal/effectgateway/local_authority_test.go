@@ -101,7 +101,7 @@ type fixtureWireRequest struct {
 
 func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.AuthorityBinding, mode string) error {
 	var firstID string
-	for i, method := range []string{"admit", "verify_execution"} {
+	for i, method := range []string{"preview_admission", "preview_execution"} {
 		if err := listener.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 			return err
 		}
@@ -133,24 +133,21 @@ func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.Author
 				if mode == "advisory expires" {
 					expiry = `"` + testNow.Format(time.RFC3339) + `"`
 				}
-			case mode == "synthetic observation":
-				status, reason, state = "OK", "EXECUTION_OBSERVED", `"RUNNING"`
+			case mode == "execution preview":
+				status, reason = "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE"
+				expiry = `"` + testNow.Add(time.Minute).Format(time.RFC3339) + `"`
 			case mode == "socket drops":
 				return nil
 			}
 			bindings, _ := json.Marshal(req.AuthorityBinding)
 			body := fmt.Sprintf(`{"v":1,"request_id":%q,"status":%q,"reason":%q,%s,"expires_at":%s,"mutation_state":%s,"authorizes_execution":false}`,
 				req.RequestID, status, reason, string(bindings[1:len(bindings)-1]), expiry, state)
-			digest, extension := "null", ""
-			if i == 0 {
+			digest := "null"
+			if status == "ADVISORY" {
 				sum := sha256.Sum256([]byte(body))
 				digest = `"` + hex.EncodeToString(sum[:]) + `"`
-			} else if mode == "synthetic observation" {
-				sum := sha256.Sum256(bindings)
-				extension = fmt.Sprintf(`,"lease_expires_at":%q,"request_digest":%q`,
-					testNow.Add(time.Minute).Format(time.RFC3339), hex.EncodeToString(sum[:]))
 			}
-			_, err = fmt.Fprintf(conn, `%s,"admission_digest":%s%s}`, body[:len(body)-1], digest, extension)
+			_, err = fmt.Fprintf(conn, `%s,"admission_digest":%s}`, body[:len(body)-1], digest)
 			return err
 		}()
 		if err != nil {
@@ -164,7 +161,7 @@ func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.Author
 }
 
 func TestGatewayLocalAuthorityNeverAuthorizesV1(t *testing.T) {
-	for _, mode := range []string{"revoke after advisory", "synthetic observation", "socket drops", "advisory expires"} {
+	for _, mode := range []string{"revoke after advisory", "execution preview", "socket drops", "advisory expires"} {
 		t.Run(mode, func(t *testing.T) {
 			h := newHarness(t)
 			reg, req := authorityRegistration()
@@ -195,7 +192,7 @@ func TestGatewayLocalAuthorityNeverAuthorizesV1(t *testing.T) {
 			}
 			codes := map[string]string{
 				"socket drops": "AUTHORITY_UNAVAILABLE", "revoke after advisory": "EXECUTION_FENCE_REJECTED",
-				"synthetic observation": "EXECUTION_FENCE_UNAVAILABLE",
+				"execution preview": "EXECUTION_FENCE_UNAVAILABLE",
 			}
 			if receipt.Note != codes[mode] {
 				t.Fatalf("unexpected fixed code: %v", receipt.Note)

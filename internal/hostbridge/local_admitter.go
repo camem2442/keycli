@@ -71,8 +71,6 @@ type authorityAdvisory struct {
 type authorityReply struct {
 	authorityAdvisory
 	AdmissionDigest *string `json:"admission_digest"`
-	LeaseExpiresAt  *string `json:"lease_expires_at,omitempty"`
-	RequestDigest   *string `json:"request_digest,omitempty"`
 }
 
 // LocalAdmitter uses one host-configured filesystem Unix stream endpoint for
@@ -92,19 +90,14 @@ func NewLocalAdmitter(socketPath string, authorityUID uint32) (*LocalAdmitter, e
 // Preflight checks whether the bound intent may proceed to the local journal
 // and final verification. Success is advisory, never an execution permit.
 func (a *LocalAdmitter) Preflight(ctx context.Context, binding AuthorityBinding, now func() time.Time) (time.Time, error) {
-	reply, err := a.exchange(ctx, "admit", binding)
+	reply, err := a.exchange(ctx, "preview_admission", binding)
 	if err != nil {
 		return time.Time{}, err
 	}
-	var expiry time.Time
-	switch {
-	case reply.Status == "ADVISORY":
-		expiry, _ = parseWireTime(reply.ExpiresAt)
-	case reply.Status == "OK" && reply.Reason == "ADMITTED":
-		expiry, _ = parseWireTime(reply.LeaseExpiresAt)
-	default:
+	if reply.Status != "ADVISORY" {
 		return time.Time{}, ErrAdmissionRejected
 	}
+	expiry, _ := parseWireTime(reply.ExpiresAt)
 	if now == nil {
 		now = time.Now
 	}
@@ -118,7 +111,7 @@ func (a *LocalAdmitter) Preflight(ctx context.Context, binding AuthorityBinding,
 // VerifyExecution submits the final bound fence query. V1 only returns
 // non-authorizing observations, including its synthetic EXECUTION_OBSERVED.
 func (a *LocalAdmitter) VerifyExecution(ctx context.Context, binding AuthorityBinding) error {
-	reply, err := a.exchange(ctx, "verify_execution", binding)
+	reply, err := a.exchange(ctx, "preview_execution", binding)
 	if err != nil {
 		return err
 	}
@@ -197,7 +190,6 @@ func (b AuthorityBinding) Valid() bool {
 }
 
 var replyFields = strings.Fields("v request_id status reason goal_id mutation_id writer_generation owner session provider operation resource_digest target_digest plan_digest grant_digest admission_digest expires_at mutation_state authorizes_execution")
-var mutationStates = map[string]bool{"RUNNING": true, "DONE": true, "FAILED": true, "ORPHANED": true, "RECOVERED": true}
 
 func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, error) {
 	bad := func() (authorityReply, error) { return authorityReply{}, ErrLocalAuthorityInvalid }
@@ -208,15 +200,7 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 	if !ok {
 		return bad()
 	}
-	_, extended := fields["lease_expires_at"]
-	count := len(replyFields)
-	if extended {
-		count += 2
-		if _, ok := fields["request_digest"]; !ok {
-			return bad()
-		}
-	}
-	if len(fields) != count {
+	if len(fields) != len(replyFields) {
 		return bad()
 	}
 	for _, name := range replyFields {
@@ -230,32 +214,11 @@ func validateAuthorityReply(req authorityRequest, raw []byte) (authorityReply, e
 		!wireIdentifier.MatchString(reply.Reason) || string(fields["authorizes_execution"]) != "false" {
 		return bad()
 	}
-	isState := func(state string) bool { return reply.MutationState != nil && *reply.MutationState == state }
-	if extended {
-		_, leaseOK := parseWireTime(reply.LeaseExpiresAt)
-		if reply.Status != "OK" || reply.ExpiresAt != nil || !leaseOK ||
-			reply.RequestDigest == nil || *reply.RequestDigest != jsonDigest(req.AuthorityBinding) ||
-			reply.MutationState == nil || !mutationStates[*reply.MutationState] {
-			return bad()
-		}
-		switch {
-		case req.Method == "admit" && reply.Reason == "ADMITTED" && isState("RUNNING") &&
-			reply.AdmissionDigest != nil && wireDigest.MatchString(*reply.AdmissionDigest):
-		case req.Method == "admit" && reply.Reason == "DUPLICATE" && reply.AdmissionDigest == nil:
-		case req.Method == "verify_execution" && reply.Reason == "EXECUTION_OBSERVED" && isState("RUNNING") && reply.AdmissionDigest == nil:
-		default:
-			return bad()
-		}
-		return reply, nil
-	}
 	switch {
-	case req.Method == "admit" && reply.Status == "ADVISORY" && reply.MutationState == nil:
+	case (req.Method == "preview_admission" || req.Method == "preview_execution") &&
+		reply.Status == "ADVISORY" && reply.MutationState == nil:
 		if _, ok := parseWireTime(reply.ExpiresAt); !ok || reply.AdmissionDigest == nil ||
 			*reply.AdmissionDigest != jsonDigest(reply.authorityAdvisory) {
-			return bad()
-		}
-	case req.Method == "verify_execution" && reply.Status == "OK" && reply.Reason == "RECOVERED" && isState("RECOVERED"):
-		if reply.ExpiresAt != nil || reply.AdmissionDigest != nil {
 			return bad()
 		}
 	case reply.Status == "BLOCKED" && reply.ExpiresAt == nil && reply.AdmissionDigest == nil && reply.MutationState == nil:

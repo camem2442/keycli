@@ -168,7 +168,7 @@ func TestGatewayStartupWithHostAuthority(t *testing.T) {
 
 func denyAtExecution(listener *net.UnixListener, want hostbridge.AuthorityBinding) error {
 	var priorID string
-	for _, method := range []string{"admit", "verify_execution"} {
+	for _, method := range []string{"preview_admission", "preview_execution"} {
 		_ = listener.SetDeadline(time.Now().Add(3 * time.Second))
 		conn, err := listener.AcceptUnix()
 		if err != nil {
@@ -194,14 +194,14 @@ func denyAtExecution(listener *net.UnixListener, want hostbridge.AuthorityBindin
 			priorID = wire.RequestID
 			binding, _ := json.Marshal(want)
 			status, reason, expiry := "BLOCKED", "GRANT_REVOKED", "null"
-			if method == "admit" {
+			if method == "preview_admission" {
 				status, reason = "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE"
 				expiry = fmt.Sprintf("%q", time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano))
 			}
 			body := fmt.Sprintf(`{"v":1,"request_id":%q,"status":%q,"reason":%q,%s,"expires_at":%s,"mutation_state":null,"authorizes_execution":false}`,
 				wire.RequestID, status, reason, binding[1:len(binding)-1], expiry)
 			digest := "null"
-			if method == "admit" {
+			if method == "preview_admission" {
 				digest = fmt.Sprintf("\"%x\"", sha256.Sum256([]byte(body)))
 			}
 			_, err = fmt.Fprintf(conn, `%s,"admission_digest":%s}`, body[:len(body)-1], digest)

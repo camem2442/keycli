@@ -122,12 +122,14 @@ contains exactly these fields:
 | `resource_digest`, `plan_digest`, `grant_digest` | Host-supplied 64-character lowercase hex bindings |
 
 A writer cannot supply the socket, registry, or raw canonical target. Both
-Authority calls use the same per-submission binding. Authority v1 replies,
-including synthetic execution observations, have
-`authorizes_execution: false`; the configured gateway therefore cannot
-dispatch an effect with v1. The Go client does not yet call `finish`. If an
-Authority implementation creates a `RUNNING` mutation on `admit`, the
-gateway's local `OBSERVED_NO_EFFECT` journal entry does not settle that
-Authority reservation. A separately reviewed execution-authorizing protocol
-and shared journal and mutation settlement are required before enabling
-provider execution.
+Authority calls use the same per-submission binding. The Go client sends
+`preview_admission` before journal dispatch and `preview_execution` inside
+the journal callback. These v1 methods evaluate authority without reserving
+a mutation, spending budget, or dispatching an effect. The client requires
+a server supporting the preview methods and does not fall back to the
+mutating `admit` or `verify_execution` methods.
+
+V1 advisory replies carry `authorizes_execution: false`. The gateway
+records a local no-effect result when an advisory reply is the final
+execution check. Provider execution requires a shared journal owner and
+an execution handoff that remains fenced through dispatch and settlement.
