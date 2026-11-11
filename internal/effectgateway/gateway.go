@@ -9,6 +9,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/hostbridge"
+	"github.com/camem2442/keycli/internal/rotation"
 )
 
 // Gateway is the single effect boundary. Every field is a dependency the host
@@ -21,6 +22,7 @@ type Gateway struct {
 	Provider  Provider
 	Now       func() time.Time
 
+	RotationActions   RotationResolver
 	RecoveryAuthority RecoveryAuthorizer
 	RecoveryObserver  RecoveryObserver
 }
@@ -34,7 +36,7 @@ func (g *Gateway) now() time.Time {
 
 func (g *Gateway) configured() bool {
 	return g != nil && g.Claims != nil && g.Keys != nil && g.Authority != nil &&
-		g.Provider != nil && g.Journal.Root != ""
+		(g.Provider != nil || g.RotationActions != nil) && g.Journal.Root != ""
 }
 
 // Submit authenticates, authorises and executes exactly one intent.
@@ -72,6 +74,13 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if err != nil || bound == nil {
 		return Receipt{Status: StatusNoEffect}, authorityError(err)
 	}
+	var action RotationAction
+	if g.RotationActions != nil {
+		action, err = g.RotationActions.ResolveRotation(ctx, req)
+		if err != nil || !matchesRotation(action, req) {
+			return Receipt{Status: StatusNoEffect}, ErrAdmissionRejected
+		}
+	}
 	if err := bound.Preflight(ctx); err != nil {
 		if errors.Is(err, errDuplicateReservation) {
 			return Receipt{MutationID: req.MutationID, Status: StatusDuplicate,
@@ -88,7 +97,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		PlanDigest:   req.PlanDigest,
 		GrantDigest:  req.GrantDigest,
 	}
-	effect := func(verifyExecution func() error, executionCurrent func() bool) (journal.Observation, error) {
+	effect := func(verifyExecution func(context.Context) error, executionCurrent func() bool) (journal.Observation, error) {
 		// The journal is durable and locked. Recheck the writer and the exact
 		// authority binding before allowing any provider call.
 		noEffect := func(reason string) (journal.Observation, error) {
@@ -96,52 +105,84 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 			return journal.Observation{State: journal.ObservedNoEffect,
 				ProofDigest: localNoEffectProof(req.MutationID, reason)}, nil
 		}
-		if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
-			return noEffect("REQUEST_EXPIRED")
+		checkFence := func(ctx context.Context) error {
+			if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
+				return fenceRejection("REQUEST_EXPIRED")
+			}
+			fresh, snapErr := g.Claims.Snapshot(ctx, req.GoalID)
+			if snapErr != nil {
+				return fenceRejection("AUTHORITY_UNAVAILABLE")
+			}
+			if checkClaim(fresh, req, g.now()) != nil {
+				return fenceRejection("STALE_CLAIM")
+			}
+			checkKey := func() bool {
+				key, err := g.Keys.Key(ctx, req.GoalID, req.Owner, req.Session, req.Generation)
+				return err == nil && verifySignature(env, key)
+			}
+			if !checkKey() {
+				return fenceRejection("SESSION_KEY_INVALID")
+			}
+			if err := verifyExecution(ctx); err != nil {
+				switch {
+				case errors.Is(err, hostbridge.ErrGuardedExecutionUnknown):
+					return err
+				case errors.Is(err, hostbridge.ErrExecutionFenceUnavailable):
+					return fenceRejection("EXECUTION_FENCE_UNAVAILABLE")
+				case errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable):
+					return fenceRejection("AUTHORITY_UNAVAILABLE")
+				default:
+					return fenceRejection("EXECUTION_FENCE_REJECTED")
+				}
+			}
+			// Verification can block on IPC. Re-read the claim and signing key
+			// and recheck expiry before handing off to the provider.
+			fresh, snapErr = g.Claims.Snapshot(ctx, req.GoalID)
+			if snapErr != nil {
+				return fenceRejection("AUTHORITY_UNAVAILABLE")
+			}
+			if !checkKey() {
+				return fenceRejection("SESSION_KEY_INVALID")
+			}
+			if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
+				return fenceRejection("REQUEST_EXPIRED")
+			}
+			if checkClaim(fresh, req, g.now()) != nil {
+				return fenceRejection("STALE_CLAIM")
+			}
+			if !executionCurrent() {
+				return fenceRejection("EXECUTION_FENCE_EXPIRED")
+			}
+			return nil
 		}
-		fresh, snapErr := g.Claims.Snapshot(ctx, req.GoalID)
-		if snapErr != nil {
-			return noEffect("AUTHORITY_UNAVAILABLE")
-		}
-		if checkClaim(fresh, req, g.now()) != nil {
-			return noEffect("STALE_CLAIM")
-		}
-		checkKey := func() bool {
-			key, err := g.Keys.Key(ctx, req.GoalID, req.Owner, req.Session, req.Generation)
-			return err == nil && verifySignature(env, key)
-		}
-		if !checkKey() {
-			return noEffect("SESSION_KEY_INVALID")
-		}
-		if err := verifyExecution(); err != nil {
+		outcome := func(err error) (journal.Observation, error) {
+			var rejection fenceRejection
 			switch {
-			case errors.Is(err, hostbridge.ErrGuardedExecutionUnknown):
-				return journal.Observation{}, err
-			case errors.Is(err, hostbridge.ErrExecutionFenceUnavailable):
-				return noEffect("EXECUTION_FENCE_UNAVAILABLE")
-			case errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable):
-				return noEffect("AUTHORITY_UNAVAILABLE")
+			case errors.As(err, &rejection):
+				return noEffect(string(rejection))
+			case errors.Is(err, rotation.ErrActionNotCurrent):
+				return noEffect("ROTATION_ACTION_NOT_CURRENT")
 			default:
-				return noEffect("EXECUTION_FENCE_REJECTED")
+				return journal.Observation{}, err
 			}
 		}
-		// Verification can block on IPC. Re-read the claim and signing key
-		// and recheck expiry before handing off to the provider.
-		fresh, snapErr = g.Claims.Snapshot(ctx, req.GoalID)
-		if snapErr != nil {
-			return noEffect("AUTHORITY_UNAVAILABLE")
+		if action != nil {
+			fencePassed := false
+			observation, err := action.Execute(ctx, func(actionCtx context.Context) error {
+				err := checkFence(actionCtx)
+				fencePassed = err == nil
+				return err
+			})
+			if fencePassed && !errors.Is(err, rotation.ErrActionNotCurrent) {
+				calls++
+			}
+			if err != nil {
+				return outcome(err)
+			}
+			return observation, nil
 		}
-		if !checkKey() {
-			return noEffect("SESSION_KEY_INVALID")
-		}
-		if ctx.Err() != nil || !g.now().Before(req.ExpiresAt) {
-			return noEffect("REQUEST_EXPIRED")
-		}
-		if checkClaim(fresh, req, g.now()) != nil {
-			return noEffect("STALE_CLAIM")
-		}
-		if !executionCurrent() {
-			return noEffect("EXECUTION_FENCE_EXPIRED")
+		if err := checkFence(ctx); err != nil {
+			return outcome(err)
 		}
 		calls++
 		result, applyErr := g.Provider.Apply(ctx, req)
@@ -165,11 +206,11 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if local != nil {
 		// Use the protected registration projection that was sent to Authority.
 		record, err = g.Journal.DispatchBound(intent, local.binding, func(guard journal.DispatchGuard) (journal.Observation, error) {
-			return effect(func() error { return local.verifyAtDispatch(ctx, guard) }, local.executionCurrent)
+			return effect(func(ctx context.Context) error { return local.verifyAtDispatch(ctx, guard) }, local.executionCurrent)
 		})
 	} else {
 		record, err = g.Journal.Dispatch(intent, func() (journal.Observation, error) {
-			return effect(func() error { return bound.VerifyExecution(ctx) }, func() bool { return true })
+			return effect(bound.VerifyExecution, func() bool { return true })
 		})
 	}
 
