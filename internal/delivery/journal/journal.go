@@ -34,6 +34,13 @@ var (
 var operationID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 var digest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+// ValidOperationID reports whether id matches the journal operation contract.
+// Exported so callers (the effect gateway) reuse this rule instead of copying it.
+func ValidOperationID(id string) bool { return operationID.MatchString(id) }
+
+// ValidDigest reports whether value matches the journal digest contract.
+func ValidDigest(value string) bool { return digest.MatchString(value) }
+
 // Intent contains identifiers only. TargetDigest must hash the canonical
 // resource identity and be stable across grants, plans, and operation IDs.
 // Proof and identity digests must never be derived from credential values.

@@ -113,6 +113,12 @@ func TestWireCursorVertex(t *testing.T) {
 		t.Fatalf("failed to insert initial row: %v", err)
 	}
 
+	// Keep the write-admission guard deterministic: this test controls whether
+	// Cursor is considered running instead of depending on the host machine.
+	previous := observeCursor
+	observeCursor = func() (bool, int, error) { return false, 0, nil }
+	t.Cleanup(func() { observeCursor = previous })
+
 	targetURL := "https://new-tunnel.trycloudflare.com/v1"
 
 	// 1. Dry run
