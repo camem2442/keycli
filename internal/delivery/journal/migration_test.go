@@ -50,6 +50,25 @@ func TestMigratePendingV1PreservesOriginalAndResourceFence(t *testing.T) {
 	if err := os.Remove(backup); err != nil {
 		t.Fatal(err)
 	}
+	fault := errors.New("injected publish failure")
+	_, err = store.migratePendingV1(legacy.OperationID, verify, func(dir *os.File, name string, record Record) error {
+		if record.Version == 3 {
+			return fault
+		}
+		return writeNamedRecord(dir, name, record)
+	})
+	if !errors.Is(err, fault) {
+		t.Fatalf("active record write failure was not reported: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, original) {
+		t.Fatalf("failed active write changed the original: %v", err)
+	}
+	_, err = store.migratePendingV1(legacy.OperationID, verify, func(dir *os.File, name string, record Record) error {
+		return writeNamedRecordSync(dir, name, record, func(*os.File) error { return fault })
+	})
+	if !errors.Is(err, fault) {
+		t.Fatalf("directory sync failure was not reported: %v", err)
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		record, err := store.MigratePendingV1(legacy.OperationID, verify)
 		if err != nil || record.Version != 3 || record.State != UnknownEffect || record.Binding == nil ||

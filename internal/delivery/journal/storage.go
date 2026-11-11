@@ -206,6 +206,10 @@ func writeRecord(dir *os.File, record Record) error {
 }
 
 func writeNamedRecord(dir *os.File, destination string, record Record) error {
+	return writeNamedRecordSync(dir, destination, record, (*os.File).Sync)
+}
+
+func writeNamedRecordSync(dir *os.File, destination string, record Record, syncDirectory func(*os.File) error) error {
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -230,5 +234,5 @@ func writeNamedRecord(dir *os.File, destination string, record Record) error {
 	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), destination); err != nil {
 		return err
 	}
-	return dir.Sync()
+	return syncDirectory(dir)
 }

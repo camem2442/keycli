@@ -3,6 +3,7 @@ package journal
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/camem2442/keycli/internal/authoritybinding"
 )
@@ -12,6 +13,10 @@ import (
 // using trusted metadata. Migration preserves the original state and cannot
 // dispatch or settle an effect.
 func (s Store) MigratePendingV1(id string, verify func(Intent) (authoritybinding.Binding, error)) (Record, error) {
+	return s.migratePendingV1(id, verify, writeNamedRecord)
+}
+
+func (s Store) migratePendingV1(id string, verify func(Intent) (authoritybinding.Binding, error), publish func(*os.File, string, Record) error) (Record, error) {
 	if !ValidOperationID(id) || verify == nil {
 		return Record{}, errors.New("invalid delivery journal migration")
 	}
@@ -43,7 +48,7 @@ func (s Store) MigratePendingV1(id string, verify func(Intent) (authoritybinding
 	backup, err := readNamedRecord(dir, id, backupName)
 	switch {
 	case errors.Is(err, ErrNotFound) && current.Version == 1:
-		if err := writeNamedRecord(dir, backupName, current); err != nil {
+		if err := publish(dir, backupName, current); err != nil {
 			return Record{}, fmt.Errorf("preserve original delivery record: %w", err)
 		}
 	case err != nil:
@@ -55,7 +60,7 @@ func (s Store) MigratePendingV1(id string, verify func(Intent) (authoritybinding
 	if current.Version == 3 {
 		return unresolved(current), nil
 	}
-	if err := writeRecord(dir, mapped); err != nil {
+	if err := publish(dir, id+".json", mapped); err != nil {
 		return Record{}, fmt.Errorf("persist delivery resource mapping: %w", err)
 	}
 	return unresolved(mapped), nil
