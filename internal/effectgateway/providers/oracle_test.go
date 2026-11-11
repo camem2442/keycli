@@ -59,13 +59,15 @@ func oracleTestSecretReply(etag string) *http.Response {
 
 func TestOracleGatewayStagesExactPendingVersion(t *testing.T) {
 	for _, tc := range []struct {
-		name, result                      string
-		etagConflict, lostReply, promoted bool
+		name, result                                                 string
+		etagConflict, lostReply, promoted, sendConflict, wrongRegion bool
 	}{
-		{"verified pending", effectgateway.StatusApplied, false, false, false},
-		{"etag conflict", effectgateway.StatusNoEffect, true, false, false},
-		{"lost write reply", effectgateway.StatusUnknown, false, true, false},
-		{"current moved", effectgateway.StatusUnknown, false, false, true},
+		{"verified pending", effectgateway.StatusApplied, false, false, false, false, false},
+		{"etag conflict", effectgateway.StatusNoEffect, true, false, false, false, false},
+		{"etag raced at send", effectgateway.StatusUnknown, false, false, false, true, false},
+		{"region substitution", effectgateway.StatusNoEffect, false, false, false, false, true},
+		{"lost write reply", effectgateway.StatusUnknown, false, true, false, false, false},
+		{"current moved", effectgateway.StatusUnknown, false, false, true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -73,6 +75,9 @@ func TestOracleGatewayStagesExactPendingVersion(t *testing.T) {
 			gateway, req, key, plan := providerGateway(t, "oracle", target.PlanTarget, oracleStageOperation, hostbridge.ActionStage, "temporary")
 			marker := OraclePendingVersionName(req.MutationID, plan.ID)
 			req.TargetDigest = hostbridge.TargetDigest("oracle", oracleStageOperation, target.StageTarget(oracleTestETag, marker))
+			if tc.wrongRegion {
+				target.Region = "us-ashburn-1"
+			}
 			remoteETag := oracleTestETag
 			if tc.etagConflict {
 				remoteETag = "changed-etag"
@@ -122,6 +127,9 @@ func TestOracleGatewayStagesExactPendingVersion(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.SecretContent.Stage != "PENDING" || payload.SecretContent.Name != marker {
 					t.Fatal("incorrect stage payload")
 				}
+				if tc.sendConflict {
+					return oracleTestReply(http.StatusPreconditionFailed, "", ""), nil
+				}
 				published = true
 				if tc.lostReply {
 					return nil, io.ErrUnexpectedEOF
@@ -155,10 +163,11 @@ func TestOracleGatewayStagesExactPendingVersion(t *testing.T) {
 			envelope := effectgateway.Sign(req, key)
 			result, err := gateway.Submit(ctx, envelope)
 			wantCalls := 1
-			if tc.etagConflict {
+			if tc.etagConflict || tc.wrongRegion {
 				wantCalls = 0
 			}
-			if err != nil || result.Status != tc.result || writes != wantCalls || loads != wantCalls {
+			if (tc.wrongRegion && !errors.Is(err, effectgateway.ErrAdmissionRejected)) || (!tc.wrongRegion && err != nil) ||
+				result.Status != tc.result || writes != wantCalls || loads != wantCalls || (tc.sendConflict && published) {
 				t.Fatalf("receipt=%+v writes=%d loads=%d err=%v", result, writes, loads, err)
 			}
 			if _, err := gateway.Submit(ctx, envelope); writes != wantCalls {
