@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -193,5 +194,106 @@ func TestCloudflareIssueLostStoreReplyRecoversExactToken(t *testing.T) {
 	reportedToken = strings.Repeat("d", 32)
 	if _, err := recovery.ObserveRecovery(ctx, binding); !errors.Is(err, journal.ErrUnknownEffect) {
 		t.Fatalf("accepted changed token ID: %v", err)
+	}
+}
+
+func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
+	for _, tc := range []struct {
+		name, status       string
+		wrongID, loseReply bool
+	}{
+		{"acknowledged", effectgateway.StatusApplied, false, false},
+		{"different generation", effectgateway.StatusNoEffect, true, false},
+		{"lost delete reply", effectgateway.StatusUnknown, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			account, old, replacement := strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)
+			canonical := account + "/tokens/" + old
+			gateway, req, key, plan := providerGateway(t, "cloudflare", "fixture", cloudflareDeleteOperation, hostbridge.ActionRevoke, canonical)
+			const issued = "2026-01-01T00:00:00Z"
+			policy := fmt.Sprintf(`[{"effect":"allow","resources":{"com.cloudflare.api.account.%s":"*"}}]`, account)
+			var canonicalPolicy any
+			if err := json.Unmarshal([]byte(policy), &canonicalPolicy); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(canonicalPolicy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			policyDigest := fmt.Sprintf("%x", sha256.Sum256(data))
+			accountPath := "/client/v4/accounts/" + account
+			tokenPath := accountPath + "/tokens/" + old
+			readID := old
+			reader, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+				if r.Method != http.MethodGet {
+					t.Fatal("identity reader attempted a mutation")
+				}
+				switch r.URL.Path {
+				case accountPath:
+					return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q}}`, account)), nil
+				case tokenPath:
+					return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":"kc-rot-old","status":"active","issued_on":%q,"policies":%s}}`, readID, issued, policy)), nil
+				default:
+					t.Fatalf("unexpected identity path %s", r.URL.Path)
+					return nil, nil
+				}
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := provideridentity.CloudflareAccountToken{Reader: reader, PlanTarget: plan.Old.Target, AccountID: account, TokenID: old, ExpectedName: "kc-rot-old", ExpectedIssuedOn: issued, ExpectedPolicyDigest: policyDigest}
+			verified, err := target.Verify(ctx, plan, old)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wrongID {
+				readID = replacement
+			}
+			deletes := 0
+			client, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+				deletes++
+				if r.Method != http.MethodDelete || r.URL.Path != tokenPath {
+					t.Fatalf("revoker targeted %s %s", r.Method, r.URL.Path)
+				}
+				if tc.loseReply {
+					return nil, io.ErrUnexpectedEOF
+				}
+				return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q}}`, old)), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			activation := rotation.ActivationEvidence{StageReceiptDigest: strings.Repeat("b", 64), PromotionReceiptDigest: strings.Repeat("c", 64), ActivatedAt: now.Add(-time.Hour), GraceUntil: now.Add(-time.Minute)}
+			consumers := []rotation.ConsumerEvidence{{ConsumerID: "runner", Generation: 2, ObservedAt: now, EvidenceDigest: strings.Repeat("d", 64)}}
+			evidence, err := json.Marshal(struct {
+				Activation rotation.ActivationEvidence
+				Consumers  []rotation.ConsumerEvidence
+			}{activation, consumers})
+			if err != nil {
+				t.Fatal(err)
+			}
+			gateway.RotationActions = CloudflareRotation{Plan: plan, AccountID: account, Retirement: &CloudflareRetirement{
+				MutationID: req.MutationID, Target: target, Revoker: client, Activation: activation, Consumers: consumers,
+				VerifyActivation: func(context.Context, rotation.PreparationPlan, rotation.ActivationEvidence) error { return nil },
+				VerifyConsumer:   func(context.Context, rotation.PreparationPlan, rotation.ConsumerEvidence) error { return nil },
+				Authorize: func(context.Context, string, rotation.PreparationPlan, rotation.RetirementDecision) (rotation.RevocationGrant, error) {
+					return rotation.RevocationGrant{PlanDigest: plan.ID, GrantDigest: req.GrantDigest, OldCredentialHandle: old, OldIdentityDigest: rotation.RevocationIdentityDigest(verified), EvidenceDigest: fmt.Sprintf("%x", sha256.Sum256(evidence)), ExpiresAt: req.ExpiresAt}, nil
+				},
+			}}
+			envelope := effectgateway.Sign(req, key)
+			result, err := gateway.Submit(ctx, envelope)
+			wantDeletes := 1
+			if tc.wrongID {
+				wantDeletes = 0
+			}
+			if result.Status != tc.status || deletes != wantDeletes {
+				t.Fatalf("status=%s deletes=%d error=%v", result.Status, deletes, err)
+			}
+			if _, err := gateway.Submit(ctx, envelope); deletes != wantDeletes {
+				t.Fatalf("replay deleted again: %v", err)
+			}
+		})
 	}
 }
