@@ -61,3 +61,27 @@ func TestCloudflareIssueStoreRecoveryAndFinalAuthorization(t *testing.T) {
 		t.Fatal("stored token ID could not be recovered from the operation")
 	}
 }
+
+func TestCloudflareIssueRechecksExpiryAfterSigning(t *testing.T) {
+	ctx := context.Background()
+	account, group := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	boundary := time.Now().Truncate(time.Second).Add(time.Second)
+	expiresAt := boundary.Add(5 * time.Minute)
+	signed := false
+	client, err := NewClient(func(*http.Request) error {
+		signed = true
+		time.Sleep(time.Until(boundary) + time.Millisecond)
+		return nil
+	}, roundTrip(func(*http.Request) (*http.Response, error) {
+		t.Fatal("provider called after the minimum expiry window closed")
+		return nil, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := tokenStoreFixture{operations: make(map[string]string)}
+	_, err = client.IssueCloudflareAccountToken(ctx, authorized, account, "kc-rot-fixture", group, expiresAt, "expiry-test", store)
+	if !signed || err == nil {
+		t.Fatalf("expiry was not checked after signing: signed=%t err=%v", signed, err)
+	}
+}
