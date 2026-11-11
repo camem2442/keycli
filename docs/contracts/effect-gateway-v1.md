@@ -169,3 +169,13 @@ intent and reservation, and all claim transitions for the participating
 goals must use that guard or the same journal's takeover path. An
 advisory response, even from a peer with the expected UID, provides no
 such guarantee.
+
+The opt-in `TestGatewayBoundPythonExecution` fixture lends a duplicate of
+the Go dispatch lock to a trusted Python subprocess. Python checks the
+inherited open file description and matches the durable v2 dispatch against
+the ClaimStore reservation before the synthetic callback. The fixture covers
+one successful handoff, a revoked grant, mismatched reservation and journal
+bindings, and an independently opened descriptor for the same lock inode.
+The parent waits for the verifier and holds the writer lock through
+settlement. The fixture exchange uses inherited descriptors and subprocess
+results. Deployed v1 Unix responses remain advisory.

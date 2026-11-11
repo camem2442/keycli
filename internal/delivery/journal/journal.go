@@ -79,20 +79,26 @@ type Store struct {
 // dispatch marker before invoking effect exactly once, while holding the
 // writer lock. A provider acknowledgement is not a verification receipt.
 func (s Store) Dispatch(intent Intent, effect func() (Observation, error)) (Record, error) {
-	return s.dispatch(Record{Version: 1, Intent: intent, State: IntentWritten}, effect)
+	if effect == nil {
+		return Record{}, errors.New("invalid delivery journal dispatch")
+	}
+	return s.dispatch(Record{Version: 1, Intent: intent, State: IntentWritten}, func(DispatchGuard) (Observation, error) {
+		return effect()
+	})
 }
 
 // DispatchBound persists the protected registration projection alongside the
-// intent in both durable markers. It grants no execution authority.
-func (s Store) DispatchBound(intent Intent, binding authoritybinding.Binding, effect func() (Observation, error)) (Record, error) {
+// intent in both durable markers and lends the held writer lock to effect.
+// It grants no execution authority.
+func (s Store) DispatchBound(intent Intent, binding authoritybinding.Binding, effect func(DispatchGuard) (Observation, error)) (Record, error) {
 	return s.dispatch(Record{Version: 2, Intent: intent, Binding: &binding, State: IntentWritten}, effect)
 }
 
-func (s Store) dispatch(record Record, effect func() (Observation, error)) (Record, error) {
+func (s Store) dispatch(record Record, effect func(DispatchGuard) (Observation, error)) (Record, error) {
 	if !validIntent(record.Intent) || !validBinding(record) || effect == nil {
 		return Record{}, errors.New("invalid delivery journal dispatch")
 	}
-	dir, unlock, err := s.lock(true)
+	dir, lock, unlock, err := s.lock(true)
 	if err != nil {
 		return Record{}, err
 	}
@@ -108,7 +114,7 @@ func (s Store) dispatch(record Record, effect func() (Observation, error)) (Reco
 	if err := writeRecord(dir, record); err != nil {
 		return unresolved(record), errors.Join(ErrUnknownEffect, fmt.Errorf("persist delivery dispatch marker: %w", err))
 	}
-	observation, err := effect()
+	observation, err := runDispatch(lock, effect)
 	if err != nil || !digest.MatchString(observation.ProofDigest) ||
 		(observation.State != Acknowledged && observation.State != ObservedNoEffect) {
 		record.State = UnknownEffect
@@ -139,7 +145,7 @@ func (s Store) Reconcile(intent Intent, observe func(Record) (Observation, error
 	if !validIntent(intent) || observe == nil {
 		return Record{}, errors.New("invalid delivery journal reconciliation")
 	}
-	dir, unlock, err := s.lock(false)
+	dir, _, unlock, err := s.lock(false)
 	if err != nil {
 		return Record{}, err
 	}

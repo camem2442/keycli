@@ -90,10 +90,10 @@ func openDirectory(parent int, name string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), name), nil
 }
 
-func (s Store) lock(create bool) (*os.File, func(), error) {
+func (s Store) lock(create bool) (*os.File, *os.File, func(), error) {
 	dir, err := s.open(create)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	flags := unix.O_RDWR
 	if create {
@@ -102,7 +102,7 @@ func (s Store) lock(create bool) (*os.File, func(), error) {
 	lock, err := openPrivateFile(dir, ".lock", flags)
 	if err != nil {
 		_ = dir.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	unlock := func() {
 		_ = lock.Close()
@@ -111,17 +111,17 @@ func (s Store) lock(create bool) (*os.File, func(), error) {
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		unlock()
 		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, nil, ErrBusy
+			return nil, nil, nil, ErrBusy
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Persist any visible rename left by a prior failed directory sync before
 	// allowing a new operation to rely on that terminal state.
 	if err := dir.Sync(); err != nil {
 		unlock()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return dir, unlock, nil
+	return dir, lock, unlock, nil
 }
 
 func openPrivateFile(dir *os.File, name string, flags int) (*os.File, error) {

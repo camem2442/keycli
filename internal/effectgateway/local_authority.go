@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/hostbridge"
 )
 
@@ -31,6 +32,11 @@ type LocalAuthority struct {
 	Registry OperationRegistry
 	Admitter *hostbridge.LocalAdmitter
 	Now      func() time.Time
+
+	// The in-package synthetic verifier performs no provider effects and can
+	// report known pre-provider denial. An exchange with an ambiguous effect
+	// would require a separate outcome contract.
+	verifyBoundExecution func(context.Context, hostbridge.AuthorityBinding, journal.DispatchGuard) error
 }
 
 func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, error) {
@@ -58,9 +64,10 @@ func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, 
 		now = time.Now
 	}
 	return &localBoundAuthority{
-		admitter: a.Admitter,
-		now:      now,
-		binding:  binding,
+		admitter:    a.Admitter,
+		now:         now,
+		binding:     binding,
+		verifyBound: a.verifyBoundExecution,
 	}, nil
 }
 
@@ -76,10 +83,11 @@ func (reg RegisteredOperation) authorityBinding() hostbridge.AuthorityBinding {
 }
 
 type localBoundAuthority struct {
-	admitter *hostbridge.LocalAdmitter
-	now      func() time.Time
-	binding  hostbridge.AuthorityBinding
-	expiry   time.Time
+	admitter    *hostbridge.LocalAdmitter
+	now         func() time.Time
+	binding     hostbridge.AuthorityBinding
+	expiry      time.Time
+	verifyBound func(context.Context, hostbridge.AuthorityBinding, journal.DispatchGuard) error
 }
 
 func (a *localBoundAuthority) Preflight(ctx context.Context) error {
@@ -95,4 +103,14 @@ func (a *localBoundAuthority) VerifyExecution(ctx context.Context) error {
 		return hostbridge.ErrAdmissionInvalid
 	}
 	return a.admitter.VerifyExecution(ctx, a.binding)
+}
+
+func (a *localBoundAuthority) verifyAtDispatch(ctx context.Context, guard journal.DispatchGuard) error {
+	if a.verifyBound == nil {
+		return a.VerifyExecution(ctx)
+	}
+	if !a.now().Before(a.expiry) {
+		return hostbridge.ErrAdmissionInvalid
+	}
+	return a.verifyBound(ctx, a.binding, guard)
 }

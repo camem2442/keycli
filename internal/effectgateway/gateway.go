@@ -82,7 +82,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		PlanDigest:   req.PlanDigest,
 		GrantDigest:  req.GrantDigest,
 	}
-	effect := func() (journal.Observation, error) {
+	effect := func(verifyExecution func() error) (journal.Observation, error) {
 		// The journal is durable and locked. Recheck the writer and the exact
 		// authority binding before allowing any provider call.
 		noEffect := func(reason string) (journal.Observation, error) {
@@ -107,7 +107,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		if !checkKey() {
 			return noEffect("SESSION_KEY_INVALID")
 		}
-		if err := bound.VerifyExecution(ctx); err != nil {
+		if err := verifyExecution(); err != nil {
 			switch {
 			case errors.Is(err, hostbridge.ErrExecutionFenceUnavailable):
 				return noEffect("EXECUTION_FENCE_UNAVAILABLE")
@@ -152,9 +152,13 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	var record journal.Record
 	if local, ok := bound.(*localBoundAuthority); ok {
 		// Use the protected registration projection that was sent to Authority.
-		record, err = g.Journal.DispatchBound(intent, local.binding, effect)
+		record, err = g.Journal.DispatchBound(intent, local.binding, func(guard journal.DispatchGuard) (journal.Observation, error) {
+			return effect(func() error { return local.verifyAtDispatch(ctx, guard) })
+		})
 	} else {
-		record, err = g.Journal.Dispatch(intent, effect)
+		record, err = g.Journal.Dispatch(intent, func() (journal.Observation, error) {
+			return effect(func() error { return bound.VerifyExecution(ctx) })
+		})
 	}
 
 	switch {

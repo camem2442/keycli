@@ -92,11 +92,11 @@ func TestBoundDispatchRequiresOriginalIntent(t *testing.T) {
 	}
 	wrongIntent := intent
 	wrongIntent.TargetDigest = binding.ResourceDigest
-	if _, err := store.DispatchBound(wrongIntent, binding, neverEffect(t)); err == nil {
+	if _, err := store.DispatchBound(wrongIntent, binding, neverBoundEffect(t)); err == nil {
 		t.Fatal("accepted inconsistent original intent")
 	}
 	path := filepath.Join(store.Root, intent.OperationID+".json")
-	_, err := store.DispatchBound(intent, binding, func() (Observation, error) {
+	_, err := store.DispatchBound(intent, binding, func(DispatchGuard) (Observation, error) {
 		dir, err := store.open(false)
 		if err != nil {
 			t.Fatal(err)
@@ -112,7 +112,7 @@ func TestBoundDispatchRequiresOriginalIntent(t *testing.T) {
 	if !errors.Is(err, ErrUnknownEffect) {
 		t.Fatalf("unresolved binding: %v", err)
 	}
-	if _, err := store.DispatchBound(intent, binding, neverEffect(t)); !errors.Is(err, ErrDuplicate) {
+	if _, err := store.DispatchBound(intent, binding, neverBoundEffect(t)); !errors.Is(err, ErrDuplicate) {
 		t.Fatalf("original replay: %v", err)
 	}
 	if _, err := store.Dispatch(intent, neverEffect(t)); !errors.Is(err, ErrIntentMismatch) {
@@ -139,7 +139,7 @@ func TestBoundDispatchRequiresOriginalIntent(t *testing.T) {
 	if _, err := store.Status(intent.OperationID); err == nil {
 		t.Fatal("read inconsistent bound operation")
 	}
-	if _, err := store.DispatchBound(intent, binding, neverEffect(t)); err == nil || errors.Is(err, ErrDuplicate) {
+	if _, err := store.DispatchBound(intent, binding, neverBoundEffect(t)); err == nil || errors.Is(err, ErrDuplicate) {
 		t.Fatalf("inconsistent original classified as a replay: %v", err)
 	}
 }
@@ -195,7 +195,7 @@ func TestUnknownRequiresExactReconciliation(t *testing.T) {
 func TestOrphanedIntentCannotDispatch(t *testing.T) {
 	store := newTestStore(t)
 	intent := testIntent("one")
-	dir, unlock, err := store.lock(true)
+	dir, _, unlock, err := store.lock(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,4 +341,8 @@ func neverEffect(t *testing.T) func() (Observation, error) {
 		t.Fatal("unexpected provider effect")
 		return Observation{}, nil
 	}
+}
+
+func neverBoundEffect(t *testing.T) func(DispatchGuard) (Observation, error) {
+	return func(DispatchGuard) (Observation, error) { return neverEffect(t)() }
 }
