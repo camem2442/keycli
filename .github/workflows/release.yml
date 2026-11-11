@@ -1,38 +1,211 @@
 name: release
 
+# Only the three release shapes are accepted. Anything else (v1, v0.10, vnext)
+# does not trigger this workflow at all.
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-dev.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to verify (no publish unless dry_run=false and the tag is dev/rc)"
+        required: true
+      dry_run:
+        description: "Verify and build only; never publish"
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.c.outputs.tag }}
+      channel: ${{ steps.c.outputs.channel }}
+      prerelease: ${{ steps.c.outputs.prerelease }}
+    steps:
+      - name: Classify the tag
+        id: c
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${REF_NAME}"
+          if [ "${EVENT}" = "workflow_dispatch" ]; then tag="${INPUT_TAG}"; fi
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*-dev.[0-9]*)  channel=dev;    prerelease=true ;;
+            v[0-9]*.[0-9]*.[0-9]*-rc.[0-9]*)   channel=rc;     prerelease=true ;;
+            v[0-9]*.[0-9]*.[0-9]*)             channel=stable; prerelease=false ;;
+            *) echo "unrecognised release tag: $tag" >&2; exit 2 ;;
+          esac
+          # Reject loose matches such as v1.2.3.4 or v1.2.3-rc (no number).
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9]+)?$'; then
+            echo "tag does not match the release contract: $tag" >&2; exit 2
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "classified $tag as $channel (prerelease=$prerelease)"
+
+  # Stable tags are refused here on purpose: the operational channel needs the
+  # S5-O acceptance (independent host, credential isolation, provider live) and a
+  # separate approval. Failing closed is better than publishing a dev build as
+  # "latest".
+  guard:
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse the operational channel before S5-O
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.classify.outputs.channel }}" = "stable" ]; then
+            echo "::error::operational release requires S5-O acceptance and explicit approval"
+            exit 3
+          fi
+          echo "channel ${{ needs.classify.outputs.channel }} may proceed"
+
+  verify:
+    needs: [classify, guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.tag }}
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Build release binaries
+      - name: Bind the checked-out commit to the tag
         run: |
+          set -euo pipefail
+          tag_sha="$(git rev-parse "refs/tags/${{ needs.classify.outputs.tag }}^{commit}")"
+          head_sha="$(git rev-parse HEAD)"
+          [ "$tag_sha" = "$head_sha" ] || { echo "::error::tag $tag_sha != HEAD $head_sha"; exit 4; }
+          echo "tag_sha=$tag_sha" >> "$GITHUB_STEP_SUMMARY"
+      - name: Unit and policy regression
+        env:
+          CGO_ENABLED: "0"
+        run: ./verify.sh --suite all
+      - name: Provider lock must be off in this artifact
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -o /tmp/kc-gateway ./cmd/kc-gateway
+          report="$(/tmp/kc-gateway -lock-report)"
+          echo "$report"
+          echo "$report" | grep -q '"provider_enabled":false' || { echo "::error::provider effects are enabled"; exit 5; }
+          echo "$report" | grep -q "\"channel\":\"dev\"" || { echo "::error::unexpected build channel"; exit 5; }
+      - name: Lock cannot be opened by environment or request data
+        run: |
+          set -euo pipefail
+          KC_PROVIDER_EFFECTS=enabled /tmp/kc-gateway -lock-report | grep -q '"provider_enabled":false'
+          if KC_PROVIDER_EFFECTS=enabled /tmp/kc-gateway -provider live \
+               -journal /tmp/j -claims /tmp/c -ledger /tmp/l -key-out /tmp/k \
+               -goal G -owner o -session s -generation 1 2>/tmp/live.err; then
+            echo "::error::a locked build started a live provider"; exit 6
+          fi
+          grep -q "provider effects are locked" /tmp/live.err
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the release assets
+        id: v
+        run: |
+          set -euo pipefail
           export CGO_ENABLED=0
-          VERSION="${GITHUB_REF_NAME#v}"
-          COMMIT="$(git rev-parse --short HEAD)"
-          LDFLAGS="-s -w -X github.com/camem2442/keycli/internal/version.Version=${GITHUB_REF_NAME} -X github.com/camem2442/keycli/internal/version.Commit=${COMMIT}"
+          tag="${{ needs.classify.outputs.tag }}"
+          commit="$(git rev-parse HEAD)"
+          ldflags="-s -w -X github.com/camem2442/keycli/internal/version.Version=${tag} -X github.com/camem2442/keycli/internal/version.Commit=${commit:0:7}"
           mkdir -p dist
           for spec in "darwin arm64 kc-darwin-arm64" "darwin amd64 kc-darwin-amd64" "linux amd64 kc-linux-amd64" "linux arm64 kc-linux-arm64"; do
             set -- $spec
-            GOOS=$1 GOARCH=$2 go build -ldflags "$LDFLAGS" -o "dist/$3" ./cmd/kc
+            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "$ldflags" -o "dist/$3" ./cmd/kc
           done
-          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/keycli-linux-amd64 ./cmd/keycli
-          (cd dist && sha256sum kc-* keycli-* > SHA256SUMS)
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$ldflags" -o dist/keycli-linux-amd64 ./cmd/keycli
+          (cd dist && sha256sum kc-* keycli-* > SHA256SUMS && cat SHA256SUMS)
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  gate:
+    needs: [classify, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.classify.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify checksums and version identity
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c SHA256SUMS)
+          chmod +x ./dist/kc-linux-amd64 ./dist/keycli-linux-amd64
+          ./dist/kc-linux-amd64 --version | grep -q "${{ needs.classify.outputs.tag }}"
+          bash scripts/verify-mcp-binary.sh ./dist/kc-linux-amd64 "${{ needs.classify.outputs.tag }}"
+      - name: Artifact lock report
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -o /tmp/kc-gateway ./cmd/kc-gateway
+          /tmp/kc-gateway -lock-report | tee /tmp/lock.json | grep -q '"provider_enabled":false'
+
+  publish:
+    needs: [classify, verify, build, gate]
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish as a pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [ "${{ needs.classify.outputs.prerelease }}" = "true" ] || { echo "::error::stable publish is not allowed here"; exit 6; }
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --verify-tag \
+            --prerelease \
+            --title "$TAG (development)" \
+            --notes "Development build. Provider effects are locked; no live acceptance." \
+            dist/kc-darwin-arm64 dist/kc-darwin-amd64 dist/kc-linux-amd64 dist/kc-linux-arm64 dist/keycli-linux-amd64 dist/SHA256SUMS
+      - name: Attest the release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
             dist/kc-darwin-arm64
             dist/kc-darwin-amd64
             dist/kc-linux-amd64
