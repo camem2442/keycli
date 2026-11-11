@@ -14,6 +14,12 @@ import (
 )
 
 func TestFinalizeReverifiesAndRequiresDistinctGrant(t *testing.T) {
+	t.Run("valid at dispatch", func(t *testing.T) { testFinalizeReverification(t, false) })
+	t.Run("consumer proof withdrawn", func(t *testing.T) { testFinalizeReverification(t, true) })
+}
+
+func testFinalizeReverification(t *testing.T, withdrawn bool) {
+	t.Helper()
 	p := planFixture(t)
 	now := time.Now()
 	activation := activationFixture(now)
@@ -27,7 +33,13 @@ func TestFinalizeReverifiesAndRequiresDistinctGrant(t *testing.T) {
 	called := 0
 	consumerVerifies := 0
 	result, err := Finalize(context.Background(), rotationStore(t), "revoke-old", p, activation, consumers, now, verifyActivationOK,
-		func(ctx context.Context, p PreparationPlan, e ConsumerEvidence) error { consumerVerifies++; return nil },
+		func(context.Context, PreparationPlan, ConsumerEvidence) error {
+			consumerVerifies++
+			if withdrawn && consumerVerifies > len(consumers) {
+				return ErrActionNotCurrent
+			}
+			return nil
+		},
 		func(_ context.Context, id string, p PreparationPlan, d RetirementDecision) (RevocationGrant, error) {
 			if d.Status != RetirementCandidate || d.AuthorizesRevocation {
 				t.Fatal("unsafe decision")
@@ -40,7 +52,13 @@ func TestFinalizeReverifiesAndRequiresDistinctGrant(t *testing.T) {
 			}
 			return journal.Observation{State: journal.Acknowledged, ProofDigest: strings.Repeat("f", 64)}, nil
 		})
-	if err != nil || result.State != journal.Acknowledged || called != 1 || consumerVerifies != 2 {
+	if withdrawn {
+		if !errors.Is(err, ErrActionNotCurrent) || result.State != journal.ObservedNoEffect || called != 0 || consumerVerifies != len(consumers)+1 {
+			t.Fatalf("withdrawn consumer proof: %+v, calls=%d, verifies=%d, error=%v", result, called, consumerVerifies, err)
+		}
+		return
+	}
+	if err != nil || result.State != journal.Acknowledged || called != 1 || consumerVerifies != 2*len(consumers) {
 		t.Fatalf("unexpected finalization %+v %v", result, err)
 	}
 }

@@ -30,12 +30,15 @@ type RevokeOldGeneration func(context.Context, Generation, string) (journal.Obse
 // FinalizeAction binds a separately authorized revocation to its exact plan,
 // retirement evidence and old credential. The caller owns journal dispatch.
 type FinalizeAction struct {
-	intent     journal.Intent
-	plan       PreparationPlan
-	retirement RetirementInput
-	grant      RevocationGrant
-	verifyOld  VerifyOldCredential
-	revoke     RevokeOldGeneration
+	intent           journal.Intent
+	plan             PreparationPlan
+	activation       ActivationEvidence
+	consumers        []ConsumerEvidence
+	verifyActivation VerifyActivation
+	verifyConsumer   VerifyConsumer
+	grant            RevocationGrant
+	verifyOld        VerifyOldCredential
+	revoke           RevokeOldGeneration
 }
 
 // Finalize attests activation, every required consumer and the old credential
@@ -52,12 +55,11 @@ func Finalize(ctx context.Context, store journal.Store, operationID string, plan
 	ctx, cancel := context.WithDeadline(ctx, action.grant.ExpiresAt)
 	defer cancel()
 	// Preserve the direct caller's early rejection of an unverifiable identity.
-	identity, err := action.readIdentity(ctx)
-	if err != nil {
+	if _, err := action.readIdentity(ctx); err != nil {
 		return journal.Record{}, errors.New("old credential provider identity not verified")
 	}
 	return dispatchAction(store, action.Intent(), func() (journal.Observation, error) {
-		return action.revokeVerified(ctx, identity, nil)
+		return action.Execute(ctx, nil)
 	})
 }
 
@@ -73,7 +75,7 @@ func NewFinalizeAction(ctx context.Context, operationID string, plan Preparation
 	}
 	plan = clonePreparationPlan(plan)
 	consumers = slices.Clone(consumers)
-	retirement, decision, err := Attest(ctx, clonePreparationPlan(plan), activation, consumers, now, verifyActivation, verifyConsumer)
+	_, decision, err := Attest(ctx, clonePreparationPlan(plan), activation, consumers, now, verifyActivation, verifyConsumer)
 	if err != nil || decision.Status != RetirementCandidate || decision.AuthorizesRevocation {
 		return FinalizeAction{}, errors.New("credential generation not eligible for revocation")
 	}
@@ -92,7 +94,7 @@ func NewFinalizeAction(ctx context.Context, operationID string, plan Preparation
 		return FinalizeAction{}, errors.New("separate provider revocation grant not admitted")
 	}
 	intent := journal.Intent{OperationID: operationID, TargetDigest: targetDigest(plan), PlanDigest: plan.ID, GrantDigest: grant.GrantDigest}
-	return FinalizeAction{intent: intent, plan: plan, retirement: retirement, grant: grant, verifyOld: verifyOld, revoke: revoke}, nil
+	return FinalizeAction{intent: intent, plan: plan, activation: activation, consumers: consumers, verifyActivation: verifyActivation, verifyConsumer: verifyConsumer, grant: grant, verifyOld: verifyOld, revoke: revoke}, nil
 }
 
 func (a FinalizeAction) Intent() journal.Intent { return a.intent }
@@ -108,11 +110,15 @@ func (a FinalizeAction) Execute(ctx context.Context, beforeEffect func(context.C
 	}
 	ctx, cancel := context.WithDeadline(ctx, a.grant.ExpiresAt)
 	defer cancel()
+	retirement, decision, err := Attest(ctx, clonePreparationPlan(a.plan), a.activation, a.consumers, time.Now(), a.verifyActivation, a.verifyConsumer)
+	if err != nil || decision.Status != RetirementCandidate {
+		return journal.Observation{}, ErrActionNotCurrent
+	}
 	identity, err := a.readIdentity(ctx)
 	if err != nil {
 		return journal.Observation{}, err
 	}
-	return a.revokeVerified(ctx, identity, beforeEffect)
+	return a.revokeVerified(ctx, retirement, identity, beforeEffect)
 }
 
 func (a FinalizeAction) readIdentity(ctx context.Context) (VerifiedOldCredential, error) {
@@ -125,21 +131,20 @@ func (a FinalizeAction) readIdentity(ctx context.Context) (VerifiedOldCredential
 	return identity, nil
 }
 
-func (a FinalizeAction) revokeVerified(ctx context.Context, identity VerifiedOldCredential, beforeEffect func(context.Context) error) (journal.Observation, error) {
-	if !a.evidenceCurrent(identity) {
+func (a FinalizeAction) revokeVerified(ctx context.Context, retirement RetirementInput, identity VerifiedOldCredential, beforeEffect func(context.Context) error) (journal.Observation, error) {
+	if !a.evidenceCurrent(retirement, identity) {
 		return journal.Observation{}, ErrActionNotCurrent
 	}
 	if err := verifyActionBoundary(ctx, a.grant.ExpiresAt, beforeEffect); err != nil {
 		return journal.Observation{}, err
 	}
-	if beforeEffect != nil && !a.evidenceCurrent(identity) {
+	if beforeEffect != nil && !a.evidenceCurrent(retirement, identity) {
 		return journal.Observation{}, ErrActionNotCurrent
 	}
 	return acknowledged(a.revoke(ctx, a.plan.Old, a.grant.OldCredentialHandle))
 }
 
-func (a FinalizeAction) evidenceCurrent(identity VerifiedOldCredential) bool {
-	retirement := a.retirement
+func (a FinalizeAction) evidenceCurrent(retirement RetirementInput, identity VerifiedOldCredential) bool {
 	retirement.Now = time.Now()
 	decision, err := EvaluateRetirement(retirement)
 	return err == nil && decision.Status == RetirementCandidate &&
