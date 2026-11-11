@@ -27,7 +27,47 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: python3 scripts/verify-release-contract.py
+      - name: Set synthetic release identity
+        run: |
+          {
+            echo "RELEASE_VERSION=v0.10.0-rc.999"
+            echo "SOURCE_SHA=$(git rev-parse HEAD)"
+            echo "RELEASE_CHANNEL=rc"
+            echo "TAG_OBJECT=$(git rev-parse HEAD)"
+            echo "WORKFLOW_SHA=$GITHUB_WORKFLOW_SHA"
+          } >> "$GITHUB_ENV"
       - name: Verify (Linux)
         env:
           CGO_ENABLED: "0"
-        run: ./verify.sh --suite all
+        run: |
+          KC_VERSION="$RELEASE_VERSION" KC_COMMIT="$SOURCE_SHA" KC_BUILD_CHANNEL="$RELEASE_CHANNEL" \
+            ./verify.sh --suite all
+      - name: Prepare synthetic release bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          bash scripts/release-contract.sh provenance > dist/provenance.json
+          (cd dist && sha256sum provenance.json >> SHA256SUMS)
+          echo "manifest_sha=$(sha256sum dist/SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Upload synthetic release bundle
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-release-${{ github.run_attempt }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Download synthetic release bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
+          path: /tmp/keycli-release-contract/downloaded
+          merge-multiple: true
+      - name: Verify downloaded synthetic release bundle
+        env:
+          MANIFEST_SHA: ${{ steps.bundle.outputs.manifest_sha }}
+        run: |
+          set -euo pipefail
+          mv dist /tmp/keycli-release-contract/original
+          mv /tmp/keycli-release-contract/downloaded dist
+          bash scripts/release-contract.sh verify-bundle
+          bash scripts/release-contract.sh verify-binary amd64
