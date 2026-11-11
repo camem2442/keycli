@@ -2,6 +2,7 @@ package effectgateway
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -33,10 +34,9 @@ type LocalAuthority struct {
 	Admitter *hostbridge.LocalAdmitter
 	Now      func() time.Time
 
-	// The in-package synthetic verifier performs no provider effects and can
-	// report known pre-provider denial. An exchange with an ambiguous effect
-	// would require a separate outcome contract.
-	verifyBoundExecution func(context.Context, hostbridge.AuthorityBinding, journal.DispatchGuard) error
+	// Execution is supplied explicitly by the trusted host. Without it, the
+	// existing v1 execution preview remains advisory.
+	Execution *hostbridge.GuardedExecution
 }
 
 func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, error) {
@@ -64,10 +64,11 @@ func (a LocalAuthority) Bind(ctx context.Context, req Request) (BoundAuthority, 
 		now = time.Now
 	}
 	return &localBoundAuthority{
-		admitter:    a.Admitter,
-		now:         now,
-		binding:     binding,
-		verifyBound: a.verifyBoundExecution,
+		admitter:      a.Admitter,
+		execution:     a.Execution,
+		now:           now,
+		binding:       binding,
+		requestExpiry: req.ExpiresAt,
 	}, nil
 }
 
@@ -83,11 +84,12 @@ func (reg RegisteredOperation) authorityBinding() hostbridge.AuthorityBinding {
 }
 
 type localBoundAuthority struct {
-	admitter    *hostbridge.LocalAdmitter
-	now         func() time.Time
-	binding     hostbridge.AuthorityBinding
-	expiry      time.Time
-	verifyBound func(context.Context, hostbridge.AuthorityBinding, journal.DispatchGuard) error
+	admitter      *hostbridge.LocalAdmitter
+	execution     *hostbridge.GuardedExecution
+	now           func() time.Time
+	binding       hostbridge.AuthorityBinding
+	requestExpiry time.Time
+	expiry        time.Time
 }
 
 func (a *localBoundAuthority) Preflight(ctx context.Context) error {
@@ -106,11 +108,22 @@ func (a *localBoundAuthority) VerifyExecution(ctx context.Context) error {
 }
 
 func (a *localBoundAuthority) verifyAtDispatch(ctx context.Context, guard journal.DispatchGuard) error {
-	if a.verifyBound == nil {
+	if a.execution == nil {
 		return a.VerifyExecution(ctx)
 	}
-	if !a.now().Before(a.expiry) {
-		return hostbridge.ErrAdmissionInvalid
+	expiry := a.executionExpiry()
+	return guard.WithLockFile(func(lock *os.File) error {
+		return a.execution.Verify(ctx, a.binding, expiry, a.now, lock)
+	})
+}
+
+func (a *localBoundAuthority) executionExpiry() time.Time {
+	if a.requestExpiry.Before(a.expiry) {
+		return a.requestExpiry
 	}
-	return a.verifyBound(ctx, a.binding, guard)
+	return a.expiry
+}
+
+func (a *localBoundAuthority) executionCurrent() bool {
+	return a.execution == nil || a.now().Before(a.executionExpiry())
 }

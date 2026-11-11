@@ -10,6 +10,7 @@ import struct
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -104,7 +105,8 @@ def verify(root, journal_root, mode, wire, lock_fd, deadline):
     manifest, request = state["manifest"], state["request"]
     claims = SqliteClaimStore(root / "claim.sqlite3")
     intent = {field: request[field] for field in gateway.BINDINGS}
-    execution = dict(wire, method="verify_execution")
+    execution = {field: wire[field] for field in gateway.BINDINGS}
+    execution.update(v=1, method="verify_execution", request_id=wire["request_id"])
     coordinator = gateway.MutationCoordinator(claims, LockedGoJournal(journal_root, lock_fd))
 
     if mode == "revoked":
@@ -193,9 +195,9 @@ def receive_guard(connection, deadline):
             return
         assert len(received) == 1
         wire = gateway._json(frame)
-        gateway._exact(wire, {"v", "method", "request_id", *gateway.BINDINGS})
-        assert type(wire["v"]) is int and wire["v"] == 1
-        assert wire["method"] == "synthetic_guarded_execution"
+        gateway._exact(wire, {"v", "method", "request_id", "expires_at", *gateway.BINDINGS})
+        assert type(wire["v"]) is int and wire["v"] == 2
+        assert wire["method"] == "verify_guarded_execution"
         assert re.fullmatch(r"[0-9a-f]{32}", wire["request_id"])
         yield wire, received[0]
     finally:
@@ -203,7 +205,7 @@ def receive_guard(connection, deadline):
             os.close(descriptor)
 
 
-def serve_guarded(root, journal_root, mode, socket_path):
+def serve_guarded(root, journal_root, mode, socket_path, expected_expiry):
     uid, parent_pid = os.geteuid(), os.getppid()
     deadline = time.monotonic() + 10
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
@@ -224,10 +226,32 @@ def serve_guarded(root, journal_root, mode, socket_path):
             check_client(connection, uid, parent_pid)
             with receive_guard(connection, deadline) as (wire, lock_fd):
                 assert wire is not None
-                outcome = verify(root, journal_root, mode, wire, lock_fd, deadline)
+                assert wire["expires_at"] == expected_expiry
+                expiry = datetime.fromisoformat(expected_expiry.replace("Z", "+00:00"))
+                expiry_seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
+                assert expiry_seconds > 0
+                deadline = min(deadline, time.monotonic() + expiry_seconds)
+                if mode == "journal-mismatch":
+                    path = journal_root / f"{wire['mutation_id']}.json"
+                    record = gateway._json(path.read_bytes())
+                    record["authority_binding"]["operation"] = "other-operation"
+                    path.write_bytes(gateway._encode(record))
+                if mode == "unheld-descriptor":
+                    with (journal_root / ".lock").open("rb") as separate:
+                        outcome = verify(root, journal_root, mode, wire, separate.fileno(), deadline)
+                else:
+                    check = dict(wire, operation="other-operation") if mode == "wrong-request-binding" else wire
+                    outcome = verify(root, journal_root, mode, check, lock_fd, deadline)
             # Closing our duplicate leaves the Go lock held through settlement.
-            if mode in {"lost-reply", "stalled-reply", "wrong-reply-binding", "wrong-reply-id", "duplicate-reply-field"}:
-                assert outcome == "approved"
+            denials = {
+                "revoked": "GRANT_NOT_REGISTERED",
+                "reservation-mismatch": "MUTATION_BINDING_MISMATCH",
+                "journal-mismatch": "JOURNAL_INTENT_MISMATCH",
+                "unheld-descriptor": "WRITER_LOCK_NOT_SHARED",
+                "wrong-request-binding": "MUTATION_BINDING_MISMATCH",
+            }
+            assert outcome == denials.get(mode, "approved"), outcome
+            verdict = "AUTHORIZED" if outcome == "approved" else "DENIED"
             if mode == "lost-reply":
                 return
             if mode == "stalled-reply":
@@ -237,9 +261,13 @@ def serve_guarded(root, journal_root, mode, socket_path):
                 wire["operation"] = "other-operation"
             if mode == "wrong-reply-id":
                 wire["request_id"] = "f" * 32 if wire["request_id"] != "f" * 32 else "0" * 32
-            reply = gateway._encode({"request": wire, "result": outcome})
+            if mode == "wrong-reply-expiry":
+                wire["expires_at"] = "2027-01-01T00:00:00Z"
+            if mode == "unknown-verdict":
+                verdict = "approved"
+            reply = gateway._encode({"request": wire, "verdict": verdict})
             if mode == "duplicate-reply-field":
-                reply = b'{"result":"approved",' + reply[1:]
+                reply = b'{"verdict":"AUTHORIZED",' + reply[1:]
             connection.settimeout(gateway._remaining(deadline))
             connection.sendall(reply)
 
@@ -264,7 +292,7 @@ if __name__ == "__main__":
     if action == "prepare":
         prepare(Path(root), args[0])
     elif action == "serve_guarded":
-        serve_guarded(Path(root), Path(args[0]), args[1], Path(args[2]))
+        serve_guarded(Path(root), Path(args[0]), args[1], Path(args[2]), args[3])
     elif action == "settlement":
         observe_settlement(Path(root), args[0])
     else:

@@ -100,6 +100,10 @@ type fixtureWireRequest struct {
 }
 
 func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.AuthorityBinding, mode string) error {
+	return runLocalAuthorityFixtureAt(listener, want, mode, testNow)
+}
+
+func runLocalAuthorityFixtureAt(listener *net.UnixListener, want hostbridge.AuthorityBinding, mode string, now time.Time) error {
 	var firstID string
 	for i, method := range []string{"preview_admission", "preview_execution"} {
 		if err := listener.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
@@ -129,13 +133,13 @@ func runLocalAuthorityFixture(listener *net.UnixListener, want hostbridge.Author
 			switch {
 			case i == 0:
 				status, reason = "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE"
-				expiry = `"` + testNow.Add(time.Minute).Format(time.RFC3339) + `"`
+				expiry = `"` + now.Add(time.Minute).Format(time.RFC3339) + `"`
 				if mode == "advisory expires" {
-					expiry = `"` + testNow.Format(time.RFC3339) + `"`
+					expiry = `"` + now.Format(time.RFC3339) + `"`
 				}
 			case mode == "execution preview":
 				status, reason = "ADVISORY", "EXECUTION_FENCE_UNAVAILABLE"
-				expiry = `"` + testNow.Add(time.Minute).Format(time.RFC3339) + `"`
+				expiry = `"` + now.Add(time.Minute).Format(time.RFC3339) + `"`
 			case mode == "socket drops":
 				return nil
 			}

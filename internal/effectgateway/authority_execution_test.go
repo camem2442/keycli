@@ -5,7 +5,6 @@ package effectgateway
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,23 +31,28 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		mode string
-		want string
+		want journal.State
+		note string
 	}{
-		{"current", "approved"},
-		{"revoked", "GRANT_NOT_REGISTERED"},
-		{"reservation-mismatch", "MUTATION_BINDING_MISMATCH"},
-		{"journal-mismatch", "JOURNAL_INTENT_MISMATCH"},
-		{"unheld-descriptor", "WRITER_LOCK_NOT_SHARED"},
-		{"wrong-request-binding", "MUTATION_BINDING_MISMATCH"},
-		{"wrong-reply-binding", errGuardedReply.Error()},
-		{"wrong-reply-id", errGuardedReply.Error()},
-		{"duplicate-reply-field", errGuardedReply.Error()},
-		{"lost-reply", errGuardedNoReply.Error()},
-		{"stalled-reply", errGuardedTimeout.Error()},
-		{"wrong-peer", errGuardedPeer.Error()},
+		{"current", journal.Acknowledged, ""},
+		{"revoked", journal.ObservedNoEffect, "EXECUTION_FENCE_REJECTED"},
+		{"reservation-mismatch", journal.ObservedNoEffect, "EXECUTION_FENCE_REJECTED"},
+		{"journal-mismatch", journal.ObservedNoEffect, "EXECUTION_FENCE_REJECTED"},
+		{"unheld-descriptor", journal.ObservedNoEffect, "EXECUTION_FENCE_REJECTED"},
+		{"wrong-request-binding", journal.ObservedNoEffect, "EXECUTION_FENCE_REJECTED"},
+		{"wrong-reply-binding", journal.UnknownEffect, ""},
+		{"wrong-reply-id", journal.UnknownEffect, ""},
+		{"wrong-reply-expiry", journal.UnknownEffect, ""},
+		{"duplicate-reply-field", journal.UnknownEffect, ""},
+		{"unknown-verdict", journal.UnknownEffect, ""},
+		{"lost-reply", journal.UnknownEffect, ""},
+		{"stalled-reply", journal.UnknownEffect, ""},
+		{"wrong-peer", journal.ObservedNoEffect, "AUTHORITY_UNAVAILABLE"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			h := newHarness(t)
+			now := time.Now().UTC().Truncate(time.Second)
+			h.gw.Now = time.Now
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			command := func(args ...string) *exec.Cmd {
@@ -74,7 +78,7 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 				GoalID: binding.GoalID, MutationID: binding.MutationID, Provider: binding.Provider, Action: "issue",
 				TargetDigest: binding.TargetDigest, PlanDigest: binding.PlanDigest, GrantDigest: binding.GrantDigest,
 				Generation: binding.WriterGeneration, Session: binding.Session, Owner: binding.Owner,
-				ExpiresAt: testNow.Add(time.Minute),
+				ExpiresAt: now.Add(30 * time.Second),
 			}
 			reg := RegisteredOperation{
 				Identity: hostbridge.Identity{
@@ -86,14 +90,14 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 			}
 			h.claims.snapshot = ClaimSnapshot{
 				GoalID: req.GoalID, Generation: req.Generation, Owner: req.Owner, Session: req.Session,
-				State: "ACTIVE", LeaseExpiresAt: testNow.Add(time.Minute),
+				State: "ACTIVE", LeaseExpiresAt: now.Add(30 * time.Second),
 			}
 			listener, socketPath := authoritySocket(t)
 			done := make(chan error, 1)
-			go func() { done <- runLocalAuthorityFixture(listener, binding, "admission only") }()
+			go func() { done <- runLocalAuthorityFixtureAt(listener, binding, "admission only", now) }()
 
 			verifierPath := filepath.Join(filepath.Dir(socketPath), "guard.sock")
-			verifier := command("serve_guarded", stateRoot, h.root, tc.mode, verifierPath)
+			verifier := command("serve_guarded", stateRoot, h.root, tc.mode, verifierPath, req.ExpiresAt.Format(time.RFC3339Nano))
 			events := processEvents(t, verifier)
 			if err := verifier.Start(); err != nil {
 				t.Fatal(err)
@@ -101,69 +105,13 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 			expectProcessEvent(t, events, "verifier-ready")
 
 			a := localFixtureAuthority(t, socketPath, uint32(os.Geteuid()), reg, h.gw.Now)
-			var guard journal.DispatchGuard
-			var outcome string
-			a.verifyBoundExecution = func(ctx context.Context, got hostbridge.AuthorityBinding, live journal.DispatchGuard) error {
-				guard = live
-				if got != binding {
-					t.Fatalf("verifier received different binding: %+v", got)
-				}
-				return live.WithLockFile(func(lock *os.File) error {
-					if tc.mode == "journal-mismatch" {
-						path := filepath.Join(h.root, req.MutationID+".json")
-						raw, err := os.ReadFile(path)
-						if err != nil {
-							t.Fatal(err)
-						}
-						var record journal.Record
-						if err := json.Unmarshal(raw, &record); err != nil {
-							t.Fatal(err)
-						}
-						record.Binding.Operation = "other-operation"
-						edited, err := json.Marshal(record)
-						if err != nil {
-							t.Fatal(err)
-						}
-						if err := os.WriteFile(path, edited, 0600); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if tc.mode == "unheld-descriptor" {
-						separate, err := os.OpenFile(filepath.Join(h.root, ".lock"), os.O_RDWR, 0)
-						if err != nil {
-							t.Fatal(err)
-						}
-						defer separate.Close()
-						lock = separate
-					}
-					pid := verifier.Process.Pid
-					if tc.mode == "wrong-peer" {
-						pid++
-					}
-					if tc.mode == "wrong-request-binding" {
-						got.Operation = "other-operation"
-					}
-					var exchangeErr error
-					outcome, exchangeErr = exchangeGuardedExecution(ctx, verifierPath, uint32(os.Geteuid()), pid, got, lock)
-					if errors.Is(exchangeErr, errGuardedTimeout) {
-						_ = verifier.Process.Kill()
-					}
-					waitErr := verifier.Wait()
-					if exchangeErr != nil {
-						outcome = exchangeErr.Error()
-						if waitErr != nil && !errors.Is(exchangeErr, errGuardedTimeout) {
-							t.Fatalf("verifier exited after %v: %v", exchangeErr, waitErr)
-						}
-						return exchangeErr
-					}
-					if waitErr != nil {
-						t.Fatalf("verifier did not finish: %v", waitErr)
-					}
-					if outcome != "approved" {
-						return errors.New("synthetic execution denied")
-					}
-					return nil
-				})
+			pid := verifier.Process.Pid
+			if tc.mode == "wrong-peer" {
+				pid++
+			}
+			a.Execution, err = hostbridge.NewGuardedExecution(verifierPath, uint32(os.Geteuid()), pid)
+			if err != nil {
+				t.Fatal(err)
 			}
 			h.gw.Authority = a
 			calls := 0
@@ -183,29 +131,36 @@ func TestGatewayBoundPythonExecution(t *testing.T) {
 			if fixtureErr := <-done; fixtureErr != nil {
 				t.Fatal(fixtureErr)
 			}
-			if err != nil || outcome != tc.want {
-				t.Fatalf("verification outcome %q, want %q: %+v, %v", outcome, tc.want, receipt, err)
+			if err != nil {
+				t.Fatalf("dispatch: %+v, %v", receipt, err)
 			}
-			if err := guard.WithLockFile(func(*os.File) error {
-				t.Fatal("settled dispatch guard remained usable")
-				return nil
-			}); err == nil {
-				t.Fatal("settled dispatch guard returned success")
+			if tc.mode == "stalled-reply" {
+				_ = verifier.Process.Kill()
+				_ = verifier.Wait()
+			} else if err := verifier.Wait(); err != nil {
+				t.Fatalf("verifier did not finish: %v", err)
 			}
 			record, err := h.gw.Journal.Status(req.MutationID)
-			if err != nil || record.Binding == nil || *record.Binding != binding {
+			if err != nil || record.Binding == nil || *record.Binding != binding || record.State != tc.want {
 				t.Fatalf("settled binding: %+v, %v", record, err)
 			}
-			if tc.want == "approved" {
-				if calls != 1 || receipt.ProviderCalls != 1 || receipt.Status != StatusApplied || record.State != journal.Acknowledged {
+			switch tc.want {
+			case journal.Acknowledged:
+				if calls != 1 || receipt.ProviderCalls != 1 || receipt.Status != StatusApplied {
 					t.Fatalf("approved provider calls=%d receipt=%+v journal=%+v", calls, receipt, record)
 				}
 				if err := observer.Wait(); err != nil {
 					t.Fatalf("observer did not see settlement after Go released the writer lock: %v", err)
 				}
-			} else if calls != 0 || receipt.ProviderCalls != 0 || receipt.Status != StatusNoEffect ||
-				receipt.Note != "EXECUTION_FENCE_REJECTED" || record.State != journal.ObservedNoEffect {
-				t.Fatalf("denied provider calls=%d receipt=%+v journal=%+v", calls, receipt, record)
+			case journal.UnknownEffect:
+				if calls != 0 || receipt.ProviderCalls != 0 || receipt.Status != StatusUnknown ||
+					receipt.OperationState != string(journal.UnknownEffect) || receipt.ProofDigest != "" {
+					t.Fatalf("ambiguous provider calls=%d receipt=%+v journal=%+v", calls, receipt, record)
+				}
+			case journal.ObservedNoEffect:
+				if calls != 0 || receipt.ProviderCalls != 0 || receipt.Status != StatusNoEffect || receipt.Note != tc.note {
+					t.Fatalf("denied provider calls=%d receipt=%+v journal=%+v", calls, receipt, record)
+				}
 			}
 		})
 	}

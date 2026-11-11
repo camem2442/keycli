@@ -37,9 +37,8 @@ func (g *Gateway) configured() bool {
 // Submit authenticates, authorises and executes exactly one intent.
 //
 // Order matters: signature, expiry, claim snapshot, host admission, durable
-// journal intent, effect-boundary re-check, provider call. Any failure before the
-// provider call leaves the journal at "no effect"; a failure during or after the
-// call latches UNKNOWN_EFFECT and is never retried here.
+// journal intent, effect-boundary re-check, provider call. An unconfirmed
+// Authority handoff or provider outcome latches UNKNOWN_EFFECT for reconciliation.
 func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if !g.configured() {
 		return Receipt{}, ErrNotConfigured
@@ -82,7 +81,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		PlanDigest:   req.PlanDigest,
 		GrantDigest:  req.GrantDigest,
 	}
-	effect := func(verifyExecution func() error) (journal.Observation, error) {
+	effect := func(verifyExecution func() error, executionCurrent func() bool) (journal.Observation, error) {
 		// The journal is durable and locked. Recheck the writer and the exact
 		// authority binding before allowing any provider call.
 		noEffect := func(reason string) (journal.Observation, error) {
@@ -109,6 +108,8 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		}
 		if err := verifyExecution(); err != nil {
 			switch {
+			case errors.Is(err, hostbridge.ErrGuardedExecutionUnknown):
+				return journal.Observation{}, err
 			case errors.Is(err, hostbridge.ErrExecutionFenceUnavailable):
 				return noEffect("EXECUTION_FENCE_UNAVAILABLE")
 			case errors.Is(err, hostbridge.ErrLocalAuthorityUnavailable):
@@ -132,6 +133,9 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		if checkClaim(fresh, req, g.now()) != nil {
 			return noEffect("STALE_CLAIM")
 		}
+		if !executionCurrent() {
+			return noEffect("EXECUTION_FENCE_EXPIRED")
+		}
 		calls++
 		result, applyErr := g.Provider.Apply(ctx, req)
 		if applyErr != nil {
@@ -153,11 +157,11 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	if local, ok := bound.(*localBoundAuthority); ok {
 		// Use the protected registration projection that was sent to Authority.
 		record, err = g.Journal.DispatchBound(intent, local.binding, func(guard journal.DispatchGuard) (journal.Observation, error) {
-			return effect(func() error { return local.verifyAtDispatch(ctx, guard) })
+			return effect(func() error { return local.verifyAtDispatch(ctx, guard) }, local.executionCurrent)
 		})
 	} else {
 		record, err = g.Journal.Dispatch(intent, func() (journal.Observation, error) {
-			return effect(func() error { return bound.VerifyExecution(ctx) })
+			return effect(func() error { return bound.VerifyExecution(ctx) }, func() bool { return true })
 		})
 	}
 
@@ -174,7 +178,7 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	case errors.Is(err, journal.ErrUnknownEffect):
 		return Receipt{MutationID: req.MutationID, Status: StatusUnknown, ProviderCalls: calls,
 			OperationState: string(record.State), ProofDigest: record.ProofDigest,
-			Note: "unknown provider result; reconcile before any retry"}, nil
+			Note: "unconfirmed dispatch outcome; reconcile before any retry"}, nil
 	case err != nil:
 		return Receipt{}, ErrJournalUnavailable
 	}

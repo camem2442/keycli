@@ -29,8 +29,8 @@ func runDispatch(lock *os.File, effect func(DispatchGuard) (Observation, error))
 }
 
 // WithLockFile lends a duplicate of the actual held lock to a synchronous,
-// trusted verifier. The verifier must wait for any inheriting process to exit
-// before returning and must never unlock the shared open file description.
+// trusted verifier. Any receiver must promptly close its copy before reporting
+// a verdict and must never unlock the shared open file description.
 func (g DispatchGuard) WithLockFile(verify func(*os.File) error) error {
 	if g.state == nil || verify == nil {
 		return errors.New("delivery journal dispatch guard unavailable")

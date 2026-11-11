@@ -127,8 +127,8 @@ contains exactly these fields:
 
 A writer cannot supply the socket, registry, or raw canonical target. Both
 Authority calls use the same per-submission binding. The Go client sends
-`preview_admission` before journal dispatch and `preview_execution` inside
-the journal callback. These v1 methods evaluate authority without reserving
+`preview_admission` before journal dispatch. By default it sends
+`preview_execution` inside the journal callback. These v1 methods evaluate authority without reserving
 a mutation, spending budget, or dispatching an effect. The client requires
 a server supporting the preview methods and does not fall back to the
 mutating `admit` or `verify_execution` methods.
@@ -159,26 +159,52 @@ independent observation. Set `KEYCLI_TEST_WORKSPACE_INFRA` to the
 workspace-infra preview checkout to run both lock tests and the
 Go/Python Unix preview regression.
 
-A future authorizing exchange must bind the execution check to the same
-journal ownership used by takeover. It must preserve that ownership through
-effect handoff and durable settlement. A timed-out or disconnected exchange
-must keep an unresolved effect fenced until independent reconciliation.
-The final Authority check must run under the existing dispatch guard
-without taking the same lock again. It must use the exact durable
-intent and reservation, and all claim transitions for the participating
-goals must use that guard or the same journal's takeover path. An
-advisory response, even from a peer with the expected UID, provides no
-such guarantee.
+### Guarded execution IPC
 
-The opt-in `TestGatewayBoundPythonExecution` fixture transfers a duplicate
-of the held Go dispatch lock over a Unix stream using `SCM_RIGHTS`. Both
-fixture peers check kernel UID and PID. The Python verifier confirms the
-descriptor shares the held open file description and matches the durable
-v2 dispatch and ClaimStore reservation. It closes its duplicate without
-unlocking. Go checks the echoed request, nonce, result and deadline before
-the synthetic callback and keeps the writer lock through settlement.
+A trusted host can explicitly compose `LocalAuthority.Execution` with
+`hostbridge.NewGuardedExecution` using a fixed filesystem Unix endpoint and
+the verifier's kernel UID and PID. The startup registration loader
+continues to configure the v1 advisory client. A configured guarded exchange
+requires the version 2 method and has no fallback to a preview or legacy
+mutating method.
 
-The fixture covers a successful handoff and rejects revoked grants,
-mismatched reservations or journal bindings, independently opened lock
-descriptors, peer mismatch, and invalid, lost or late replies. The
-fixture-only method is separate from the deployed v1 advisory methods.
+The guarded client sends one EOF-framed JSON object and one `SCM_RIGHTS`
+descriptor, borrowed from the already-held Go dispatch lock. The object has
+`v: 2`, `method: "verify_guarded_execution"`, a fresh 32-character lowercase
+hex `request_id`, the exact `authority_binding` fields flattened into the
+object, and `expires_at` in UTC RFC3339 with optional fractional seconds.
+The expiry is the earlier of the signed Gateway request and the v1
+admission advisory. The client limits the exchange to three seconds, the
+caller's remaining deadline, and the remaining admission lifetime.
+
+The verifier must authenticate the Gateway, verify the received descriptor
+shares the held open file description, and check the current durable v2
+dispatch and exact Authority reservation under that guard. Claim transitions
+for participating goals must use the same guard or the journal takeover path.
+The verifier closes its duplicate before returning a verdict and never
+unlocks the shared open file description. It sends one EOF-framed object with
+exactly `request` and `verdict`. The request object echoes every request
+field and its value, including the nonce, binding and expiry. Duplicate
+and additional fields are invalid. Each frame is limited to 64 KiB.
+
+- `AUTHORIZED` attests that the verifier claimed the exact reservation under
+  the guard. Only the Gateway invokes the provider, after it rechecks the
+  claim, signing key and expiry. If that recheck fails, the Gateway can
+  prove zero provider calls, while the claimed Authority reservation remains
+  for coordinated settlement.
+- `DENIED` attests that the verifier made no claim or handoff for this
+  request. A valid denial or a failure before the first send attempt
+  permits a local no-effect record.
+- Any send failure after an attempt, lost or invalid reply, or deadline
+  expiry before a valid verdict leaves the dispatch at `UNKNOWN_EFFECT`
+  with zero provider calls. The unresolved operation remains fenced for
+  reconciliation. A verifier with an uncertain outcome must never send
+  `DENIED`.
+
+`TestGatewayBoundPythonExecution` composes the normal Go dispatch path with
+a synthetic Python verifier and provider callback. It exercises the live
+Unix descriptor transfer, kernel peer credentials, reservation and journal
+validation, and journal settlement through the provider callback. Revocation,
+binding mismatch, separately opened descriptors, peer mismatch, and invalid,
+lost or stalled replies are covered. Set `KEYCLI_TEST_WORKSPACE_INFRA` to the
+workspace-infra checkout containing the Python mutation coordinator fixtures.
