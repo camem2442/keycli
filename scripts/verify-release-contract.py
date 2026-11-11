@@ -208,7 +208,10 @@ class ReleaseContractTests(unittest.TestCase):
         cli = assets / f"kc-{system}-{arch}"
         gateway = assets / f"kc-gateway-{system}-{arch}"
         cli.write_text(f"#!/bin/sh\necho 'kc version {VERSION}'\n")
-        gateway.write_text("#!/bin/sh\necho '{\"provider_enabled\":false}'\n")
+        gateway.write_text(
+            "#!/bin/sh\necho '{\"schema_version\":1,\"channel\":\"rc\","
+            "\"requires_env\":true,\"unlocked\":false,\"provider_enabled\":false}'\n"
+        )
         cli.chmod(0o644)
         gateway.chmod(0o644)
         def write_manifest():
@@ -230,13 +233,58 @@ class ReleaseContractTests(unittest.TestCase):
         gateway.write_text(
             "#!/bin/sh\n"
             "if [ \"${KC_PROVIDER_EFFECTS:-}\" = enabled ]; then \n"
-            "  echo '{\"provider_enabled\":true}'; \n"
-            "else echo '{\"provider_enabled\":false}'; fi\n"
+            "  echo '{\"schema_version\":1,\"channel\":\"rc\",\"requires_env\":true,\"unlocked\":true,\"provider_enabled\":true}'; \n"
+            "else echo '{\"schema_version\":1,\"channel\":\"rc\",\"requires_env\":true,\"unlocked\":false,\"provider_enabled\":false}'; fi\n"
         )
         write_manifest()
         result = check_release()
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertRegex(result.stdout, r"provider_lock\s+FAIL")
+        for report in (
+            'invalid {"provider_enabled":false}',
+            '{"schema_version":true,"channel":"rc","requires_env":true,"unlocked":false,"provider_enabled":false}',
+            '{"schema_version":1,"channel":"rc","requires_env":true,"unlocked":false,"provider_enabled":true,"provider_enabled":false}',
+        ):
+            with self.subTest(report=report):
+                gateway.write_text(f"#!/bin/sh\necho '{report}'\n")
+                write_manifest()
+                result = check_release()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertRegex(result.stdout, r"provider_lock\s+FAIL")
+
+    def test_dev_release_rejects_unbound_binaries_before_execution(self):
+        import platform
+
+        repo = self.repo / "acceptance"
+        scripts = repo / "scripts"
+        scripts.mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/verify-dev-release.sh", scripts)
+        (scripts / "verify-mcp-binary.sh").write_text("#!/bin/sh\nexit 0\n")
+        assets = repo / "assets"
+        assets.mkdir()
+        arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine().lower()]
+        system = platform.system().lower()
+        cli = assets / f"kc-{system}-{arch}"
+        gateway = assets / f"kc-gateway-{system}-{arch}"
+        marker = self.repo / "executed"
+        for asset in (cli, gateway):
+            asset.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        def entry(asset):
+            return f"{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n"
+        env = {**os.environ, "HOME": str(self.repo / "empty-home")}
+        extra = assets / f"{cli.name} extra"
+        extra.write_text("a different asset")
+        for manifest in (entry(cli), entry(cli) + entry(gateway) + entry(gateway),
+                         entry(cli) + "0" * 64 + f"  {gateway.name}\n",
+                         entry(extra) + entry(gateway)):
+            with self.subTest(manifest=manifest):
+                (assets / "SHA256SUMS").write_text(manifest)
+                result = subprocess.run(
+                    ["bash", str(scripts / "verify-dev-release.sh"), "--tag", VERSION,
+                     "--assets-dir", str(assets)], env=env, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse(marker.exists(), result.stdout)
 
     def test_actual_gateway_build_and_runtime_lock(self):
         commit = self.source
