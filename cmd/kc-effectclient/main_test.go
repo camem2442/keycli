@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
 )
 
@@ -126,7 +129,7 @@ func TestLoadOrigin(t *testing.T) {
 		if err := os.WriteFile(path, []byte(tc.body), 0600); err != nil {
 			t.Fatal(err)
 		}
-		origin, err := loadOrigin(path)
+		origin, err := effectclient.LoadOrigin(path)
 		if (err == nil) != tc.ok || (tc.ok && origin.Path != "") {
 			t.Errorf("loadOrigin(%s) = %s, %v", tc.body, origin.String(), err)
 		}
@@ -158,7 +161,10 @@ func TestOperationalSubmitTimeoutReadsOriginalMutation(t *testing.T) {
 			defer close(receivedStatus)
 			var env effectgateway.ReadEnvelope
 			err := json.NewDecoder(r.Body).Decode(&env)
-			expected := signRead("status", req, key, env.Request.ExpiresAt)
+			expected := effectgateway.SignRead(effectgateway.ReadRequest{
+				GoalID: req.GoalID, MutationID: req.MutationID, Owner: req.Owner, Session: req.Session,
+				Generation: req.Generation, Action: effectgateway.ReadStatus, ExpiresAt: env.Request.ExpiresAt,
+			}, key)
 			if err != nil || env != expected || !env.Request.ExpiresAt.After(req.ExpiresAt) {
 				t.Error("status must freshly sign the original mutation and claim identity")
 			}
@@ -184,6 +190,46 @@ func TestOperationalSubmitTimeoutReadsOriginalMutation(t *testing.T) {
 	}
 }
 
+func TestOperationalSubmitUnconfirmed(t *testing.T) {
+	req := effectgateway.Request{MutationID: "mutation", ExpiresAt: time.Now().Add(time.Minute)}
+	key := make([]byte, 32)
+	var mu sync.Mutex
+	var paths []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/submit":
+			_, _ = io.WriteString(w, `{"mutation_id":"different","status":"APPLIED"}`)
+		case "/status":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(w, `{"error":"STALE_GENERATION"}`)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	origin, client := trustedTestGateway(t, server, time.Second)
+
+	result, err := effectclient.Execute(context.Background(), client, origin, effectclient.Submit, req, key, time.Minute)
+	if !errors.Is(err, effectclient.ErrSubmitUnconfirmed) || !result.StatusFallback ||
+		result.HTTPStatus != http.StatusConflict || result.ErrorCode != "STALE_GENERATION" ||
+		result.Receipt != (effectgateway.Receipt{}) {
+		t.Fatalf("expected unconfirmed submit with status fallback, got %+v, %v", result, err)
+	}
+	result, err = effectclient.Execute(context.Background(), effectclient.NewHTTPClient(time.Second), origin,
+		effectclient.Submit, req, key, time.Minute)
+	if !errors.Is(err, effectclient.ErrTransport) || result.StatusFallback {
+		t.Fatalf("expected TLS failure without status fallback, got %+v, %v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(paths, ",") != "/submit,/status" {
+		t.Fatalf("unexpected requests %v", paths)
+	}
+}
+
 func TestOperationalTLSAndRedirect(t *testing.T) {
 	var mu sync.Mutex
 	var paths []string
@@ -201,7 +247,7 @@ func TestOperationalTLSAndRedirect(t *testing.T) {
 	}
 	req := effectgateway.Request{MutationID: "mutation"}
 	key := make([]byte, 32)
-	if code := runOperational(operationalHTTPClient(time.Second), origin, "status", req, key, time.Minute, io.Discard, io.Discard); code != 2 {
+	if code := runOperational(effectclient.NewHTTPClient(time.Second), origin, "status", req, key, time.Minute, io.Discard, io.Discard); code != 2 {
 		t.Fatalf("untrusted TLS exit %d", code)
 	}
 	if code := runOperational(trusted, origin, "status", req, key, time.Minute, io.Discard, io.Discard); code != 3 {
@@ -220,7 +266,7 @@ func trustedTestGateway(t *testing.T, server *httptest.Server, timeout time.Dura
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := operationalHTTPClient(timeout)
+	client := effectclient.NewHTTPClient(timeout)
 	pool := x509.NewCertPool()
 	pool.AddCert(server.Certificate())
 	client.Transport.(*http.Transport).TLSClientConfig.RootCAs = pool

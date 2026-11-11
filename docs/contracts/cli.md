@@ -112,3 +112,55 @@ command = "origin auth token"   # secret을 env로 주입해 실행, stdout(trim
 | 4 | 저장소 잠김 / 키(`KC_KEY`) 없음 |
 | 5 | 정책 거부 — stderr에 사용자에게 허용 목록 변경 요청 안내 |
 | 64 | 사용법 오류 |
+
+## Rotation
+
+`kc rotation`은 JSON v1 메타데이터를 출력한다. 아래 파일 경로에는 절대 경로를 사용한다.
+
+| 명령 | 입력 |
+| --- | --- |
+| `kc rotation plan --input <metadata.json>` | 로컬 세대와 필수 소비자 메타데이터 |
+| `kc rotation status --journal <directory> --plan <digest>` | 로컬 journal과 PR-07 회전 세션 |
+| `kc rotation status --profile <writer.json> <operation-id>` | 등록 작업의 인증된 Gateway 상태 |
+| `kc rotation submit --profile <writer.json> <operation-id>` | 등록 작업의 인증된 제출 |
+| `kc rotation reconcile --profile <writer.json> <operation-id>` | 원본 작업의 인증된 독립 관측 요청 |
+
+계획 입력은 현재 UID 소유의 단일 링크 일반 파일이며 모드는 `0600` 또는
+`0400`이다. JSON의 최상위 필드는 `v`, `old`, `new`, `required_consumers`다.
+`v`는 1이며 각 세대의 필드는 `alias`, `kind`, `provider`, `target`,
+`number`다. `required_consumers`는 고유한 소비자 ID 배열이다. 로컬 조회는
+비밀 저장소를 열지 않는다. 저장된 소비자 증거와 grace 시각은 독립 검증이
+연결되기 전까지 미검증으로 표시한다.
+
+writer 프로필은 현재 UID가 소유하는 `0600` 파일이다. 최상위 필드는 `v`,
+`gateway_config`, `session_key_file`, `goal_id`, `owner`, `session`,
+`generation`, `operations`다. `gateway_config`는 별도로 보호된 Gateway
+HTTPS 주소 설정 파일이며 `session_key_file`은 현재 세션 키 파일이다. 각
+`operations` 항목의 정확한 필드는 다음과 같다.
+
+- `operation`과 `mutation_id`
+- `provider`와 `provider_operation`
+- `resource_digest`, `target_digest`, `plan_digest`, `grant_digest`
+
+명령의 `operation-id`는 프로필의 `operation`에 해당한다. Gateway가 호스트
+등록과 현재 세션을 다시 검증한다. 제출 응답을 확인할 수 없으면 원래
+`mutation_id`로 상태를 한 번 조회한다. [Gateway 설정 계약](effect-gateway-v1.md).
+
+출력에는 `v`, `command`와 해당되는 `plan`, `rotation`, `effect`,
+`error`가 있다. Gateway 결과에는 등록 ID인 `operation`도 표시한다.
+`effect.outcome`은 `ACKNOWLEDGED_UNVERIFIED`, `UNKNOWN_EFFECT`,
+`OBSERVED_APPLIED`, `OBSERVED_NO_EFFECT`, `DUPLICATE`,
+`SUBMIT_UNCONFIRMED`를 구분한다. `journal_state`는 Gateway가 확인한
+경우에만 표시한다. `status_lookup`은 제출 이후 상태 조회를 시도했는지
+나타낸다. 조회로 대체된 응답에는 원래 제출의 `provider_calls`를 표시하지
+않는다. 오류는 `error.code`로 표시한다.
+
+| 종료 코드 | Rotation 명령의 의미 |
+| --- | --- |
+| `0` | 계획·상태 조회 성공, 적용 관측 확인 또는 복구에서 효과 없음 확인 |
+| `2` | 인수, 계획 메타데이터 또는 등록 입력 오류 |
+| `3` | 사용 불가, 응답 미확인, ACK만 수신 또는 아직 미결인 제출·복구 |
+| `5` | 인증·권한 거부 |
+
+성공적으로 조회한 상태에는 `UNKNOWN_EFFECT`가 포함될 수 있다. 이때 상태
+조회 자체는 `0`을 반환한다.
