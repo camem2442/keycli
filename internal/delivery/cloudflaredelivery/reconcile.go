@@ -21,7 +21,7 @@ func Reconcile(ctx context.Context, store journal.Store, id string, plan deliver
 	return reconcile(ctx, store, id, plan, observeAuthorized, remote)
 }
 
-func reconcile(ctx context.Context, store journal.Store, id string, plan delivery.DeliveryPlan, authorize Authorize, remote observer) (journal.Record, error) {
+func reconcile(ctx context.Context, store journal.Store, id string, plan delivery.DeliveryPlan, authorize Authorize, remote Observer) (journal.Record, error) {
 	if authorize == nil || remote == nil || plan.Provider != "cloudflare-workers" || plan.Effect != "inactive-version" || plan.Source == nil || len(id) == 0 || len(id) > 96 || !validOpID(id) || plan.Authoritative || plan.AcceptanceClaim || plan.AuthorizesExecution {
 		return journal.Record{}, errors.New("invalid Cloudflare reconciliation plan")
 	}

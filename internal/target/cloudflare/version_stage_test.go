@@ -3,6 +3,8 @@ package cloudflare
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,5 +113,91 @@ func TestVersionStageRejectsSymlinkAndExtraEnvironment(t *testing.T) {
 	req.WranglerPath = link
 	if validVersionStageRequest(req) {
 		t.Fatal("accepted symlink binary")
+	}
+}
+
+func stageTestPin(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+func TestPinnedVersionStageChecksExecutableBeforeLoadAndStart(t *testing.T) {
+	for _, changeDuringLoad := range []bool{false, true} {
+		t.Run(fmt.Sprint(changeDuringLoad), func(t *testing.T) {
+			req, argv, _ := testStage(t, "")
+			pin := stageTestPin(t, req.WranglerPath)
+			replace := func() {
+				if err := os.WriteFile(req.WranglerPath, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !changeDuringLoad {
+				replace()
+			}
+			loadCalled := false
+			result, err := StagePinnedVersionSecret(context.Background(), req, pin, func(context.Context) ([]byte, error) {
+				loadCalled = true
+				replace()
+				return []byte("fixture"), nil
+			}, func(context.Context) error {
+				t.Fatal("guard reached after executable pin failed")
+				return nil
+			})
+			if err == nil || result.State != VersionNotAttempted || loadCalled != changeDuringLoad {
+				t.Fatalf("state=%s load=%v err=%v", result.State, loadCalled, err)
+			}
+			if _, err := os.Stat(argv); !os.IsNotExist(err) {
+				t.Fatal("spawned after executable pin failed")
+			}
+		})
+	}
+}
+
+func TestPinnedVersionStageGuardControlsStart(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			req, argv, _ := testStage(t, "test -z \"$UNRELATED_SECRET\"")
+			pin := stageTestPin(t, req.WranglerPath)
+			loaded := false
+			guardCalls := 0
+			result, err := StagePinnedVersionSecret(context.Background(), req, pin, func(ctx context.Context) ([]byte, error) {
+				if _, ok := ctx.Deadline(); !ok {
+					t.Fatal("secret loader did not receive a bounded context")
+				}
+				loaded = true
+				return []byte("fixture"), nil
+			}, func(ctx context.Context) error {
+				if _, ok := ctx.Deadline(); !ok || !loaded {
+					t.Fatal("guard ran without a deadline or before loading")
+				}
+				guardCalls++
+				if _, err := os.Stat(argv); !os.IsNotExist(err) {
+					t.Fatal("process started before guard")
+				}
+				if !allow {
+					return fmt.Errorf("synthetic private detail")
+				}
+				return nil
+			})
+			if guardCalls != 1 {
+				t.Fatalf("guard ran %d times", guardCalls)
+			}
+			if allow {
+				if err != nil || result.State != VersionAcknowledgedUnverified {
+					t.Fatalf("state=%s err=%v", result.State, err)
+				}
+				return
+			}
+			if err == nil || result.State != VersionNotAttempted || strings.Contains(err.Error(), "synthetic private detail") {
+				t.Fatalf("state=%s err=%v", result.State, err)
+			}
+			if _, err := os.Stat(argv); !os.IsNotExist(err) {
+				t.Fatal("process started after guard denial")
+			}
+		})
 	}
 }

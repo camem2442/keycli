@@ -38,7 +38,7 @@ type Grant struct {
 type Authorize func(context.Context, string, delivery.DeliveryPlan) (Grant, error)
 type LoadSecret func(context.Context, delivery.SecretRef) ([]byte, error)
 
-type observer interface {
+type Observer interface {
 	Observe(context.Context, string, string) (cloudflare.DeploymentSnapshot, error)
 	GetVersion(context.Context, string, string, string) (cloudflare.VersionMetadata, error)
 }
@@ -61,7 +61,7 @@ func Run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 	return run(ctx, store, id, plan, authorize, load, request, remote, cloudflare.StageVersionSecret)
 }
 
-func run(ctx context.Context, store journal.Store, id string, plan delivery.DeliveryPlan, authorize Authorize, load LoadSecret, request cloudflare.VersionStageRequest, remote observer, stage stageFunc) (Result, error) {
+func run(ctx context.Context, store journal.Store, id string, plan delivery.DeliveryPlan, authorize Authorize, load LoadSecret, request cloudflare.VersionStageRequest, remote Observer, stage stageFunc) (Result, error) {
 	if authorize == nil || load == nil || remote == nil || stage == nil || len(id) < 1 || len(id) > 96 || !validOpID(id) ||
 		plan.Provider != "cloudflare-workers" || plan.Effect != "inactive-version" || plan.Source == nil ||
 		plan.Authoritative || plan.AcceptanceClaim || plan.AuthorizesExecution ||
@@ -117,22 +117,10 @@ func run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 		if stageErr != nil || stageResult.State != cloudflare.VersionAcknowledgedUnverified {
 			return journal.Observation{}, journal.ErrUnknownEffect
 		}
-		after, err := remote.Observe(ctx, grant.AccountID, grant.Worker)
-		if err != nil || after.AccountID != grant.AccountID || after.Worker != grant.Worker ||
-			activeDigest(after) != activeDigest(before) {
-			return journal.Observation{}, journal.ErrUnknownEffect
+		versionID, proof, err := VerifyStageVersion(ctx, remote, before, grant.Destination, request.VersionTag, id, targetDigest)
+		if err != nil {
+			return journal.Observation{}, err
 		}
-		versionID, ok := singleNewVersion(before, after)
-		if !ok {
-			return journal.Observation{}, journal.ErrUnknownEffect
-		}
-		detail, err := remote.GetVersion(ctx, grant.AccountID, grant.Worker, versionID)
-		if err != nil || detail.ID != versionID || detail.Tag != "kc-"+id ||
-			!slices.Contains(detail.BindingNames, grant.Destination) {
-			return journal.Observation{}, journal.ErrUnknownEffect
-		}
-		// Evidence is metadata-only: no credential value or identifiable value hash.
-		proof := digest([]byte(strings.Join([]string{intent.OperationID, intent.TargetDigest, versionID, activeDigest(after), detail.Tag}, "\x00")))
 		result.VersionID = versionID
 		result.ProofDigest = proof
 		return journal.Observation{State: journal.Acknowledged, ProofDigest: proof}, nil
@@ -143,6 +131,26 @@ func run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 		result.ProofDigest = ""
 	}
 	return result, err
+}
+
+// VerifyStageVersion observes the new version without submitting a mutation.
+// Callers bind the pre-stage snapshot and the exact operation tag before launch.
+func VerifyStageVersion(ctx context.Context, remote Observer, before cloudflare.DeploymentSnapshot, destination, tag, operationID, targetDigest string) (versionID, proof string, err error) {
+	after, err := remote.Observe(ctx, before.AccountID, before.Worker)
+	if err != nil || after.AccountID != before.AccountID || after.Worker != before.Worker ||
+		activeDigest(before) == "" || activeDigest(after) != activeDigest(before) {
+		return "", "", journal.ErrUnknownEffect
+	}
+	versionID, ok := singleNewVersion(before, after)
+	if !ok {
+		return "", "", journal.ErrUnknownEffect
+	}
+	detail, err := remote.GetVersion(ctx, before.AccountID, before.Worker, versionID)
+	if err != nil || detail.ID != versionID || detail.Tag != tag || !slices.Contains(detail.BindingNames, destination) {
+		return "", "", journal.ErrUnknownEffect
+	}
+	proof = digest([]byte(strings.Join([]string{operationID, targetDigest, versionID, activeDigest(after), detail.Tag}, "\x00")))
+	return versionID, proof, nil
 }
 
 func singleNewVersion(before, after cloudflare.DeploymentSnapshot) (string, bool) {

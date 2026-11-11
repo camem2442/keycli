@@ -115,3 +115,43 @@ func hex32(s string) bool {
 	}
 	return true
 }
+
+// VerifyWorkersRuntimeGroup checks a host-pinned permission group against the
+// account inventory using a read credential independent of the issuer.
+func (r Reader) VerifyWorkersRuntimeGroup(ctx context.Context, account, group string) error {
+	invalid := errors.New("Cloudflare Workers runtime permission group unavailable or changed")
+	if !hex32(account) || !hex32(group) {
+		return invalid
+	}
+	var inventory struct {
+		Success bool `json:"success"`
+		Result  []struct {
+			ID         string   `json:"id"`
+			Name       string   `json:"name"`
+			Scopes     []string `json:"scopes"`
+			Selectable bool     `json:"is_selectable"`
+		} `json:"result"`
+	}
+	if err := r.read(ctx, "https://api.cloudflare.com", "/client/v4/accounts/"+account+"/tokens/permission_groups", &inventory, nil); err != nil || !inventory.Success {
+		return invalid
+	}
+	matches := 0
+	for _, entry := range inventory.Result {
+		if entry.ID != group {
+			continue
+		}
+		matches++
+		if !entry.Selectable || len(entry.Scopes) != 1 || entry.Scopes[0] != "com.cloudflare.api.account" {
+			return invalid
+		}
+		switch entry.Name {
+		case "Workers Scripts Read", "Workers Scripts Write", "Workers Scripts Edit":
+		default:
+			return invalid
+		}
+	}
+	if matches != 1 {
+		return invalid
+	}
+	return nil
+}

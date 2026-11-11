@@ -124,6 +124,7 @@ type operationClass struct {
 // to providerlifecycle.HostAuthorize.
 var operationTable = map[string]operationClass{
 	"cloudflare/create-account-token":                   {ActionIssue, true},
+	"cloudflare/stage-inactive-worker-version-secret":   {ActionStage, true},
 	"cloudflare/delete-exact-account-token":             {ActionRevoke, true},
 	"github/delete-exact-repository-secret":             {ActionRevoke, true},
 	"github/stage-repository-generation-secret":         {ActionStage, true},

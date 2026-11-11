@@ -45,8 +45,13 @@ func (w githubWriter) CreateRepositoryGenerationFrom(ctx context.Context, target
 
 func githubGateway(t *testing.T, operation, action, canonical string) (*effectgateway.Gateway, effectgateway.Request, []byte, rotation.PreparationPlan) {
 	t.Helper()
+	return providerGateway(t, "github", "example/fixture", operation, action, canonical)
+}
+
+func providerGateway(t *testing.T, provider, planTarget, operation, action, canonical string) (*effectgateway.Gateway, effectgateway.Request, []byte, rotation.PreparationPlan) {
+	t.Helper()
 	now := time.Now()
-	old := rotation.Generation{Alias: "fixture", Kind: rotation.StaticServiceKey, Provider: "github", Target: "example/fixture", Number: 1}
+	old := rotation.Generation{Alias: "fixture", Kind: rotation.StaticServiceKey, Provider: provider, Target: planTarget, Number: 1}
 	next := old
 	next.Number++
 	plan, err := rotation.NewPreparationPlan(old, next, []rotation.Consumer{{ID: "runner", Required: true}})
@@ -54,8 +59,8 @@ func githubGateway(t *testing.T, operation, action, canonical string) (*effectga
 		t.Fatal(err)
 	}
 	req := effectgateway.Request{
-		GoalID: "goal", MutationID: "github-test", Provider: "github", Action: action,
-		TargetDigest: hostbridge.TargetDigest("github", operation, canonical),
+		GoalID: "goal", MutationID: provider + "-test", Provider: provider, Action: action,
+		TargetDigest: hostbridge.TargetDigest(provider, operation, canonical),
 		PlanDigest:   plan.ID, GrantDigest: strings.Repeat("a", 64), Generation: 1,
 		Session: "session", Owner: "owner", ExpiresAt: now.Add(time.Minute),
 	}
