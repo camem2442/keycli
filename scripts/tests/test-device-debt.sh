@@ -12,4 +12,14 @@ bash "$probe" --device >/dev/null 2>&1 || status=$?
 status=0
 bash "$probe" --portable invalid-head >/dev/null 2>&1 || status=$?
 [[ "$status" -eq 64 ]] || { echo "FAIL: portable bad SHA must be usage (64)" >&2; exit 1; }
+
+status=0
+bash "$probe" --mac-preflight invalid-head >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 64 ]] || { echo "FAIL: --mac-preflight invalid SHA must be 64" >&2; exit 1; }
+status=0
+bash "$probe" --mac-preflight "$(printf 'a%.0s' {1..40})" >/dev/null 2>&1 || status=$?
+if [[ "$(uname -s)" == Linux ]]; then
+  [[ "$status" -eq 2 ]] || { echo "FAIL: --mac-preflight on Linux must be 2" >&2; exit 1; }
+fi
+
 echo 'PASS device-debt offline plan contract (real host NOT_VERIFIED)'
