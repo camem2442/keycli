@@ -5,6 +5,10 @@ status: implemented
 
 목표: 토큰이 없을 때 에이전트가 **사람에게 승인·복사를 요청하지 않고** `kc`로 직접 조회한다.
 
+## 실기기 인수 부채 분리 (Draft #67)
+
+`scripts/device-debt.sh --plan`은 portable Go 검증, Mac 환경 확인, 실제 Keychain ACL/TCC 인수를 분리한다. Linux `--portable EXACT_HEAD`는 기존 Go unit/backend/integration으로 위임한다. `--mac-preflight EXACT_HEAD`는 Darwin·비권한·깨끗한 Git HEAD·Go·보안 CLI **존재만** 읽기 전용으로 확인하며, 사용자 Keychain을 열거나 쓰지 않는다. 이는 Keychain ACL PASS가 아니다. 실제 키체인 인수는 기존 `scripts/mac-smoke.sh`의 명시적 사용자 승인 절차를 유지한다. Linux에서 해당 기존 스모크가 exit 0으로 skip되더라도 실제 Mac 인수는 NOT VERIFIED다.
+
 ## 공통 규칙
 
 1. `kc ls --json`으로 이름만 확인한다 (값 금지).
