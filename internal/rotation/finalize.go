@@ -16,12 +16,14 @@ import (
 // RevocationGrant must be issued by a separately privileged and authenticated
 // host. A prepared-generation writer cannot revoke by reusing its stage grant.
 type RevocationGrant struct {
-	PlanDigest          string
-	GrantDigest         string
-	OldCredentialHandle string // provider-specific immutable identifier, see VerifyOldCredential
-	OldIdentityDigest   string // independently observed provider identity bound to this grant
-	EvidenceDigest      string // binds the exact current verified consumer/activation evidence
-	ExpiresAt           time.Time
+	PlanDigest           string
+	GrantDigest          string
+	OldCredentialHandle  string // provider-specific immutable identifier, see VerifyOldCredential
+	OldIdentityDigest    string // independently observed provider identity bound to this grant
+	EvidenceDigest       string // binds one exact verified consumer/activation snapshot
+	PreapprovedOperation string // alternatively, binds one operation before fresh evidence exists
+	MinimumGrace         time.Duration
+	ExpiresAt            time.Time
 }
 
 type AuthorizeRevocation func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error)
@@ -112,11 +114,21 @@ func NewFinalizeActionWithFence(ctx context.Context, operationID string, plan Pr
 	proofDigest := hex.EncodeToString(sum[:])
 	grant, err := authorizeRevoker(ctx, operationID, clonePreparationPlan(plan), decision)
 	if err != nil || grant.PlanDigest != plan.ID || !digestPattern.MatchString(grant.GrantDigest) ||
-		!namePattern.MatchString(grant.OldCredentialHandle) || grant.EvidenceDigest != proofDigest || !digestPattern.MatchString(grant.OldIdentityDigest) || !time.Now().Before(grant.ExpiresAt) || ctx.Err() != nil {
+		!namePattern.MatchString(grant.OldCredentialHandle) || !grant.coversEvidence(operationID, activation, proofDigest) || !digestPattern.MatchString(grant.OldIdentityDigest) || !time.Now().Before(grant.ExpiresAt) || ctx.Err() != nil {
 		return FinalizeAction{}, errors.New("separate provider revocation grant not admitted")
 	}
 	intent := journal.Intent{OperationID: operationID, TargetDigest: targetDigest(plan), PlanDigest: plan.ID, GrantDigest: grant.GrantDigest}
 	return FinalizeAction{intent: intent, plan: plan, activation: activation, consumers: consumers, verifyActivation: verifyActivation, verifyConsumer: verifyConsumer, grant: grant, verifyOld: verifyOld, revoke: revoke}, nil
+}
+
+// A preapproval keeps the operation, plan and old provider identity pinned
+// while letting trusted host verifiers refresh consumer evidence at dispatch.
+func (g RevocationGrant) coversEvidence(operation string, activation ActivationEvidence, digest string) bool {
+	if g.PreapprovedOperation == "" {
+		return g.MinimumGrace == 0 && g.EvidenceDigest == digest
+	}
+	return g.EvidenceDigest == "" && g.PreapprovedOperation == operation &&
+		g.MinimumGrace > 0 && !activation.GraceUntil.Before(activation.ActivatedAt.Add(g.MinimumGrace))
 }
 
 func (a FinalizeAction) Intent() journal.Intent { return a.intent }

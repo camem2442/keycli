@@ -24,8 +24,9 @@ var (
 )
 
 type productOperation struct {
-	rotation CloudflareRotation
-	recovery CloudflareIssueRecovery
+	binding  authoritybinding.Binding
+	resolve  func(context.Context, effectgateway.Request) (effectgateway.RotationAction, error)
+	recovery effectgateway.RecoveryObserver
 }
 
 type operationKey struct{ goal, mutation string }
@@ -79,11 +80,30 @@ func LoadProduct(path string, authority effectgateway.LocalAuthority) (Product, 
 	product := Product{operations: make(map[operationKey]productOperation, len(operations))}
 	seenMutations := make(map[string]bool, len(operations))
 	for _, raw := range operations {
-		entry, err := loadIssue(raw, authority, issuer, issuerPermissions, reader, sink)
+		var identity struct {
+			Goal     string `json:"goal_id"`
+			Mutation string `json:"mutation_id"`
+		}
+		if json.Unmarshal(raw, &identity) != nil {
+			return Product{}, errProductConfig
+		}
+		registration, err := authority.Registry.Resolve(context.Background(), identity.Goal, identity.Mutation)
 		if err != nil {
 			return Product{}, errProductConfig
 		}
-		binding := entry.recovery.Binding
+		var entry productOperation
+		switch registration.ProviderOperation {
+		case cloudflareIssueOperation:
+			entry, err = loadIssue(raw, authority, issuer, issuerPermissions, reader, sink)
+		case cloudflareDeleteOperation:
+			entry, err = loadRetirement(raw, registration, reader, issuerToken, readerToken)
+		default:
+			return Product{}, errProductConfig
+		}
+		if err != nil {
+			return Product{}, errProductConfig
+		}
+		binding := entry.binding
 		key := operationKey{binding.GoalID, binding.MutationID}
 		if seenMutations[binding.MutationID] {
 			return Product{}, errProductConfig
@@ -141,8 +161,10 @@ func loadIssue(raw json.RawMessage, authority effectgateway.LocalAuthority, issu
 			return rotation.PreparationGrant{PlanDigest: binding.PlanDigest, GrantDigest: binding.GrantDigest, ExpiresAt: grantExpiry}, nil
 		},
 	}
+	route := CloudflareRotation{Plan: plan, AccountID: account, RuntimePermissionGroups: []string{group}, Issue: &issue}
 	return productOperation{
-		rotation: CloudflareRotation{Plan: plan, AccountID: account, RuntimePermissionGroups: []string{group}, Issue: &issue},
+		binding:  binding,
+		resolve:  route.ResolveRotation,
 		recovery: CloudflareIssueRecovery{Binding: binding, AccountID: account, Issue: issue},
 	}, nil
 }
@@ -155,12 +177,12 @@ func (p Product) ResolveRotation(ctx context.Context, request effectgateway.Requ
 	if err := effectgateway.AllowRealProvider("kc-gateway"); err != nil {
 		return nil, err
 	}
-	return op.rotation.ResolveRotation(ctx, request)
+	return op.resolve(ctx, request)
 }
 
 func (p Product) ObserveRecovery(ctx context.Context, binding authoritybinding.Binding) (effectgateway.RecoveryEvidence, error) {
 	op, ok := p.operations[operationKey{binding.GoalID, binding.MutationID}]
-	if !ok {
+	if !ok || op.recovery == nil {
 		return effectgateway.RecoveryEvidence{}, effectgateway.ErrAdmissionRejected
 	}
 	if err := effectgateway.AllowRealProvider("kc-gateway"); err != nil {

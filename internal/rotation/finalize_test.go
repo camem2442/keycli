@@ -103,3 +103,48 @@ func TestFinalizeUnknownRevokeMustNotAutoRetry(t *testing.T) {
 		t.Fatalf("unknown revoke erased: %+v %v", result, err)
 	}
 }
+
+func TestPreapprovedFinalizeAcceptsFreshEvidenceWithinScope(t *testing.T) {
+	plan := planFixture(t)
+	now := time.Now()
+	activation := activationFixture(now)
+	grant := RevocationGrant{
+		PlanDigest: plan.ID, GrantDigest: strings.Repeat("e", 64),
+		OldCredentialHandle:  cloudflareOldHandle(),
+		OldIdentityDigest:    RevocationIdentityDigest(fixtureOldCredential(plan, cloudflareOldHandle())),
+		PreapprovedOperation: "revoke-old", MinimumGrace: 30 * time.Minute, ExpiresAt: now.Add(time.Minute),
+	}
+	for _, tc := range []struct {
+		name, operation string
+		grace           time.Duration
+		stale           bool
+		wantCalls       int
+	}{
+		{"fresh consumer proof", "revoke-old", 30 * time.Minute, false, 1},
+		{"another operation", "revoke-other", 30 * time.Minute, false, 0},
+		{"shortened grace", "revoke-old", 29 * time.Minute, false, 0},
+		{"stale consumer proof", "revoke-old", 30 * time.Minute, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			evidence := evidenceFixture(now)
+			if tc.stale {
+				evidence[0].ObservedAt = now.Add(-16 * time.Minute)
+			}
+			approval := activation
+			approval.GraceUntil = approval.ActivatedAt.Add(tc.grace)
+			calls := 0
+			_, err := Finalize(context.Background(), rotationStore(t), tc.operation, plan, approval, evidence, now,
+				verifyActivationOK, verifyConsumerOK,
+				func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
+					return grant, nil
+				}, fixtureIdentityVerifier,
+				func(context.Context, Generation, string) (journal.Observation, error) {
+					calls++
+					return journal.Observation{State: journal.Acknowledged, ProofDigest: strings.Repeat("f", 64)}, nil
+				})
+			if calls != tc.wantCalls || (err == nil) != (tc.wantCalls > 0) {
+				t.Fatalf("calls=%d error=%v; wanted %d calls", calls, err, tc.wantCalls)
+			}
+		})
+	}
+}

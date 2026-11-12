@@ -49,9 +49,13 @@ func (g *Gateway) Reconcile(ctx context.Context, operationID string) (journal.Re
 }
 
 func validRecoveryGrant(grant RecoveryGrant, binding authoritybinding.Binding, now time.Time) bool {
+	return validRecoveryGrantBinding(grant, binding) && now.Before(grant.ExpiresAt)
+}
+
+func validRecoveryGrantBinding(grant RecoveryGrant, binding authoritybinding.Binding) bool {
 	return grant.Binding == binding && grant.GrantDigest != binding.GrantDigest &&
 		journal.ValidDigest(grant.GrantDigest) && journal.ValidDigest(grant.ProviderIdentityDigest) &&
-		now.Before(grant.ExpiresAt)
+		!grant.ExpiresAt.IsZero()
 }
 
 func (g *Gateway) reconcile(ctx context.Context, operationID string, authorize func(context.Context, authoritybinding.Binding) (RecoveryGrant, error), after func(context.Context) error) (journal.Record, error) {

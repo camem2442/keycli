@@ -108,6 +108,13 @@ func TestGatewayReadAuthenticatesCurrentSuccessorAndOriginalGrant(t *testing.T) 
 	if w := exchange("/status", SignRead(read, key)); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), StatusUnknown) {
 		t.Fatalf("status: %d %s", w.Code, w.Body)
 	}
+	expired := grant
+	expired.ExpiresAt = testNow
+	h.gw.ReadAuthority = readGrantRegistry{statusKey: expired}
+	if w := exchange("/status", SignRead(read, key)); w.Code != http.StatusForbidden {
+		t.Fatalf("expired status grant authorized: %d %s", w.Code, w.Body)
+	}
+	h.gw.ReadAuthority = readGrantRegistry{statusKey: grant}
 	forged := SignRead(read, key)
 	forged.Request.Action = ReadReconcile
 	if w := exchange("/reconcile", forged); w.Code != http.StatusUnauthorized {
@@ -168,6 +175,17 @@ func TestLoadReadAuthorityRejectsBindingSubstitution(t *testing.T) {
 	read := ReadRequest{GoalID: b.GoalID, MutationID: b.MutationID, Owner: "successor", Session: "successor-session", Generation: b.WriterGeneration + 1, Action: ReadStatus}
 	if _, err := a.AuthorizeRead(context.Background(), read, b); err != nil {
 		t.Fatal(err)
+	}
+	entry["expires_at"] = time.Now().Add(-time.Minute)
+	expired, err := json.Marshal(map[string]any{"v": 1, "grants": []any{entry}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, expired, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadReadAuthority(path); err != nil {
+		t.Fatalf("expired historical grant blocked startup: %v", err)
 	}
 	b.ResourceDigest = strings.Repeat("1", 64)
 	if _, err := a.AuthorizeRead(context.Background(), read, b); !errors.Is(err, ErrAdmissionRejected) {

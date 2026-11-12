@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 	"unicode/utf8"
 
 	"github.com/camem2442/keycli/internal/authoritybinding"
@@ -57,7 +56,7 @@ func LoadReadAuthority(path string) (ReadAuthorizer, error) {
 			"goal_id": &b.GoalID, "mutation_id": &b.MutationID, "writer_generation": &b.WriterGeneration,
 			"owner": &b.Owner, "session": &b.Session, "provider": &b.Provider, "operation": &b.Operation,
 			"resource_digest": &b.ResourceDigest, "target_digest": &b.TargetDigest, "plan_digest": &b.PlanDigest, "grant_digest": &b.GrantDigest,
-		}, nil) || !b.Valid() || !validRecoveryGrant(grant, *b, time.Now()) || key.Generation < b.WriterGeneration ||
+		}, nil) || !b.Valid() || !validRecoveryGrantBinding(grant, *b) || key.Generation < b.WriterGeneration ||
 			(key.Generation == b.WriterGeneration && (key.Owner != b.Owner || key.Session != b.Session)) {
 			return nil, errReadConfig
 		}

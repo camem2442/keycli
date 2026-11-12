@@ -107,10 +107,11 @@ func (c Client) DeleteCloudflareAccountToken(ctx context.Context, gate HostAutho
 		return Receipt{}, errors.New("invalid Cloudflare token/account ID")
 	}
 	target := account + "/tokens/" + token
-	if err := authorize(ctx, gate, "cloudflare", "delete-exact-account-token", target); err != nil {
-		return Receipt{}, err
+	beforeSend := func(ctx context.Context) error {
+		return authorize(ctx, gate, "cloudflare", "delete-exact-account-token", target)
 	}
-	data, err := c.call(ctx, http.MethodDelete, "https://api.cloudflare.com", "/client/v4/accounts/"+account+"/tokens/"+token, nil, http.StatusOK)
+	data, err := c.callBeforeSend(ctx, http.MethodDelete, "https://api.cloudflare.com",
+		"/client/v4/accounts/"+account+"/tokens/"+token, nil, nil, beforeSend, http.StatusOK)
 	if err != nil {
 		return Receipt{}, err
 	}

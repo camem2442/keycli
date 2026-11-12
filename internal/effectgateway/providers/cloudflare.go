@@ -173,18 +173,27 @@ func (r CloudflareRotation) retire(ctx context.Context, req effectgateway.Reques
 		retirement.MutationID != req.MutationID || req.TargetDigest != hostbridge.TargetDigest("cloudflare", cloudflareDeleteOperation, canonical) {
 		return nil, effectgateway.ErrAdmissionRejected
 	}
-	return rotation.NewFinalizeAction(ctx, req.MutationID, r.Plan, retirement.Activation, retirement.Consumers, time.Now(),
+	return rotation.NewFinalizeActionWithFence(ctx, req.MutationID, r.Plan, retirement.Activation, retirement.Consumers, time.Now(),
 		retirement.VerifyActivation, retirement.VerifyConsumer, retirement.Authorize, target.Verify,
-		func(ctx context.Context, _ rotation.Generation, handle string) (journal.Observation, error) {
+		func(ctx context.Context, _ rotation.Generation, handle string, fence func(context.Context) error) (journal.Observation, error) {
 			if handle != target.TokenID {
 				return journal.Observation{}, rotation.ErrActionNotCurrent
 			}
-			result, err := retirement.Revoker.DeleteCloudflareAccountToken(ctx, func(_ context.Context, provider, operation, exactTarget string) error {
+			evidenceWithdrawn := false
+			result, err := retirement.Revoker.DeleteCloudflareAccountToken(ctx, func(ctx context.Context, provider, operation, exactTarget string) error {
 				if provider != "cloudflare" || operation != cloudflareDeleteOperation || exactTarget != canonical {
 					return effectgateway.ErrAdmissionRejected
 				}
-				return nil
+				if err := retirement.VerifyActivation(ctx, r.Plan, retirement.Activation); err != nil {
+					evidenceWithdrawn = true
+					return rotation.ErrActionNotCurrent
+				}
+				return fence(ctx)
 			}, target.AccountID, handle)
+			if evidenceWithdrawn {
+				// The provider client masks admission errors. This callback rejected before transport.
+				return journal.Observation{}, rotation.ErrActionNotCurrent
+			}
 			return journal.Observation{State: journal.Acknowledged, ProofDigest: result.ProofDigest}, err
 		})
 }

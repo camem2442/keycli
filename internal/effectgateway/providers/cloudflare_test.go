@@ -206,12 +206,13 @@ func TestCloudflareIssueLostStoreReplyRecoversExactToken(t *testing.T) {
 
 func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 	for _, tc := range []struct {
-		name, status       string
-		wrongID, loseReply bool
+		name, status                         string
+		wrongID, loseReply, withdrawEvidence bool
 	}{
-		{"acknowledged", effectgateway.StatusApplied, false, false},
-		{"different generation", effectgateway.StatusNoEffect, true, false},
-		{"lost delete reply", effectgateway.StatusUnknown, false, true},
+		{"acknowledged", effectgateway.StatusApplied, false, false, false},
+		{"different generation", effectgateway.StatusNoEffect, true, false, false},
+		{"lost delete reply", effectgateway.StatusUnknown, false, true, false},
+		{"evidence withdrawn during signing", effectgateway.StatusNoEffect, false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -237,8 +238,6 @@ func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 					t.Fatal("identity reader attempted a mutation")
 				}
 				switch r.URL.Path {
-				case accountPath:
-					return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q}}`, account)), nil
 				case tokenPath:
 					return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":"kc-rot-old","status":"active","issued_on":%q,"policies":%s}}`, readID, issued, policy)), nil
 				default:
@@ -249,7 +248,16 @@ func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			target := provideridentity.CloudflareAccountToken{Reader: reader, PlanTarget: plan.Old.Target, AccountID: account, TokenID: old, ExpectedName: "kc-rot-old", ExpectedIssuedOn: issued, ExpectedPolicyDigest: policyDigest}
+			accountReader, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+				if r.Method != http.MethodGet || r.URL.Path != accountPath {
+					t.Fatalf("unexpected account identity request %s %s", r.Method, r.URL.Path)
+				}
+				return githubResponse(http.StatusOK, fmt.Sprintf(`{"success":true,"result":{"id":%q}}`, account)), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := provideridentity.CloudflareAccountToken{Reader: reader, AccountReader: &accountReader, PlanTarget: plan.Old.Target, AccountID: account, TokenID: old, ExpectedName: "kc-rot-old", ExpectedIssuedOn: issued, ExpectedPolicyDigest: policyDigest}
 			verified, err := target.Verify(ctx, plan, old)
 			if err != nil {
 				t.Fatal(err)
@@ -258,7 +266,11 @@ func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 				readID = replacement
 			}
 			deletes := 0
-			client, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+			withdrawn := false
+			client, err := providerlifecycle.NewClient(func(*http.Request) error {
+				withdrawn = tc.withdrawEvidence
+				return nil
+			}, githubTransport(func(r *http.Request) (*http.Response, error) {
 				deletes++
 				if r.Method != http.MethodDelete || r.URL.Path != tokenPath {
 					t.Fatalf("revoker targeted %s %s", r.Method, r.URL.Path)
@@ -283,8 +295,13 @@ func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 			}
 			gateway.RotationActions = CloudflareRotation{Plan: plan, AccountID: account, Retirement: &CloudflareRetirement{
 				MutationID: req.MutationID, Target: target, Revoker: client, Activation: activation, Consumers: consumers,
-				VerifyActivation: func(context.Context, rotation.PreparationPlan, rotation.ActivationEvidence) error { return nil },
-				VerifyConsumer:   func(context.Context, rotation.PreparationPlan, rotation.ConsumerEvidence) error { return nil },
+				VerifyActivation: func(context.Context, rotation.PreparationPlan, rotation.ActivationEvidence) error {
+					if withdrawn {
+						return errors.New("evidence withdrawn")
+					}
+					return nil
+				},
+				VerifyConsumer: func(context.Context, rotation.PreparationPlan, rotation.ConsumerEvidence) error { return nil },
 				Authorize: func(context.Context, string, rotation.PreparationPlan, rotation.RetirementDecision) (rotation.RevocationGrant, error) {
 					return rotation.RevocationGrant{PlanDigest: plan.ID, GrantDigest: req.GrantDigest, OldCredentialHandle: old, OldIdentityDigest: rotation.RevocationIdentityDigest(verified), EvidenceDigest: fmt.Sprintf("%x", sha256.Sum256(evidence)), ExpiresAt: req.ExpiresAt}, nil
 				},
@@ -292,7 +309,7 @@ func TestCloudflareRetireGatewayRequiresExactOldToken(t *testing.T) {
 			envelope := effectgateway.Sign(req, key)
 			result, err := gateway.Submit(ctx, envelope)
 			wantDeletes := 1
-			if tc.wrongID {
+			if tc.wrongID || tc.withdrawEvidence {
 				wantDeletes = 0
 			}
 			if result.Status != tc.status || deletes != wantDeletes {

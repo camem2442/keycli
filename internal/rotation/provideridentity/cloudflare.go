@@ -14,6 +14,8 @@ import (
 // (not the token being revoked). It never accepts a Worker Secret ID or token
 // VALUE as identity. IssuedOn and policy digest must be pinned by the issuer.
 type CloudflareAccountToken struct {
+	// AccountReader optionally supplies the distinct account-details read scope.
+	AccountReader                          *Reader
 	Reader                                 Reader
 	PlanTarget                             string
 	AccountID, TokenID, ExpectedName       string
@@ -33,7 +35,11 @@ func (o CloudflareAccountToken) Verify(ctx context.Context, p rotation.Preparati
 			ID string `json:"id"`
 		} `json:"result"`
 	}
-	if err := o.Reader.read(ctx, "https://api.cloudflare.com", "/client/v4/accounts/"+o.AccountID, &account, nil); err != nil || !account.Success || !strings.EqualFold(account.Result.ID, o.AccountID) {
+	accountReader := o.Reader
+	if o.AccountReader != nil {
+		accountReader = *o.AccountReader
+	}
+	if err := accountReader.read(ctx, "https://api.cloudflare.com", "/client/v4/accounts/"+o.AccountID, &account, nil); err != nil || !account.Success || !strings.EqualFold(account.Result.ID, o.AccountID) {
 		return rotation.VerifiedOldCredential{}, invalid
 	}
 	var token struct {
