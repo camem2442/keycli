@@ -64,6 +64,10 @@ func LoadProduct(path string, authority effectgateway.LocalAuthority) (Product, 
 	if err != nil {
 		return Product{}, errProductConfig
 	}
+	issuerPermissions, err := provideridentity.NewReader(authenticateBearer(issuerToken), nil)
+	if err != nil {
+		return Product{}, errProductConfig
+	}
 	reader, err := provideridentity.NewReader(authenticateBearer(readerToken), nil)
 	if err != nil {
 		return Product{}, errProductConfig
@@ -75,7 +79,7 @@ func LoadProduct(path string, authority effectgateway.LocalAuthority) (Product, 
 	product := Product{operations: make(map[operationKey]productOperation, len(operations))}
 	seenMutations := make(map[string]bool, len(operations))
 	for _, raw := range operations {
-		entry, err := loadIssue(raw, authority, issuer, reader, sink)
+		entry, err := loadIssue(raw, authority, issuer, issuerPermissions, reader, sink)
 		if err != nil {
 			return Product{}, errProductConfig
 		}
@@ -91,7 +95,7 @@ func LoadProduct(path string, authority effectgateway.LocalAuthority) (Product, 
 }
 
 func loadIssue(raw json.RawMessage, authority effectgateway.LocalAuthority, issuer providerlifecycle.Client,
-	reader provideridentity.Reader, sink effectgateway.PrivateIssueStore) (productOperation, error) {
+	issuerPermissions, reader provideridentity.Reader, sink effectgateway.PrivateIssueStore) (productOperation, error) {
 	var goal, mutation, account, name, group, alias string
 	var tokenExpiry, grantExpiry time.Time
 	var old, next uint64
@@ -129,7 +133,7 @@ func loadIssue(raw json.RawMessage, authority effectgateway.LocalAuthority, issu
 	}
 	issue := CloudflareTokenIssue{
 		MutationID: mutation, Name: name, PermissionGroupID: group, ExpiresAt: tokenExpiry,
-		Issuer: issuer, PermissionReader: reader, Sink: sink,
+		Issuer: issuer, IssuerPermissions: issuerPermissions, PermissionReader: reader, Sink: sink,
 		Authorize: func(ctx context.Context, id string, plan rotation.PreparationPlan) (rotation.PreparationGrant, error) {
 			if ctx.Err() != nil || id != binding.MutationID || plan.ID != binding.PlanDigest || !time.Now().Before(grantExpiry) {
 				return rotation.PreparationGrant{}, effectgateway.ErrAdmissionRejected

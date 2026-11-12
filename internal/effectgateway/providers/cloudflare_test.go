@@ -154,14 +154,21 @@ func TestCloudflareIssueLostStoreReplyRecoversExactToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	issuerPermissions, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/client/v4/accounts/"+account+"/tokens/permission_groups" {
+			t.Fatalf("issuer preflight escaped the permission group endpoint: %s %s", r.Method, r.URL.Path)
+		}
+		return reply(fmt.Sprintf(`{"success":true,"result":[{"id":%q,"name":"Workers Scripts Read","scopes":["com.cloudflare.api.account"],"is_selectable":true}]}`, group)), nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	reportedToken := token
 	reader, err := provideridentity.NewReader(func(*http.Request) error { return nil }, githubTransport(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodGet {
 			t.Fatal("recovery attempted a write")
 		}
 		switch r.URL.Path {
-		case "/client/v4/accounts/" + account + "/tokens/permission_groups":
-			return reply(fmt.Sprintf(`{"success":true,"result":[{"id":%q,"name":"Workers Scripts Read","scopes":["com.cloudflare.api.account"],"is_selectable":true}]}`, group)), nil
 		case "/client/v4/accounts/" + account + "/tokens/" + token:
 			return reply(fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":%q,"status":"active","expires_on":%q,"policies":[{"effect":"allow","resources":{"com.cloudflare.api.account.%s":"*"},"permission_groups":[{"id":%q}]}]}}`, reportedToken, name, expiry.Format(time.RFC3339), account, group)), nil
 		default:
@@ -173,7 +180,7 @@ func TestCloudflareIssueLostStoreReplyRecoversExactToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	issue := CloudflareTokenIssue{
-		MutationID: req.MutationID, Name: name, PermissionGroupID: group, ExpiresAt: expiry, Issuer: issuer, PermissionReader: reader, Sink: sink,
+		MutationID: req.MutationID, Name: name, PermissionGroupID: group, ExpiresAt: expiry, Issuer: issuer, IssuerPermissions: issuerPermissions, PermissionReader: reader, Sink: sink,
 		Authorize: func(context.Context, string, rotation.PreparationPlan) (rotation.PreparationGrant, error) {
 			return rotation.PreparationGrant{PlanDigest: plan.ID, GrantDigest: req.GrantDigest, ExpiresAt: req.ExpiresAt}, nil
 		},

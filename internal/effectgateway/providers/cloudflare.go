@@ -31,6 +31,7 @@ type CloudflareTokenIssue struct {
 	PermissionGroupID string
 	ExpiresAt         time.Time
 	Issuer            providerlifecycle.Client
+	IssuerPermissions provideridentity.Reader
 	PermissionReader  provideridentity.Reader
 	Sink              providerlifecycle.SecretSink
 	Authorize         rotation.AuthorizePreparation
@@ -97,7 +98,7 @@ func (r CloudflareRotation) issue(ctx context.Context, req effectgateway.Request
 	}
 	return rotation.NewPrepareActionWithFence(ctx, req.MutationID, r.Plan, issue.Authorize,
 		func(ctx context.Context, _ rotation.PreparationPlan, fence func(context.Context) error) (journal.Observation, error) {
-			if err := issue.PermissionReader.VerifyWorkersRuntimeGroup(ctx, r.AccountID, issue.PermissionGroupID); err != nil {
+			if err := issue.IssuerPermissions.VerifyWorkersRuntimeGroup(ctx, r.AccountID, issue.PermissionGroupID); err != nil {
 				return journal.Observation{}, rotation.ErrActionNotCurrent
 			}
 			if _, found, err := issue.Sink.Lookup(ctx, req.MutationID); err != nil || found {
