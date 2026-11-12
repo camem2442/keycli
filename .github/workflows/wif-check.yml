@@ -12,7 +12,7 @@ jobs:
       github.event.repository.visibility == 'private' &&
       github.ref == 'refs/heads/main' &&
       github.event.repository.default_branch == 'main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, keycli-pr02]
     environment: keycli-wif-pr13
     timeout-minutes: 5
     permissions:
@@ -31,8 +31,8 @@ jobs:
           cd "$scratch"
           gh api repos/camem2442/keycli-release-validation/actions/artifacts/13901031303/zip >bundle.zip
           printf '%s  bundle.zip\n' 24e907670cda0f65031e27d612384abba94fc9ebd73982c91ea6d6856eb859e1 | sha256sum -c -
-          unzip -p bundle.zip kc-linux-amd64 >kc
-          printf '%s  kc\n' 00f4486d5529c54fd5511cd335208269cda369c9851ddf208585f6297669fbe7 | sha256sum -c -
+          unzip -p bundle.zip kc-linux-arm64 >kc
+          printf '%s  kc\n' 3dc7e0775d0d852e81c59986c47c25bcfc2dec6900ad1cf288db44254341816f | sha256sum -c -
           chmod 700 kc
           test "$(./kc --version)" = 'kc version v0.10.0 (73be3400cfed00eedf6051bfee412da4fe9f8356)'
 
