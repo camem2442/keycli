@@ -83,12 +83,20 @@ DEVICE_DEBT_JSON
     echo 'PORTABLE_VERIFIER_FINISHED_SCOPED; Mac/device/operating NOT_VERIFIED'
     ;;
   --mac-preflight)
-    if [[ "$(uname -s)" != Darwin ]]; then
-      echo 'NOT_VERIFIED: real Mac required' >&2
-    else
-      echo 'NOT_VERIFIED: Mac adapter / app / TCC checks require owning Mac admission'
+    if [[ "$#" -ne 2 || ! "$2" =~ ^[0-9a-f]{40}$ ]]; then
+      echo 'USAGE: device-debt.sh --mac-preflight EXACT_GIT_HEAD' >&2
+      exit 64
     fi
-    exit 2
+    if [[ "$(uname -s)" != Darwin || "$(id -u)" -eq 0 ]]; then
+      echo 'NOT_VERIFIED: admitted nonroot Mac required' >&2
+      exit 2
+    fi
+    cd "$root"
+    [[ "$(git rev-parse HEAD)" == "$2" ]] || { echo 'HOLD: stale HEAD' >&2; exit 66; }
+    [[ -z "$(git status --porcelain=v1)" ]] || { echo 'HOLD: dirty checkout' >&2; exit 67; }
+    command -v go >/dev/null || { echo 'NOT_VERIFIED: Go toolchain missing' >&2; exit 2; }
+    [[ -x /usr/bin/security ]] || { echo 'NOT_VERIFIED: macOS security tool missing' >&2; exit 2; }
+    echo 'MAC_ENVIRONMENT_PREFLIGHT_PASS_SCOPED: no Keychain read/write; ACL remains NOT_VERIFIED'
     ;;
   --device)
     echo 'NOT_VERIFIED: device tests are manual/owner-admitted; see --plan debt.'
