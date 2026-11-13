@@ -14,10 +14,14 @@ import (
 )
 
 func TestPushStdinNotArgv(t *testing.T) {
+	for _, name := range []string{"KC_KEY", "KC_AGENT", "KC_EFFECT_KEY", "KC_PROVIDER_EFFECTS", "GH_TOKEN"} {
+		t.Setenv(name, "fixture")
+	}
 	dir := t.TempDir()
 	log := filepath.Join(dir, "argv.log")
 	script := filepath.Join(dir, "fake-gh.sh")
 	content := `#!/bin/sh
+test -z "${KC_KEY+x}${KC_AGENT+x}${KC_EFFECT_KEY+x}${KC_PROVIDER_EFFECTS+x}" && test "$GH_TOKEN" = fixture || exit 91
 echo "$@" >> "` + log + `"
 cat > /dev/null
 `
