@@ -427,7 +427,6 @@ func TestEffectBoundaryRecheckStopsProvider(t *testing.T) {
 	}
 }
 
-
 func TestEffectBoundaryRejectsExpiredSignedIntentAfterHostAdmission(t *testing.T) {
 	h := newHarness(t)
 	now := testNow
