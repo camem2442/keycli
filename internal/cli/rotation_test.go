@@ -67,6 +67,53 @@ func TestRotationEffectOutcomeMapping(t *testing.T) {
 	}
 }
 
+func TestRotationEffectPreservesAuthoritySettlement(t *testing.T) {
+	for _, tc := range []struct {
+		name, settlement, status string
+		state                    journal.State
+		want                     string
+	}{
+		{"finished", effectgateway.SettlementDone, effectgateway.StatusApplied, journal.Acknowledged, effectgateway.SettlementDone},
+		{"no effect", effectgateway.SettlementFailed, effectgateway.StatusNoEffect, journal.ObservedNoEffect, effectgateway.SettlementFailed},
+		{"finish unconfirmed", effectgateway.SettlementUnconfirmed, effectgateway.StatusApplied, journal.Acknowledged, effectgateway.SettlementUnconfirmed},
+		{"legacy receipt", "", effectgateway.StatusApplied, journal.Acknowledged, ""},
+		{"unrecognized text", "fixture-private-value", effectgateway.StatusApplied, journal.Acknowledged, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := effectclient.Result{Receipt: effectgateway.Receipt{
+				MutationID: "fixture-mutation", Status: tc.status, OperationState: string(tc.state),
+				ProofDigest: strings.Repeat("a", 64), AuthoritySettlement: tc.settlement,
+			}}
+			effect, code := projectRotationEffect(result, effectclient.Submit)
+			result.Receipt.AuthoritySettlement = ""
+			baseline, baselineCode := projectRotationEffect(result, effectclient.Submit)
+			if effect == nil || baseline == nil || code != baselineCode || effect.AuthoritySettlement != tc.want {
+				t.Fatalf("unexpected projection: effect=%+v exit=%d", effect, code)
+			}
+			raw, err := json.Marshal(effect)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" && bytes.Contains(raw, []byte("authority_settlement")) {
+				t.Fatalf("optional field should be omitted: %s", raw)
+			}
+			effect.AuthoritySettlement = ""
+			if !bytes.Equal(mustRotationEffectJSON(t, effect), mustRotationEffectJSON(t, baseline)) {
+				t.Fatal("settlement changed other output fields")
+			}
+		})
+	}
+}
+
+func mustRotationEffectJSON(t *testing.T, effect *rotationEffectOutput) []byte {
+	t.Helper()
+	data, err := json.Marshal(effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestInstalledRotationCommands(t *testing.T) {
 	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -180,7 +227,7 @@ func TestInstalledRotationCommands(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
 				MutationID: mutation, Status: effectgateway.StatusApplied, ProviderCalls: 1,
 				OperationState: string(journal.Acknowledged), ProofDigest: strings.Repeat("a", 64),
-				Note: "fixture-private-value",
+				Note: "fixture-private-value", AuthoritySettlement: effectgateway.SettlementUnconfirmed,
 			})
 		case "/status", "/reconcile":
 			var env effectgateway.ReadEnvelope
@@ -231,7 +278,8 @@ func TestInstalledRotationCommands(t *testing.T) {
 		t.Fatalf("unregistered operation reached the Gateway: %+v", out)
 	}
 	out = invoke(3, env, "submit", "--profile", profile, "fixture-issue")
-	if out.Effect == nil || out.Effect.Outcome != "ACKNOWLEDGED_UNVERIFIED" || out.Effect.StatusLookup {
+	if out.Effect == nil || out.Effect.Outcome != "ACKNOWLEDGED_UNVERIFIED" || out.Effect.StatusLookup ||
+		out.Effect.AuthoritySettlement != effectgateway.SettlementUnconfirmed {
 		t.Fatalf("acknowledgement was conflated with verification: %+v", out)
 	}
 	out = invoke(0, env, "status", "--profile", profile, "fixture-issue")
@@ -250,7 +298,7 @@ func TestInstalledRotationCommands(t *testing.T) {
 	behavior.Store(2)
 	before := calls.Load()
 	out = invoke(3, env, "submit", "--profile", profile, "fixture-issue")
-	if out.Effect == nil || !out.Effect.StatusLookup || out.Effect.Outcome != "UNKNOWN_EFFECT" || calls.Load() != before+2 {
+	if out.Effect == nil || !out.Effect.StatusLookup || out.Effect.Outcome != "UNKNOWN_EFFECT" || out.Effect.AuthoritySettlement != "" || calls.Load() != before+2 {
 		t.Fatalf("ambiguous submit did not read status exactly once: %+v, calls=%d", out, calls.Load()-before)
 	}
 }

@@ -154,7 +154,10 @@ HTTPS 주소 설정 파일이며 `session_key_file`은 현재 세션 키 파일�
 `SUBMIT_UNCONFIRMED`를 구분한다. `journal_state`는 Gateway가 확인한
 경우에만 표시한다. `status_lookup`은 제출 이후 상태 조회를 시도했는지
 나타낸다. 조회로 대체된 응답에는 원래 제출의 `provider_calls`를 표시하지
-않는다. 오류는 `error.code`로 표시한다.
+않는다. Gateway가 Authority 정산 상태를 보고하면 선택 필드
+`effect.authority_settlement`에 `DONE`, `FAILED`, `UNCONFIRMED` 중 하나를
+표시한다. 이 필드는 기존 `outcome`이나 종료 코드를 바꾸지 않는다.
+오류는 `error.code`로 표시한다.
 
 | 종료 코드 | Rotation 명령의 의미 |
 | --- | --- |

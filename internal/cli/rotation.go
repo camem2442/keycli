@@ -51,12 +51,13 @@ type rotationPlanOutput struct {
 }
 
 type rotationEffectOutput struct {
-	MutationID    string `json:"mutation_id"`
-	Outcome       string `json:"outcome"`
-	JournalState  string `json:"journal_state,omitempty"`
-	ProviderCalls *int   `json:"provider_calls,omitempty"`
-	ProofDigest   string `json:"proof_digest,omitempty"`
-	StatusLookup  bool   `json:"status_lookup"`
+	MutationID          string `json:"mutation_id"`
+	Outcome             string `json:"outcome"`
+	JournalState        string `json:"journal_state,omitempty"`
+	ProviderCalls       *int   `json:"provider_calls,omitempty"`
+	ProofDigest         string `json:"proof_digest,omitempty"`
+	StatusLookup        bool   `json:"status_lookup"`
+	AuthoritySettlement string `json:"authority_settlement,omitempty"`
 }
 
 func newRotationCmd() *cobra.Command {
@@ -250,6 +251,10 @@ func projectRotationEffect(result effectclient.Result, action string) (*rotation
 	}
 	effect := &rotationEffectOutput{MutationID: r.MutationID, JournalState: r.OperationState,
 		ProofDigest: r.ProofDigest, StatusLookup: result.StatusFallback}
+	switch r.AuthoritySettlement {
+	case effectgateway.SettlementDone, effectgateway.SettlementFailed, effectgateway.SettlementUnconfirmed:
+		effect.AuthoritySettlement = r.AuthoritySettlement
+	}
 	if !result.StatusFallback {
 		effect.ProviderCalls = &r.ProviderCalls
 	}
