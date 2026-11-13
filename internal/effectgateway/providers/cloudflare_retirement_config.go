@@ -105,7 +105,10 @@ func loadRetirement(raw json.RawMessage, registration effectgateway.RegisteredOp
 	loadEvidence := func() (retirementEvidence, error) {
 		return readRetirementEvidence(evidenceFile, ed25519.PublicKey(signer), registration)
 	}
-	return productOperation{binding: binding, resolve: func(ctx context.Context, req effectgateway.Request) (effectgateway.RotationAction, error) {
+	recovery := effectgateway.CloudflareRevocationRecovery{
+		Binding: binding, Plan: plan, CanonicalTarget: registration.CanonicalTarget, Token: target,
+	}
+	return productOperation{binding: binding, recovery: recovery, resolve: func(ctx context.Context, req effectgateway.Request) (effectgateway.RotationAction, error) {
 		evidence, err := loadEvidence()
 		if err != nil {
 			return nil, effectgateway.ErrAdmissionRejected
