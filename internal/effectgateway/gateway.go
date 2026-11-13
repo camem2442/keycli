@@ -66,6 +66,9 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 	}
 	now := g.now()
 	req := env.Request
+	if g.Operational && req.Operation != "" {
+		return Receipt{}, ErrInvalidRequest
+	}
 	if err := req.validate(now); err != nil {
 		return Receipt{}, err
 	}

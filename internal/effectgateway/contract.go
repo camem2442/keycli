@@ -63,6 +63,7 @@ type Request struct {
 	GoalID       string    `json:"goal_id"`
 	MutationID   string    `json:"mutation_id"`
 	Provider     string    `json:"provider"`
+	Operation    string    `json:"operation,omitempty"`
 	Action       string    `json:"action"`
 	TargetDigest string    `json:"target_digest"`
 	PlanDigest   string    `json:"plan_digest"`
@@ -160,6 +161,9 @@ func (r Request) validate(now time.Time) error {
 			return fmt.Errorf("%w: %s is empty or too long", ErrInvalidRequest, name)
 		}
 	}
+	if r.Operation != "" && (strings.TrimSpace(r.Operation) == "" || len(r.Operation) > 200) {
+		return fmt.Errorf("%w: invalid operation", ErrInvalidRequest)
+	}
 	if !journal.ValidOperationID(r.MutationID) {
 		return fmt.Errorf("%w: mutation_id is not canonical", ErrInvalidRequest)
 	}
@@ -188,10 +192,15 @@ func (r Request) validate(now time.Time) error {
 // signingPayload is unambiguous: every field is length-prefixed.
 func (r Request) signingPayload() []byte {
 	fields := []string{
-		r.GoalID, r.MutationID, r.Provider, r.Action, r.TargetDigest, r.PlanDigest,
+		r.GoalID, r.MutationID, r.Provider,
+	}
+	if r.Operation != "" {
+		fields = append(fields, r.Operation)
+	}
+	fields = append(fields, r.Action, r.TargetDigest, r.PlanDigest,
 		r.GrantDigest, strconv.FormatInt(r.Generation, 10), r.Session, r.Owner,
 		r.ExpiresAt.UTC().Format(time.RFC3339Nano),
-	}
+	)
 	var b strings.Builder
 	for _, f := range fields {
 		fmt.Fprintf(&b, "%d:%s|", len(f), f)

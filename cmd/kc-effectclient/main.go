@@ -40,6 +40,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&req.GoalID, "goal", "", "goal id")
 	flags.StringVar(&req.MutationID, "mutation", "", "mutation id")
 	flags.StringVar(&req.Provider, "provider", "cloudflare", "provider name")
+	flags.StringVar(&req.Operation, "provider-operation", "", "concrete operation for a synthetic submission")
 	flags.StringVar(&req.Action, "action", "issue", "provider action")
 	flags.StringVar(&req.TargetDigest, "target", "", "target digest")
 	flags.StringVar(&req.PlanDigest, "plan", "", "plan digest")
@@ -71,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	req.ExpiresAt = time.Now().Add(*ttl).UTC()
 	switch *mode {
 	case "operational":
-		if *submitURL != "" || *resolve != "" || *dryRun || *config == "" || *keyFile == "" {
+		if req.Operation != "" || *submitURL != "" || *resolve != "" || *dryRun || *config == "" || *keyFile == "" {
 			fmt.Fprintln(stderr, "operational mode requires config and key-file and rejects url, resolve and dry-run")
 			return 64
 		}

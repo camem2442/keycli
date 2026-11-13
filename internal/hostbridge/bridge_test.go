@@ -245,6 +245,7 @@ func TestClassifyOperationTable(t *testing.T) {
 		{"github", "stage-repository-generation-secret", ActionStage, true},
 		{"oracle", "stage-pending-vault-version", ActionStage, true},
 		{"oracle", "schedule-deprecated-vault-version-deletion", ActionRevoke, true},
+		{"synthetic", "record-local-test", ActionStage, true},
 	}
 	for _, tc := range cases {
 		action, mutating, err := ClassifyOperation(tc.provider, tc.operation)

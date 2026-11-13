@@ -73,7 +73,7 @@ func (g *Gateway) serveMutation(w http.ResponseWriter, r *http.Request, timeout 
 			"goal_id": &req.GoalID, "mutation_id": &req.MutationID, "provider": &req.Provider, "action": &req.Action,
 			"target_digest": &req.TargetDigest, "plan_digest": &req.PlanDigest, "grant_digest": &req.GrantDigest,
 			"generation": &req.Generation, "session": &req.Session, "owner": &req.Owner, "expires_at": &req.ExpiresAt,
-		}, nil) {
+		}, map[string]any{"operation": &req.Operation}) {
 			writeError(w, http.StatusBadRequest, "INVALID_ENVELOPE")
 			return
 		}

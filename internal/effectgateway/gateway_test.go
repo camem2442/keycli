@@ -54,13 +54,20 @@ func (f *fakeKeys) Key(context.Context, string, string, string, int64) ([]byte, 
 type fakeBridge struct {
 	err   error
 	calls int32
+	after func(int32)
 }
 
 func (f *fakeBridge) Bind(context.Context, Request) (BoundAuthority, error) {
 	return f, nil
 }
 
-func (f *fakeBridge) VerifyExecution(context.Context) error { return nil }
+func (f *fakeBridge) VerifyExecution(context.Context) error {
+	n := atomic.AddInt32(&f.calls, 1)
+	if f.after != nil {
+		f.after(n)
+	}
+	return nil
+}
 
 func (f *fakeBridge) Preflight(context.Context) error {
 	atomic.AddInt32(&f.calls, 1)
@@ -87,7 +94,7 @@ func activeClaim() ClaimSnapshot {
 
 func testRequest() Request {
 	return Request{
-		GoalID: testGoal, MutationID: "op-s2-1", Provider: "cloudflare", Action: "issue",
+		GoalID: testGoal, MutationID: "op-s2-1", Provider: "cloudflare", Operation: "create-account-token", Action: "issue",
 		TargetDigest: testTarget, PlanDigest: testPlan, GrantDigest: testGrant,
 		Generation: 7, Session: testSess, Owner: testOwner,
 		ExpiresAt: testNow.Add(time.Minute),
@@ -143,7 +150,7 @@ func TestSubmitAppliesOnce(t *testing.T) {
 	if receipt.Status != StatusApplied || receipt.ProviderCalls != 1 {
 		t.Fatalf("receipt = %+v", receipt)
 	}
-	if h.provider.calls != 1 || h.bridge.calls != 1 {
+	if h.provider.calls != 1 || h.bridge.calls != 2 {
 		t.Fatalf("provider=%d bridge=%d", h.provider.calls, h.bridge.calls)
 	}
 	record, err := h.gw.Journal.Status("op-s2-1")
@@ -426,6 +433,26 @@ func TestEffectBoundaryRecheckStopsProvider(t *testing.T) {
 	}
 	if h.provider.calls != 0 {
 		t.Fatalf("provider calls = %d", h.provider.calls)
+	}
+}
+
+func TestEffectBoundaryRejectsExpiredSignedIntentAfterHostAdmission(t *testing.T) {
+	h := newHarness(t)
+	now := testNow
+	h.gw.Now = func() time.Time { return now }
+	// Keep the Claim lease alive to isolate the signed request expiry.
+	h.claims.snapshot.LeaseExpiresAt = testNow.Add(10 * time.Minute)
+	h.bridge.after = func(n int32) {
+		if n == 2 {
+			// Time advances during the second trusted host re-admission.
+			now = testNow.Add(2 * time.Minute)
+		}
+	}
+	receipt, err := h.submit(t)
+	if err != nil || receipt.Status != StatusNoEffect || receipt.ProviderCalls != 0 ||
+		h.provider.calls != 0 || h.bridge.calls != 2 {
+		t.Fatalf("expired intent reached provider: receipt=%+v err=%v calls=%d host=%d",
+			receipt, err, h.provider.calls, h.bridge.calls)
 	}
 }
 
