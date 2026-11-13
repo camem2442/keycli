@@ -193,11 +193,11 @@ func main() {
 	}
 
 	gw := &effectgateway.Gateway{
-		Claims:   claims,
-		Keys:     ring,
-		Bridge:   &allowAdmission{},
-		Journal:  journal.Store{Root: *journalPath},
-		Provider: &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
+		Claims:    claims,
+		Keys:      ring,
+		Bridge:    &allowAdmission{},
+		Journal:   journal.Store{Root: *journalPath},
+		Provider:  &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
 		Synthetic: true,
 	}
 	server := &http.Server{
