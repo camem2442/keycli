@@ -64,6 +64,7 @@ func setOne(ctx context.Context, ghBin string, opts Options, app string, sec tar
 		_ = os.WriteFile(opts.ArgvLog, []byte(strings.Join(args, " ")+"\n"), 0o644)
 	}
 	cmd := exec.CommandContext(ctx, ghBin, args...)
+	cmd.Env = target.CompatibilityPushEnv()
 	cmd.Stdin = strings.NewReader(dotenv.Line(sec.Name, sec.Value))
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
