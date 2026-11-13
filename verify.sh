@@ -57,6 +57,7 @@ run_docs() {
   bash -n "$ROOT/scripts/check-rules.sh"
   bash "$ROOT/scripts/check-rules.sh"
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
+  bash "$ROOT/scripts/tests/test-device-debt.sh"
 }
 
 run_policy() {
