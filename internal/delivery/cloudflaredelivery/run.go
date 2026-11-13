@@ -103,17 +103,21 @@ func run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 		activeDigest(before) != grant.ExpectedActiveDigest || len(before.LatestVersionIDs) == 0 {
 		return Result{}, errors.New("Cloudflare pre-stage active deployment drift")
 	}
-	if len(before.LatestVersionIDs) == 100 {
-		// Tag-based reconciliation may still work, but first-stage proof cannot
-		// establish a complete version delta under a capped first page.
-		return Result{}, errors.New("Cloudflare version inventory truncated")
+	if len(before.LatestVersionIDs) >= cloudflare.VersionInventoryLimit-1 {
+		return Result{}, errors.New("Cloudflare version inventory has no room for a verifiable stage")
 	}
 	targetDigest := digest([]byte(strings.Join([]string{"cloudflare-workers", grant.AccountID, grant.Worker, grant.Environment, strings.ToUpper(grant.Destination)}, "\x00")))
 	intent := journal.Intent{OperationID: id, TargetDigest: targetDigest, PlanDigest: planID, GrantDigest: grant.GrantDigest}
 	result := Result{}
+	notAttempted := false
 	record, err := store.Dispatch(intent, func() (journal.Observation, error) {
 		// Only resolve credential bytes inside durable journal Dispatch.
 		stageResult, stageErr := stage(ctx, request, func(ctx context.Context) ([]byte, error) { return load(ctx, source) })
+		if stageResult.State == cloudflare.VersionNotAttempted {
+			notAttempted = true
+			proof := digest([]byte(strings.Join([]string{"stage-not-attempted", id, targetDigest, planID, grant.GrantDigest}, "\x00")))
+			return journal.Observation{State: journal.ObservedNoEffect, ProofDigest: proof}, nil
+		}
 		if stageErr != nil || stageResult.State != cloudflare.VersionAcknowledgedUnverified {
 			return journal.Observation{}, journal.ErrUnknownEffect
 		}
@@ -130,6 +134,9 @@ func run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 		result.VersionID = ""
 		result.ProofDigest = ""
 	}
+	if err == nil && notAttempted {
+		return result, errors.New("Cloudflare inactive-version stage did not start")
+	}
 	return result, err
 }
 
@@ -138,7 +145,8 @@ func run(ctx context.Context, store journal.Store, id string, plan delivery.Deli
 func VerifyStageVersion(ctx context.Context, remote Observer, before cloudflare.DeploymentSnapshot, destination, tag, operationID, targetDigest string) (versionID, proof string, err error) {
 	after, err := remote.Observe(ctx, before.AccountID, before.Worker)
 	if err != nil || after.AccountID != before.AccountID || after.Worker != before.Worker ||
-		activeDigest(before) == "" || activeDigest(after) != activeDigest(before) {
+		activeDigest(before) == "" || activeDigest(after) != activeDigest(before) ||
+		len(after.LatestVersionIDs) >= cloudflare.VersionInventoryLimit {
 		return "", "", journal.ErrUnknownEffect
 	}
 	versionID, ok := singleNewVersion(before, after)

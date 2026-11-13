@@ -74,13 +74,19 @@ func TestVersionObserveReadsDeploymentAndVersion(t *testing.T) {
 	}
 }
 func TestVersionTagNeedsIndependentWorkerVersionAPIProof(t *testing.T) {
-	for _, scenario := range []string{"beta-forbidden", "beta-wrong-id", "beta-no-tag"} {
+	for _, scenario := range []string{"beta-forbidden", "beta-wrong-id"} {
 		t.Run(scenario, func(t *testing.T) {
 			_, err := fixtureObserver(t, scenario).GetVersion(context.Background(), accountFixture, "fixture-worker", newFixture)
 			if err == nil {
 				t.Fatalf("accepted unverified Worker Version tag: %s", scenario)
 			}
 		})
+	}
+}
+func TestGetVersionAcceptsIdentifiedVersionWithoutTag(t *testing.T) {
+	version, err := fixtureObserver(t, "beta-no-tag").GetVersion(context.Background(), accountFixture, "fixture-worker", newFixture)
+	if err != nil || version.ID != newFixture || version.Tag != "" {
+		t.Fatalf("expected an identified untagged version, got %+v %v", version, err)
 	}
 }
 func TestVersionObserverRejectsUntrustedScopeAndTraffic(t *testing.T) {

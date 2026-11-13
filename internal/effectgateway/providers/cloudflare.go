@@ -146,7 +146,7 @@ func (r CloudflareRotation) stage(ctx context.Context, req effectgateway.Request
 			before, err := stage.Observer.Observe(ctx, target.AccountID, target.Worker)
 			if err != nil || before.AccountID != target.AccountID || before.Worker != target.Worker ||
 				cloudflaredelivery.ActiveDigest(before) != stage.ExpectedActiveDigest ||
-				len(before.LatestVersionIDs) == 0 || len(before.LatestVersionIDs) >= 100 {
+				len(before.LatestVersionIDs) == 0 || len(before.LatestVersionIDs) >= cloudflare.VersionInventoryLimit-1 {
 				return journal.Observation{}, rotation.ErrActionNotCurrent
 			}
 			result, err := cloudflare.StagePinnedVersionSecret(ctx, target, stage.WranglerSHA256,

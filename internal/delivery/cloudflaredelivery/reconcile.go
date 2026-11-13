@@ -72,9 +72,8 @@ func FindStagedVersion(ctx context.Context, remote Observer, account, worker, de
 	if err != nil || snapshot.AccountID != account || snapshot.Worker != worker || activeDigest(snapshot) != expectedActiveDigest {
 		return "", journal.ErrUnknownEffect
 	}
-	// Even if the list is truncated, the operation is held UNKNOWN rather
-	// than concluding absence. Limit GETs for reconciliation costs.
-	if len(snapshot.LatestVersionIDs) > 8 || len(snapshot.LatestVersionIDs) == 0 {
+	// A full page cannot establish uniqueness of the operation tag.
+	if len(snapshot.LatestVersionIDs) >= cloudflare.VersionInventoryLimit || len(snapshot.LatestVersionIDs) == 0 {
 		return "", journal.ErrUnknownEffect
 	}
 	active := map[string]bool{}
@@ -84,11 +83,11 @@ func FindStagedVersion(ctx context.Context, remote Observer, account, worker, de
 	var candidate string
 	for _, versionID := range snapshot.LatestVersionIDs {
 		detail, err := remote.GetVersion(ctx, account, worker, versionID)
-		if err != nil {
+		if err != nil || detail.ID != versionID {
 			return "", journal.ErrUnknownEffect
 		}
 		if detail.Tag == tag {
-			if candidate != "" || detail.ID != versionID || !slices.Contains(detail.BindingNames, destination) || active[versionID] {
+			if candidate != "" || !slices.Contains(detail.BindingNames, destination) || active[versionID] {
 				return "", journal.ErrUnknownEffect
 			}
 			candidate = versionID

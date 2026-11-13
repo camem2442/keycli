@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +44,7 @@ func (f *fakeObserver) Observe(_ context.Context, account, worker string) (cloud
 	return f.before, nil
 }
 func (f *fakeObserver) GetVersion(_ context.Context, account, worker, id string) (cloudflare.VersionMetadata, error) {
-	if id == previous {
+	if id == previous || strings.HasPrefix(id, "history-") {
 		return cloudflare.VersionMetadata{ID: id}, nil
 	}
 	if f.badBinding {
@@ -76,7 +77,10 @@ func permitRead(g Grant) Authorize {
 }
 func testStore(t *testing.T) journal.Store {
 	t.Helper()
-	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(parent, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +171,63 @@ func TestRunUnknownWhenDeploymentChangesOrVersionCannotBeBound(t *testing.T) {
 		})
 	}
 }
+func TestRunRecordsNoEffectWhenStageDidNotStart(t *testing.T) {
+	plan, grant, req, remote := fixture(t)
+	store := testStore(t)
+	result, err := run(context.Background(), store, op, plan, permit(grant),
+		func(context.Context, delivery.SecretRef) ([]byte, error) {
+			return nil, errors.New("fixture loader failure")
+		},
+		req, remote, func(ctx context.Context, _ cloudflare.VersionStageRequest, load func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+			_, err := load(ctx)
+			return cloudflare.VersionStageResult{State: cloudflare.VersionNotAttempted}, err
+		})
+	record, readErr := store.Status(op)
+	if err == nil || errors.Is(err, journal.ErrUnknownEffect) || readErr != nil ||
+		record.State != journal.ObservedNoEffect || result.Record.State != record.State ||
+		!journal.ValidDigest(record.ProofDigest) || result.VersionID != "" || remote.reads != 1 {
+		t.Fatalf("expected terminal no effect and no post-stage observation: result=%+v record=%+v err=%v read=%v",
+			result, record, err, readErr)
+	}
+}
+
+func TestStageAndReconcileShareVersionInventoryBound(t *testing.T) {
+	for _, count := range []int{cloudflare.VersionInventoryLimit - 2, cloudflare.VersionInventoryLimit - 1} {
+		t.Run(fmt.Sprintf("pre-stage versions %d", count), func(t *testing.T) {
+			plan, grant, req, remote := fixture(t)
+			for i := 1; i < count; i++ {
+				remote.before.LatestVersionIDs = append(remote.before.LatestVersionIDs, fmt.Sprintf("history-%d", i))
+			}
+			remote.after.LatestVersionIDs = append(append([]string{}, remote.before.LatestVersionIDs...), next)
+			store := testStore(t)
+			calls := 0
+			_, err := run(context.Background(), store, op, plan, permit(grant),
+				func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("fixture"), nil },
+				req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {
+					calls++
+					return cloudflare.VersionStageResult{State: cloudflare.VersionUnknownEffect}, errors.New("lost result")
+				})
+			if count == cloudflare.VersionInventoryLimit-1 {
+				if err == nil || calls != 0 {
+					t.Fatalf("stage must reserve room for its new version: calls=%d err=%v", calls, err)
+				}
+				seedUnknown(t, store, plan, grant)
+			} else if !errors.Is(err, journal.ErrUnknownEffect) || calls != 1 {
+				t.Fatalf("stage did not record a possible effect: calls=%d err=%v", calls, err)
+			}
+			remote.before = remote.after
+			result, err := reconcile(context.Background(), store, op, plan, permitRead(grant), remote)
+			if count == cloudflare.VersionInventoryLimit-1 {
+				if !errors.Is(err, journal.ErrUnknownEffect) || result.State != journal.UnknownEffect {
+					t.Fatalf("full page must stay unknown: %+v %v", result, err)
+				}
+			} else if err != nil || result.State != journal.ObservedApplied {
+				t.Fatalf("expected unique tag after untagged history: %+v %v", result, err)
+			}
+		})
+	}
+}
+
 func TestRunUnknownOnWranglerFailure(t *testing.T) {
 	plan, grant, req, remote := fixture(t)
 	outcome, err := run(context.Background(), testStore(t), op, plan, permit(grant), func(context.Context, delivery.SecretRef) ([]byte, error) { return []byte("synthetic"), nil }, req, remote, func(context.Context, cloudflare.VersionStageRequest, func(context.Context) ([]byte, error)) (cloudflare.VersionStageResult, error) {

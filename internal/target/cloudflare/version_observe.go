@@ -45,6 +45,10 @@ type VersionMetadata struct {
 
 var versionUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// VersionInventoryLimit is the requested page size. A full page cannot
+// establish a complete inventory, so accepted snapshots are smaller.
+const VersionInventoryLimit = 100
+
 const cloudflareAPIOrigin = "https://api.cloudflare.com/client/v4"
 
 func NewVersionRESTObserver(token string) (*VersionRESTObserver, error) {
@@ -97,10 +101,10 @@ func (o *VersionRESTObserver) Observe(ctx context.Context, accountID, worker str
 			ID string `json:"id"`
 		} `json:"items"`
 	}
-	if err := o.get(ctx, base+"/versions?page=1&per_page=100", &versions); err != nil {
+	if err := o.get(ctx, fmt.Sprintf("%s/versions?page=1&per_page=%d", base, VersionInventoryLimit), &versions); err != nil {
 		return DeploymentSnapshot{}, err
 	}
-	if len(versions.Items) == 0 || len(versions.Items) >= 100 {
+	if len(versions.Items) == 0 || len(versions.Items) >= VersionInventoryLimit {
 		// A full page does not prove a complete version inventory.
 		return DeploymentSnapshot{}, errors.New("Cloudflare Worker versions unavailable or truncated")
 	}
@@ -134,7 +138,7 @@ func validWeights(versions []VersionPercentage) bool {
 	return total >= 99.999999 && total <= 100.000001
 }
 
-// GetVersion reads a specific version's tag and binding names. This is not
+// GetVersion reads a specific version's optional tag and binding names. This is not
 // proof that a secret value equals the requested source value.
 func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker, versionID string) (VersionMetadata, error) {
 	if o == nil || o.client == nil || !stageAccount.MatchString(accountID) || !stageWorker.MatchString(worker) || !versionUUID.MatchString(versionID) {
@@ -163,8 +167,8 @@ func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker,
 	if err := o.get(ctx, "/accounts/"+accountID+"/workers/workers/"+worker+"/versions/"+versionID, &tagged); err != nil {
 		return VersionMetadata{}, err
 	}
-	if !strings.EqualFold(tagged.ID, versionID) || tagged.Annotations["workers/tag"] == "" {
-		return VersionMetadata{}, errors.New("Cloudflare worker version tag identity unavailable")
+	if !strings.EqualFold(tagged.ID, versionID) {
+		return VersionMetadata{}, errors.New("Cloudflare worker version identity mismatch")
 	}
 	var bindings []struct {
 		Name string `json:"name"`
