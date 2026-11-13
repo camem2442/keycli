@@ -10,6 +10,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/camem2442/keycli/internal/authoritybinding"
 )
 
 type State string
@@ -24,11 +26,12 @@ const (
 )
 
 var (
-	ErrNotFound      = errors.New("delivery operation not found")
-	ErrDuplicate     = errors.New("delivery operation already exists")
-	ErrTargetPending = errors.New("delivery target has an unresolved operation")
-	ErrBusy          = errors.New("delivery journal is locked")
-	ErrUnknownEffect = errors.New("delivery effect is unknown")
+	ErrNotFound       = errors.New("delivery operation not found")
+	ErrDuplicate      = errors.New("delivery operation already exists")
+	ErrIntentMismatch = errors.New("delivery operation identity mismatch")
+	ErrTargetPending  = errors.New("delivery target has an unresolved operation")
+	ErrBusy           = errors.New("delivery journal is locked")
+	ErrUnknownEffect  = errors.New("delivery effect is unknown")
 )
 
 var operationID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
@@ -54,8 +57,10 @@ type Intent struct {
 type Record struct {
 	Version int `json:"v"`
 	Intent
-	State       State  `json:"state"`
-	ProofDigest string `json:"proof_digest,omitempty"`
+	ResourceDigest string                    `json:"resource_digest,omitempty"`
+	Binding        *authoritybinding.Binding `json:"authority_binding,omitempty"`
+	State          State                     `json:"state"`
+	ProofDigest    string                    `json:"proof_digest,omitempty"`
 }
 
 // Observation is supplied only by a trusted host callback. Its digest
@@ -75,19 +80,34 @@ type Store struct {
 // dispatch marker before invoking effect exactly once, while holding the
 // writer lock. A provider acknowledgement is not a verification receipt.
 func (s Store) Dispatch(intent Intent, effect func() (Observation, error)) (Record, error) {
-	if !validIntent(intent) || effect == nil {
+	if effect == nil {
 		return Record{}, errors.New("invalid delivery journal dispatch")
 	}
-	dir, unlock, err := s.lock(true)
+	return s.dispatch(Record{Version: 1, Intent: intent, State: IntentWritten}, func(DispatchGuard) (Observation, error) {
+		return effect()
+	})
+}
+
+// DispatchBound persists the protected registration projection alongside the
+// intent in both durable markers and lends the held writer lock to effect.
+// It grants no execution authority.
+func (s Store) DispatchBound(intent Intent, binding authoritybinding.Binding, effect func(DispatchGuard) (Observation, error)) (Record, error) {
+	return s.dispatch(Record{Version: 2, Intent: intent, Binding: &binding, State: IntentWritten}, effect)
+}
+
+func (s Store) dispatch(record Record, effect func(DispatchGuard) (Observation, error)) (Record, error) {
+	if !validIntent(record.Intent) || !validBinding(record) || effect == nil {
+		return Record{}, errors.New("invalid delivery journal dispatch")
+	}
+	dir, lock, unlock, err := s.lock(true)
 	if err != nil {
 		return Record{}, err
 	}
 	defer unlock()
 
-	if err := admit(dir, intent); err != nil {
+	if err := admit(dir, record); err != nil {
 		return Record{}, err
 	}
-	record := Record{Version: 1, Intent: intent, State: IntentWritten}
 	if err := writeRecord(dir, record); err != nil {
 		return Record{}, fmt.Errorf("persist delivery intent: %w", err)
 	}
@@ -95,7 +115,7 @@ func (s Store) Dispatch(intent Intent, effect func() (Observation, error)) (Reco
 	if err := writeRecord(dir, record); err != nil {
 		return unresolved(record), errors.Join(ErrUnknownEffect, fmt.Errorf("persist delivery dispatch marker: %w", err))
 	}
-	observation, err := effect()
+	observation, err := runDispatch(lock, effect)
 	if err != nil || !digest.MatchString(observation.ProofDigest) ||
 		(observation.State != Acknowledged && observation.State != ObservedNoEffect) {
 		record.State = UnknownEffect
@@ -126,22 +146,42 @@ func (s Store) Reconcile(intent Intent, observe func(Record) (Observation, error
 	if !validIntent(intent) || observe == nil {
 		return Record{}, errors.New("invalid delivery journal reconciliation")
 	}
-	dir, unlock, err := s.lock(false)
+	return s.reconcile(intent.OperationID, func(record Record) bool {
+		return record.Intent == intent && record.Binding == nil
+	}, observe)
+}
+
+// ReconcileBound resolves an operation by its persisted Authority binding.
+// The host observer must authorize the read and corroborate the outcome.
+func (s Store) ReconcileBound(operationID string, observe func(Record) (Observation, error)) (Record, error) {
+	if !ValidOperationID(operationID) || observe == nil {
+		return Record{}, errors.New("invalid bound delivery journal reconciliation")
+	}
+	return s.reconcile(operationID, func(record Record) bool { return record.Binding != nil }, observe)
+}
+
+func (s Store) reconcile(operationID string, matches func(Record) bool, observe func(Record) (Observation, error)) (Record, error) {
+	dir, _, unlock, err := s.lock(false)
 	if err != nil {
 		return Record{}, err
 	}
 	defer unlock()
-	record, err := readRecord(dir, intent.OperationID)
+	record, err := readRecord(dir, operationID)
 	if err != nil {
 		return Record{}, err
 	}
-	if record.Intent != intent {
-		return Record{}, errors.New("delivery operation identity mismatch")
+	if !matches(record) {
+		return Record{}, ErrIntentMismatch
 	}
 	if !pending(record.State) {
 		return record, nil
 	}
-	observation, err := observe(unresolved(record))
+	view := unresolved(record)
+	if record.Binding != nil {
+		binding := *record.Binding
+		view.Binding = &binding
+	}
+	observation, err := observe(view)
 	if err != nil || !digest.MatchString(observation.ProofDigest) ||
 		(observation.State != ObservedNoEffect &&
 			(observation.State != ObservedApplied || record.State == IntentWritten)) {
@@ -154,6 +194,32 @@ func validIntent(intent Intent) bool {
 	return operationID.MatchString(intent.OperationID) &&
 		digest.MatchString(intent.TargetDigest) && digest.MatchString(intent.PlanDigest) &&
 		digest.MatchString(intent.GrantDigest)
+}
+
+func validBinding(record Record) bool {
+	b := record.Binding
+	switch record.Version {
+	case 1:
+		return b == nil && record.ResourceDigest == ""
+	case 2, 3:
+		return b != nil && b.Valid() &&
+			((record.Version == 2 && record.ResourceDigest == "") ||
+				(record.Version == 3 && record.ResourceDigest == b.ResourceDigest)) &&
+			b.MutationID == record.OperationID && b.TargetDigest == record.TargetDigest &&
+			b.PlanDigest == record.PlanDigest && b.GrantDigest == record.GrantDigest
+	default:
+		return false
+	}
+}
+
+func sameIntent(a, b Record) bool {
+	if a.Intent != b.Intent {
+		return false
+	}
+	if a.Binding == nil || b.Binding == nil {
+		return a.Binding == nil && b.Binding == nil || a.Version == 3 && b.Version == 1
+	}
+	return *a.Binding == *b.Binding
 }
 
 func pending(state State) bool {
@@ -177,9 +243,12 @@ func settle(dir *os.File, record Record, observation Observation) (Record, error
 	return record, nil
 }
 
-func admit(dir *os.File, intent Intent) error {
-	_, err := readRecord(dir, intent.OperationID)
+func admit(dir *os.File, candidate Record) error {
+	record, err := readRecord(dir, candidate.OperationID)
 	if err == nil {
+		if !sameIntent(record, candidate) {
+			return ErrIntentMismatch
+		}
 		return ErrDuplicate
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -196,7 +265,7 @@ func admit(dir *os.File, intent Intent) error {
 			if err != nil {
 				return fmt.Errorf("read delivery target latch: %w", err)
 			}
-			if record.TargetDigest == intent.TargetDigest && pending(record.State) {
+			if pending(record.State) && conflictsWithPending(record, candidate) {
 				return ErrTargetPending
 			}
 		}
@@ -207,4 +276,16 @@ func admit(dir *os.File, intent Intent) error {
 			return err
 		}
 	}
+}
+
+func conflictsWithPending(record, candidate Record) bool {
+	if record.TargetDigest == candidate.TargetDigest {
+		return true
+	}
+	if record.Binding == nil || candidate.Binding == nil {
+		// A legacy record has no resource mapping. Preserve legacy target
+		// matching between legacy callers, and fence mixed-version dispatch.
+		return record.Binding != nil || candidate.Binding != nil
+	}
+	return record.Binding.ResourceDigest == candidate.Binding.ResourceDigest
 }

@@ -316,3 +316,28 @@ func TestGitHubProviderReadBindsFinalizeWithoutRevokerOnDrift(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudflareRuntimeGroupRejectsTokenManagement(t *testing.T) {
+	account, group := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	for _, tc := range []struct {
+		name, scope string
+		allowed     bool
+	}{
+		{"Workers Scripts Read", "com.cloudflare.api.account", true},
+		{"Workers Scripts Write", "com.cloudflare.api.account", true},
+		{"Account API Tokens Write", "com.cloudflare.api.account", false},
+		{"Workers Scripts Read", "com.cloudflare.api.account.zone", false},
+	} {
+		t.Run(tc.name+tc.scope, func(t *testing.T) {
+			reader := readerFor(t, func(req *http.Request) (*http.Response, error) {
+				if req.Method != http.MethodGet || req.URL.Path != "/client/v4/accounts/"+account+"/tokens/permission_groups" {
+					t.Fatal("permission inventory escaped its account")
+				}
+				return ok(fmt.Sprintf(`{"success":true,"result":[{"id":%q,"name":%q,"scopes":[%q],"is_selectable":true}]}`, group, tc.name, tc.scope)), nil
+			})
+			if err := reader.VerifyWorkersRuntimeGroup(context.Background(), account, group); (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%t, error=%v", tc.allowed, err)
+			}
+		})
+	}
+}

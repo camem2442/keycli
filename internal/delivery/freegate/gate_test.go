@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+var bootstrapScope = ExpectedScope{
+	AccountID:  strings.Repeat("a", 32),
+	WorkerName: "kc-v09-stage-pilot-test1",
+	Operation:  "bootstrap",
+}
+
 func gateFixture(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, Evidence) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -27,9 +33,17 @@ func sign(priv ed25519.PrivateKey, e Evidence) SignedEvidence {
 func TestOwnerAttestedFreePlanRequiresLiveInventory(t *testing.T) {
 	pub, priv, e := gateFixture(t)
 	reads := 0
-	f := func(_ context.Context, _ string) ([]string, error) { reads++; return slices.Clone(e.Workers), nil }
-	d, err := Admit(context.Background(), time.Now(), strings.Repeat("a", 32), pub, sign(priv, e), f)
-	if err != nil || d.Status != "OWNER_ATTESTED_SCOPED" || d.AuthorizesExecution || d.Authoritative || reads != 1 {
+	f := func(_ context.Context, accountID string) ([]string, error) {
+		reads++
+		if accountID != bootstrapScope.AccountID {
+			t.Fatalf("inventory read for unexpected account %q", accountID)
+		}
+		return slices.Clone(e.Workers), nil
+	}
+	d, err := Admit(context.Background(), time.Now(), bootstrapScope, pub, sign(priv, e), f)
+	if err != nil || d.Status != "OWNER_ATTESTED_SCOPED" ||
+		d.AccountID != bootstrapScope.AccountID || d.Pilot != bootstrapScope.WorkerName ||
+		d.Operation != bootstrapScope.Operation || d.AuthorizesExecution || d.Authoritative || reads != 1 {
 		t.Fatalf("invalid preflight %+v %v reads=%d", d, err, reads)
 	}
 }
@@ -37,7 +51,7 @@ func TestMissingOrForgedFreeEvidenceBlocksWithoutProviderRead(t *testing.T) {
 	pub, priv, e := gateFixture(t)
 	calls := 0
 	read := func(context.Context, string) ([]string, error) { calls++; return e.Workers, nil }
-	for _, mode := range []string{"tampered", "missing", "expired", "cost", "paid-bindings", "wide-scope", "wrong-account", "untrusted-key", "missing-workers"} {
+	for _, mode := range []string{"tampered", "missing", "expired", "cost", "paid-bindings", "wide-scope", "untrusted-key", "missing-workers"} {
 		t.Run(mode, func(t *testing.T) {
 			x := e
 			key := pub
@@ -54,8 +68,6 @@ func TestMissingOrForgedFreeEvidenceBlocksWithoutProviderRead(t *testing.T) {
 				x.NoPaidBindings = false
 			case "wide-scope":
 				x.WorkerName = "context-platform-gateway-p1"
-			case "wrong-account":
-				x.AccountID = strings.Repeat("b", 32)
 			case "untrusted-key":
 				key = ed25519.PublicKey(strings.Repeat("x", ed25519.PublicKeySize))
 			case "missing-workers":
@@ -69,7 +81,7 @@ func TestMissingOrForgedFreeEvidenceBlocksWithoutProviderRead(t *testing.T) {
 					s.Evidence = x
 				}
 			}
-			if d, err := Admit(context.Background(), time.Now(), strings.Repeat("a", 32), key, s, read); err == nil || d.Status != "BLOCKED" {
+			if d, err := Admit(context.Background(), time.Now(), bootstrapScope, key, s, read); err == nil || d.Status != "BLOCKED" || d.Authoritative || d.AuthorizesExecution {
 				t.Fatalf("accepted %s", mode)
 			}
 		})
@@ -78,6 +90,32 @@ func TestMissingOrForgedFreeEvidenceBlocksWithoutProviderRead(t *testing.T) {
 		t.Fatalf("provider read made for invalid claims: %d", calls)
 	}
 }
+func TestSignedScopeMismatchBlocksWithoutProviderRead(t *testing.T) {
+	pub, priv, e := gateFixture(t)
+	now := time.Now()
+	signed := sign(priv, e)
+	cases := []struct {
+		name     string
+		expected ExpectedScope
+	}{
+		{"account", ExpectedScope{AccountID: strings.Repeat("b", 32), WorkerName: bootstrapScope.WorkerName, Operation: "bootstrap"}},
+		{"worker", ExpectedScope{AccountID: bootstrapScope.AccountID, WorkerName: "kc-v09-stage-pilot-other", Operation: "bootstrap"}},
+		{"operation", ExpectedScope{AccountID: bootstrapScope.AccountID, WorkerName: bootstrapScope.WorkerName, Operation: "cleanup"}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			read := func(context.Context, string) ([]string, error) {
+				t.Fatal("inventory read for mismatched signed scope")
+				return nil, nil
+			}
+			d, err := Admit(context.Background(), now, tt.expected, pub, signed, read)
+			if err == nil || d.Status != "BLOCKED" || d.Authoritative || d.AuthorizesExecution {
+				t.Fatalf("invalid decision for mismatched scope: %+v, %v", d, err)
+			}
+		})
+	}
+}
+
 func TestInventoryChangeOrCapacityBlocks(t *testing.T) {
 	pub, priv, e := gateFixture(t)
 	cases := []struct {
@@ -96,7 +134,7 @@ func TestInventoryChangeOrCapacityBlocks(t *testing.T) {
 			if tt.name == "at-capacity" {
 				x.Workers = tt.live
 			}
-			_, err := Admit(context.Background(), time.Now(), strings.Repeat("a", 32), pub, sign(priv, x), func(context.Context, string) ([]string, error) { return tt.live, nil })
+			_, err := Admit(context.Background(), time.Now(), bootstrapScope, pub, sign(priv, x), func(context.Context, string) ([]string, error) { return tt.live, nil })
 			if err == nil {
 				t.Fatal("accepted unsafe capacity/inventory")
 			}
@@ -106,11 +144,13 @@ func TestInventoryChangeOrCapacityBlocks(t *testing.T) {
 func TestStageRequiresExistingDisposableTarget(t *testing.T) {
 	pub, priv, e := gateFixture(t)
 	e.Operation = "stage"
-	if _, err := Admit(context.Background(), time.Now(), strings.Repeat("a", 32), pub, sign(priv, e), func(context.Context, string) ([]string, error) { return e.Workers, nil }); err == nil {
+	expected := bootstrapScope
+	expected.Operation = "stage"
+	if _, err := Admit(context.Background(), time.Now(), expected, pub, sign(priv, e), func(context.Context, string) ([]string, error) { return e.Workers, nil }); err == nil {
 		t.Fatal("stage without target")
 	}
 	e.Workers = []string{"existing1", e.WorkerName}
-	if _, err := Admit(context.Background(), time.Now(), strings.Repeat("a", 32), pub, sign(priv, e), func(context.Context, string) ([]string, error) { return e.Workers, nil }); err != nil {
+	if _, err := Admit(context.Background(), time.Now(), expected, pub, sign(priv, e), func(context.Context, string) ([]string, error) { return e.Workers, nil }); err != nil {
 		t.Fatal(err)
 	}
 }

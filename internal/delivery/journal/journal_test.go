@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/camem2442/keycli/internal/authoritybinding"
 )
 
 func testIntent(id string) Intent {
@@ -65,6 +67,10 @@ func TestDispatchRecordsAcknowledgementAndRejectsReplay(t *testing.T) {
 	if err != nil || persisted != record {
 		t.Fatalf("persisted = %v, %v", persisted, err)
 	}
+	const v1 = `{"v":1,"operation_id":"one","target_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","plan_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","grant_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","state":"ACKNOWLEDGED","proof_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`
+	if raw, err := os.ReadFile(filepath.Join(store.Root, "one.json")); err != nil || string(raw) != v1 {
+		t.Fatalf("legacy journal bytes changed: %s, %v", raw, err)
+	}
 	if _, err := store.Dispatch(intent, neverEffect(t)); !errors.Is(err, ErrDuplicate) {
 		t.Fatalf("replay: %v", err)
 	}
@@ -72,6 +78,115 @@ func TestDispatchRecordsAcknowledgementAndRejectsReplay(t *testing.T) {
 		return proof(ObservedNoEffect), nil
 	}); err != nil || next.State != ObservedNoEffect {
 		t.Fatalf("settled target: %v, %v", next, err)
+	}
+}
+
+func TestBoundDispatchRequiresOriginalIntent(t *testing.T) {
+	store := newTestStore(t)
+	intent := testIntent("bound")
+	binding := authoritybinding.Binding{
+		GoalID: "goal", MutationID: intent.OperationID, WriterGeneration: 1,
+		Owner: "owner", Session: "session", Provider: "cloudflare", Operation: "registered",
+		ResourceDigest: strings.Repeat("f", 64), TargetDigest: intent.TargetDigest,
+		PlanDigest: intent.PlanDigest, GrantDigest: intent.GrantDigest,
+	}
+	wrongIntent := intent
+	wrongIntent.TargetDigest = binding.ResourceDigest
+	if _, err := store.DispatchBound(wrongIntent, binding, neverBoundEffect(t)); err == nil {
+		t.Fatal("accepted inconsistent original intent")
+	}
+	path := filepath.Join(store.Root, intent.OperationID+".json")
+	_, err := store.DispatchBound(intent, binding, func(DispatchGuard) (Observation, error) {
+		dir, err := store.open(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dir.Close()
+		record, err := readRecord(dir, intent.OperationID)
+		if err != nil || record.Version != 2 || record.State != Dispatched ||
+			record.Binding == nil || *record.Binding != binding || record.Intent != intent {
+			t.Fatalf("exact dispatch marker missing: %+v, %v", record, err)
+		}
+		return Observation{}, errors.New("synthetic lost response")
+	})
+	if !errors.Is(err, ErrUnknownEffect) {
+		t.Fatalf("unresolved binding: %v", err)
+	}
+	if _, err := store.DispatchBound(intent, binding, neverBoundEffect(t)); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("original replay: %v", err)
+	}
+	if _, err := store.Dispatch(intent, neverEffect(t)); !errors.Is(err, ErrIntentMismatch) {
+		t.Fatalf("legacy replay of bound operation: %v", err)
+	}
+	if _, err := store.Reconcile(intent, func(Record) (Observation, error) {
+		t.Fatal("legacy observer called for bound operation")
+		return Observation{}, nil
+	}); !errors.Is(err, ErrIntentMismatch) {
+		t.Fatalf("legacy reconciliation of bound operation: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Change only the journal's copy of the target; the Authority copy is intact.
+	edited := strings.Replace(string(raw), intent.TargetDigest, binding.ResourceDigest, 1)
+	if edited == string(raw) {
+		t.Fatal("test did not edit the persisted intent")
+	}
+	if err := os.WriteFile(path, []byte(edited), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Status(intent.OperationID); err == nil {
+		t.Fatal("read inconsistent bound operation")
+	}
+	if _, err := store.DispatchBound(intent, binding, neverBoundEffect(t)); err == nil || errors.Is(err, ErrDuplicate) {
+		t.Fatalf("inconsistent original classified as a replay: %v", err)
+	}
+}
+
+func TestBoundDispatchFencesPendingResourceAcrossActions(t *testing.T) {
+	store := newTestStore(t)
+	first := testIntent("first")
+	binding := authoritybinding.Binding{
+		GoalID: "goal", MutationID: first.OperationID, WriterGeneration: 1,
+		Owner: "owner", Session: "session", Provider: "cloudflare", Operation: "prepare",
+		ResourceDigest: strings.Repeat("f", 64), TargetDigest: first.TargetDigest,
+		PlanDigest: first.PlanDigest, GrantDigest: first.GrantDigest,
+	}
+	if _, err := store.DispatchBound(first, binding, func(DispatchGuard) (Observation, error) {
+		return Observation{}, errors.New("synthetic response loss")
+	}); !errors.Is(err, ErrUnknownEffect) {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	second := testIntent("second")
+	second.TargetDigest = strings.Repeat("e", 64)
+	binding.MutationID, binding.Operation, binding.TargetDigest = second.OperationID, "finalize", second.TargetDigest
+	if _, err := store.DispatchBound(second, binding, neverBoundEffect(t)); !errors.Is(err, ErrTargetPending) {
+		t.Fatalf("same resource under another action: %v", err)
+	}
+	if _, err := store.Dispatch(second, neverEffect(t)); !errors.Is(err, ErrTargetPending) {
+		t.Fatalf("unmapped dispatch bypassed resource fence: %v", err)
+	}
+	binding.ResourceDigest = strings.Repeat("d", 64)
+	if _, err := store.DispatchBound(second, binding, func(DispatchGuard) (Observation, error) {
+		return proof(ObservedNoEffect), nil
+	}); err != nil {
+		t.Fatalf("different bound resource: %v", err)
+	}
+	if _, err := store.ReconcileBound(first.OperationID, func(record Record) (Observation, error) {
+		if record.State != UnknownEffect || record.Intent != first || record.Binding == nil {
+			t.Fatalf("observer saw the wrong original record: %+v", record)
+		}
+		return Observation{}, errors.New("remote state inconclusive")
+	}); !errors.Is(err, ErrUnknownEffect) {
+		t.Fatalf("inconclusive observation released the fence: %v", err)
+	}
+	settled, err := store.ReconcileBound(first.OperationID, func(record Record) (Observation, error) {
+		record.Binding.ResourceDigest = binding.ResourceDigest
+		return proof(ObservedApplied), nil
+	})
+	if err != nil || settled.State != ObservedApplied || settled.Binding.ResourceDigest != strings.Repeat("f", 64) {
+		t.Fatalf("observation changed the original binding: %+v, %v", settled, err)
 	}
 }
 
@@ -126,7 +241,7 @@ func TestUnknownRequiresExactReconciliation(t *testing.T) {
 func TestOrphanedIntentCannotDispatch(t *testing.T) {
 	store := newTestStore(t)
 	intent := testIntent("one")
-	dir, unlock, err := store.lock(true)
+	dir, _, unlock, err := store.lock(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,4 +387,8 @@ func neverEffect(t *testing.T) func() (Observation, error) {
 		t.Fatal("unexpected provider effect")
 		return Observation{}, nil
 	}
+}
+
+func neverBoundEffect(t *testing.T) func(DispatchGuard) (Observation, error) {
+	return func(DispatchGuard) (Observation, error) { return neverEffect(t)() }
 }

@@ -118,6 +118,32 @@ func TestCloudflareRevokerOnlyExactTokenID(t *testing.T) {
 		t.Fatal("used denied revoker")
 	}
 }
+func TestCloudflareRevokerRechecksGrantAfterSigning(t *testing.T) {
+	account, token := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	grantCurrent := true
+	expired := errors.New("revocation grant expired")
+	client, err := NewClient(func(req *http.Request) error {
+		req.Header.Set("Authorization", "Bearer fixture")
+		grantCurrent = false
+		return nil
+	}, roundTrip(func(*http.Request) (*http.Response, error) {
+		t.Fatal("expired revocation grant reached the provider")
+		return nil, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(context.Context, string, string, string) error {
+		if !grantCurrent {
+			return expired
+		}
+		return nil
+	}
+	if _, err := client.DeleteCloudflareAccountToken(context.Background(), check, account, token); err == nil {
+		t.Fatalf("expected expired grant, got %v", err)
+	}
+}
+
 func TestOraclePendingAndScheduledVersionUseExactSignedIfMatch(t *testing.T) {
 	id := "ocid1.vaultsecret.oc1.ap-osaka-1.synthetic"
 	cnt := 0

@@ -3,20 +3,19 @@ status: partial
 owner: delivery
 ---
 
-# OCI instance principal → OpenAI WIF (v1, source-only)
+# OCI instance principal → OpenAI WIF (v1)
 
 `internal/identity/ociwif` verifies an OCI identity-domain access token issued to
 an instance principal and exchanges it for a short-lived OpenAI access token.
 
-This is **OpenAI Platform API service-account federation**. It is not Codex/ChatGPT
-subscription sign-in and does not reuse that credential.
+This flow uses an **OpenAI Platform API service account**.
 
 ## Flow
 
 ```
 OCI Compute instance (instance principal)
   ├─ IMDS 169.254.169.254 (link-local)              — host signer
-  ├─ POST https://<identity-domain>/oauth2/v1/token  — signed with InstancePrincipalsSecurityTokenSigner
+  ├─ POST https://<identity-domain>/oauth2/v1/token  — signed with the OCI Go SDK instance principal
   │     grant_type=urn:ietf:params:oauth:grant-type:token-exchange
   │     scope=urn:opc:idm:__myscopes__
   │     requested_token_type=urn:ietf:params:oauth:token-type:access_token
@@ -32,20 +31,36 @@ The subject token's audience is whatever the identity domain issued. The package
 **never rewrites** it to an OpenAI URL, because a rewritten audience would turn a
 misconfiguration into an authorization bypass.
 
-## Interface
+## Registered host
 
-| Type | Purpose |
-|---|---|
-| `Signer` | host adapter: IMDS + OCI SDK signer → `SourceToken{Raw, Claims}` |
-| `Exchanger` | host adapter: OpenAI token-exchange call → `TokenResponse` |
-| `Policy` | pinned expectations: issuer, audience, tenancy, domain, instance/compartment, provider mapping, lifetimes |
-| `Credential` | opaque bearer token with `ExpiresAt()` and `Authorize(*http.Request)` |
+`delivery.OpenRegisteredOCIWIF` accepts the admitted host's profile snapshot
+and OCI registration. It binds the delivery aliases to the exact OC1 region,
+instance and tenancy OCIDs, identity domain ID, IDCS token endpoint, issued
+audience, and OpenAI provider and service-account IDs. Keep those values under
+host control. Opening the adapter validates configuration. `Get(ctx)` performs
+the network requests.
 
-`Policy.Acquire(ctx, signer, exchanger)` validates claims first, then exchanges
-**once**. There is no retry path; an unknown exchange result is `ErrExchangeUnknown`
-and must be reconciled by the caller.
+The instance signer uses Oracle's Go SDK with a transport limited to OCI IMDS
+v2 on `169.254.169.254` and the registered region's HTTPS federation endpoint.
+The signed IDCS request targets the registered HTTPS
+`idcs-*.identity.oraclecloud.com` endpoint (optionally region qualified).
+The direct OpenAI exchange uses the fixed HTTPS endpoint above. Both routes
+disable ambient proxy discovery and redirects. Keep OCI SDK debug logging
+disabled on this host. The OpenAI exchange sends the original JWT and
+the two mapping IDs in one POST. Failures return redacted errors without a
+static credential fallback.
 
-`ValidateExchangeEndpoint` accepts only `https://auth.openai.com/oauth/token`.
+The claim comparison constrains the exchange locally. OpenAI verifies the
+original JWT signature and applies the configured provider mapping. Use
+`Credential.Authorize` with a client that disables redirects, ambient proxies,
+and authorization header logging. The credential stays in process memory and
+expires at the earliest validated deadline.
+
+Official contracts checked 2026-11-12
+
+- [OpenAI federation for OCI](https://developers.openai.com/api/docs/guides/workload-identity-federation/oracle-cloud)
+- [OpenAI workload identity token exchange](https://developers.openai.com/api/reference/workload-identity-federation)
+- [Oracle instance principal SDK](https://github.com/oracle/oci-go-sdk/blob/v65.90.0/common/auth/configuration.go)
 
 ## Claims verified
 
@@ -65,7 +80,7 @@ Response: `access_token` must be non-empty and free of whitespace; expiry must c
 from `expires_at`, `expires_in`, or both consistently; it must fall between
 `MinTokenLifetime` and `MaxTokenLifetime`. Anything else is `ErrExpiryInconsistency`.
 
-## Tests (16)
+## Verification
 
 `OCI-01` wrong issuer · `OCI-02` wrong audience · `OCI-03` wrong tenancy ·
 `OCI-04` wrong instance · `OCI-05` wrong domain/compartment · `OCI-06` expired
@@ -75,28 +90,13 @@ mapping · `OCI-09` endpoint mutation · `OCI-10` no secret leak ·
 origin · `OCI-14` cross-account mismatch · `OCI-15` successful synthetic exchange,
 plus a missing-component/unavailable-signer case.
 
-Fixtures are synthetic. No real JWT, token value or claim set from a live tenancy
-appears in the tests or in this document.
+The host tests also cover profile registration, OCI SDK destination pinning,
+the signed IDCS request form, and the OpenAI response and failure contract.
+Fixtures use synthetic credentials and claims.
 
-## Not implemented / not verified
+## Operational acceptance
 
-| Item | State |
-|---|---|
-| Real IMDS + OCI SDK signer adapter | **NOT IMPLEMENTED** (host responsibility) |
-| Real OpenAI exchange adapter | **NOT IMPLEMENTED** (host responsibility) |
-| Live OCI instance principal | `NOT_VERIFIED` |
-| Live OpenAI WIF provider/service-account mapping | `NOT_VERIFIED` |
-| Mid-token rotation/refresh scheduling | out of scope |
-| OKE pod-level identity | out of scope (node identity only) |
-
-`standard-vm` #7 owns VM lifecycle. KeyCLI does not create, start, stop or register
-anything. A deregistered GitHub runner (G4) and a stopped OCI instance (G6) remain
-separate provider facts and must not be conflated.
-
-## Security notes
-
-- The subject token and the access token are never logged: both types implement
-  `Format` and print a redaction marker.
-- `Authorize` attaches the bearer token to `https://api.openai.com` only, refuses a
-  redirect-style host, userinfo, existing `Authorization`, or an expired credential.
-- A successful synthetic exchange proves contract shape, not provider truth.
+PR-13 covers live instance enrollment, real IDCS claims and OpenAI mapping,
+and a limited OpenAI API request. The current tests use synthetic credentials
+and transport responses. The adapter supports Compute instance identity in
+the commercial OC1 realm.

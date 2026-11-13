@@ -62,7 +62,10 @@ type Identity struct {
 	HeadSHA             string
 	BaseSHA             string
 	OperationID         string
+	MutationID          string
 	WriterGeneration    int64
+	WriterOwner         string
+	WriterSession       string
 	HostIdentity        string
 	Paths               []string
 	BudgetCost          int64
@@ -75,6 +78,7 @@ type Identity struct {
 type Request struct {
 	GoalID                    string
 	OperationID               string
+	MutationID                string
 	Repository                string
 	HeadSHA                   string
 	BaseSHA                   string
@@ -83,6 +87,8 @@ type Request struct {
 	TargetDigest              string
 	OperationDigest           string
 	WriterGeneration          int64
+	WriterOwner               string
+	WriterSession             string
 	HostIdentity              string
 	Paths                     []string
 	BudgetCost                int64
@@ -118,10 +124,14 @@ type operationClass struct {
 // to providerlifecycle.HostAuthorize.
 var operationTable = map[string]operationClass{
 	"cloudflare/create-account-token":                   {ActionIssue, true},
+	"cloudflare/stage-inactive-worker-version-secret":   {ActionStage, true},
 	"cloudflare/delete-exact-account-token":             {ActionRevoke, true},
 	"github/delete-exact-repository-secret":             {ActionRevoke, true},
+	"github/stage-repository-generation-secret":         {ActionStage, true},
 	"oracle/stage-pending-vault-version":                {ActionStage, true},
 	"oracle/schedule-deprecated-vault-version-deletion": {ActionRevoke, true},
+	// Synthetic local_test only, never a provider credential operation.
+	"synthetic/record-local-test": {ActionStage, true},
 }
 
 // ClassifyOperation resolves provider + operation to an admission action.
@@ -160,6 +170,7 @@ func (r Request) Digest() string {
 	return digestOf(
 		r.GoalID,
 		r.OperationID,
+		r.MutationID,
 		r.Repository,
 		r.HeadSHA,
 		r.BaseSHA,
@@ -168,6 +179,8 @@ func (r Request) Digest() string {
 		r.TargetDigest,
 		r.OperationDigest,
 		intString(r.WriterGeneration),
+		r.WriterOwner,
+		r.WriterSession,
 		r.HostIdentity,
 		strings.Join(paths, "\x01"),
 		intString(r.BudgetCost),

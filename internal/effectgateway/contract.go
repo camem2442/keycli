@@ -39,19 +39,22 @@ const (
 )
 
 var (
-	ErrNotConfigured     = errors.New("effect gateway is not fully configured")
-	ErrInvalidRequest    = errors.New("effect gateway request is invalid")
-	ErrUnauthenticated   = errors.New("effect gateway request is not authenticated")
-	ErrExpired           = errors.New("effect gateway request is expired")
-	ErrAuthorityUnavail  = errors.New("effect gateway cannot verify the claim")
-	ErrStaleGeneration   = errors.New("effect gateway refused a stale writer generation")
-	ErrSessionMismatch   = errors.New("effect gateway refused a different writer session")
-	ErrOwnerMismatch     = errors.New("effect gateway refused a different writer owner")
-	ErrClaimNotActive    = errors.New("effect gateway requires an ACTIVE claim")
-	ErrClaimLeaseExpired = errors.New("effect gateway requires a live claim lease")
-	ErrAdmissionRejected = errors.New("host admission rejected the effect")
-	ErrTargetPending     = errors.New("effect gateway has an unresolved operation for this target")
-	ErrGatewayBusy       = errors.New("effect gateway is busy for this journal")
+	ErrNotConfigured      = errors.New("effect gateway is not fully configured")
+	ErrInvalidRequest     = errors.New("effect gateway request is invalid")
+	ErrUnauthenticated    = errors.New("effect gateway request is not authenticated")
+	ErrExpired            = errors.New("effect gateway request is expired")
+	ErrAuthorityUnavail   = errors.New("effect gateway cannot verify the claim")
+	ErrStaleGeneration    = errors.New("effect gateway refused a stale writer generation")
+	ErrSessionMismatch    = errors.New("effect gateway refused a different writer session")
+	ErrOwnerMismatch      = errors.New("effect gateway refused a different writer owner")
+	ErrClaimNotActive     = errors.New("effect gateway requires an ACTIVE claim")
+	ErrClaimLeaseExpired  = errors.New("effect gateway requires a live claim lease")
+	ErrAdmissionRejected  = errors.New("host admission rejected the effect")
+	ErrReservationUnknown = errors.New("effect gateway cannot confirm the Authority reservation")
+	ErrTargetPending      = errors.New("effect gateway has an unresolved operation for this target")
+	ErrMutationConflict   = errors.New("effect gateway mutation conflicts with recorded intent")
+	ErrJournalUnavailable = errors.New("effect gateway journal unavailable")
+	ErrGatewayBusy        = errors.New("effect gateway is busy for this journal")
 )
 
 // Request is the writer's intent. ExpiresAt bounds replay; MutationID is the
@@ -60,6 +63,7 @@ type Request struct {
 	GoalID       string    `json:"goal_id"`
 	MutationID   string    `json:"mutation_id"`
 	Provider     string    `json:"provider"`
+	Operation    string    `json:"operation,omitempty"`
 	Action       string    `json:"action"`
 	TargetDigest string    `json:"target_digest"`
 	PlanDigest   string    `json:"plan_digest"`
@@ -97,9 +101,16 @@ type KeyRing interface {
 	Key(ctx context.Context, goalID, owner, session string, generation int64) ([]byte, error)
 }
 
-// Authorizer is satisfied by *hostbridge.Bridge.
-type Authorizer interface {
-	Authorize(ctx context.Context, provider, operation, target string) error
+// Authority binds a host registration to one authenticated writer intent.
+// It must derive target, plan and grant bindings from trusted host inputs.
+type Authority interface {
+	Bind(ctx context.Context, req Request) (BoundAuthority, error)
+}
+
+// BoundAuthority belongs to one submission and is never shared between writers.
+type BoundAuthority interface {
+	Preflight(ctx context.Context) error
+	VerifyExecution(ctx context.Context) error
 }
 
 // EffectResult is what the provider adapter reports. A gateway-local decision that
@@ -121,13 +132,20 @@ type Provider interface {
 
 // Receipt is the writer-visible outcome. It never claims provider truth.
 type Receipt struct {
-	MutationID     string `json:"mutation_id"`
-	Status         string `json:"status"`
-	ProviderCalls  int    `json:"provider_calls"`
-	OperationState string `json:"operation_state,omitempty"`
-	ProofDigest    string `json:"proof_digest,omitempty"`
-	Note           string `json:"note,omitempty"`
+	MutationID          string `json:"mutation_id"`
+	Status              string `json:"status"`
+	ProviderCalls       int    `json:"provider_calls"`
+	OperationState      string `json:"operation_state,omitempty"`
+	ProofDigest         string `json:"proof_digest,omitempty"`
+	AuthoritySettlement string `json:"authority_settlement,omitempty"`
+	Note                string `json:"note,omitempty"`
 }
+
+const (
+	SettlementDone        = "DONE"
+	SettlementFailed      = "FAILED"
+	SettlementUnconfirmed = "UNCONFIRMED"
+)
 
 const (
 	maxRequestTTL = 10 * time.Minute
@@ -142,6 +160,9 @@ func (r Request) validate(now time.Time) error {
 		if strings.TrimSpace(value) == "" || len(value) > 200 {
 			return fmt.Errorf("%w: %s is empty or too long", ErrInvalidRequest, name)
 		}
+	}
+	if r.Operation != "" && (strings.TrimSpace(r.Operation) == "" || len(r.Operation) > 200) {
+		return fmt.Errorf("%w: invalid operation", ErrInvalidRequest)
 	}
 	if !journal.ValidOperationID(r.MutationID) {
 		return fmt.Errorf("%w: mutation_id is not canonical", ErrInvalidRequest)
@@ -171,10 +192,15 @@ func (r Request) validate(now time.Time) error {
 // signingPayload is unambiguous: every field is length-prefixed.
 func (r Request) signingPayload() []byte {
 	fields := []string{
-		r.GoalID, r.MutationID, r.Provider, r.Action, r.TargetDigest, r.PlanDigest,
+		r.GoalID, r.MutationID, r.Provider,
+	}
+	if r.Operation != "" {
+		fields = append(fields, r.Operation)
+	}
+	fields = append(fields, r.Action, r.TargetDigest, r.PlanDigest,
 		r.GrantDigest, strconv.FormatInt(r.Generation, 10), r.Session, r.Owner,
 		r.ExpiresAt.UTC().Format(time.RFC3339Nano),
-	}
+	)
 	var b strings.Builder
 	for _, f := range fields {
 		fmt.Fprintf(&b, "%d:%s|", len(f), f)

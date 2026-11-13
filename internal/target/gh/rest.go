@@ -30,11 +30,12 @@ const (
 )
 
 var (
-	githubOwnerName   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
-	githubRepoName    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
-	githubEnvironment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
-	githubSecretName  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-	errTargetIdentity = errors.New("GitHub Secret target identity did not match the approved scope")
+	githubOwnerName        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
+	githubRepoName         = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+	githubEnvironment      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+	githubSecretName       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	githubGenerationSecret = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*_GEN_[1-9][0-9]*$`)
+	errTargetIdentity      = errors.New("GitHub Secret target identity did not match the approved scope")
 )
 
 // SecretRESTTarget combines the requested Actions Secret scope and immutable
@@ -119,6 +120,47 @@ func (c *SecretRESTClient) PutSecret(ctx context.Context, target SecretRESTTarge
 // ACKNOWLEDGED reflects GitHub's response only. The host must reconcile any
 // unknown effect before deciding whether another write is permitted.
 func (c *SecretRESTClient) PutSecretFrom(ctx context.Context, target SecretRESTTarget, load func(context.Context) ([]byte, error)) (SecretWriteOutcome, error) {
+	return c.putSecretFrom(ctx, target, load, nil)
+}
+
+// CreateRepositoryGenerationFrom checks for an absent generation immediately
+// before the final authorization and PUT. The host serializes its writers.
+func (c *SecretRESTClient) CreateRepositoryGenerationFrom(ctx context.Context, target SecretRESTTarget, load func(context.Context) ([]byte, error), beforePut func(context.Context) error) (SecretWriteOutcome, error) {
+	if target.Scope != "repository" || !githubGenerationSecret.MatchString(target.Destination) || beforePut == nil || load == nil {
+		return SecretNotWritten, errTargetIdentity
+	}
+	path, err := target.secretPath()
+	if err != nil {
+		return SecretNotWritten, err
+	}
+	absent := func(ctx context.Context) error {
+		resp, err := c.request(ctx, http.MethodGet, path+"/"+target.Destination, nil)
+		if err != nil {
+			return errors.New("GitHub Secret destination unavailable")
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			return errors.New("GitHub Secret destination absence not established")
+		}
+		return nil
+	}
+	return c.putSecretFrom(ctx, target, func(ctx context.Context) ([]byte, error) {
+		if err := absent(ctx); err != nil {
+			return nil, err
+		}
+		return load(ctx)
+	}, func(ctx context.Context, _ string) error {
+		if err := c.verifyTarget(ctx, target); err != nil {
+			return err
+		}
+		if err := absent(ctx); err != nil {
+			return err
+		}
+		return beforePut(ctx)
+	})
+}
+
+func (c *SecretRESTClient) putSecretFrom(ctx context.Context, target SecretRESTTarget, load func(context.Context) ([]byte, error), beforeWrite func(context.Context, string) error) (SecretWriteOutcome, error) {
 	if load == nil {
 		return SecretNotWritten, errors.New("GitHub Secret loader is unavailable")
 	}
@@ -173,6 +215,11 @@ func (c *SecretRESTClient) PutSecretFrom(ctx context.Context, target SecretRESTT
 	if err != nil {
 		return SecretNotWritten, errors.New("cannot encode GitHub Actions Secret request")
 	}
+	if beforeWrite != nil {
+		if err := beforeWrite(ctx, path); err != nil {
+			return SecretNotWritten, err
+		}
+	}
 	if ctx.Err() != nil {
 		return SecretNotWritten, errors.New("GitHub Secret preflight expired before write")
 	}
@@ -182,7 +229,7 @@ func (c *SecretRESTClient) PutSecretFrom(ctx context.Context, target SecretRESTT
 		return SecretWriteUnknown, errors.New("GitHub Secret write acknowledgement unavailable")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+	if resp.StatusCode != http.StatusCreated && (beforeWrite != nil || resp.StatusCode != http.StatusNoContent) {
 		return SecretWriteUnknown, fmt.Errorf("GitHub Secret write acknowledgement unavailable (HTTP %d)", resp.StatusCode)
 	}
 	return SecretWriteAcknowledged, nil

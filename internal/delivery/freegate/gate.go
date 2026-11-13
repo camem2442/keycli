@@ -50,6 +50,13 @@ type SignedEvidence struct {
 	Signature []byte   `json:"signature"`
 }
 
+// ExpectedScope identifies the account, Worker and operation selected by the host.
+type ExpectedScope struct {
+	AccountID  string
+	WorkerName string
+	Operation  string
+}
+
 type InventoryReader func(context.Context, string) ([]string, error)
 
 type Decision struct {
@@ -57,6 +64,7 @@ type Decision struct {
 	Reason              string `json:"reason"`
 	AccountID           string `json:"account_id"`
 	Pilot               string `json:"pilot"`
+	Operation           string `json:"operation"`
 	ProofDigest         string `json:"proof_digest"`
 	Authoritative       bool   `json:"authoritative"`
 	AuthorizesExecution bool   `json:"authorizes_execution"`
@@ -67,15 +75,15 @@ func signatureMessage(e Evidence) []byte {
 	return append([]byte("keycli-cf-freegate-v1\x00"), body...)
 }
 
-// Admit always performs independent read-only inventory observation. The owner
-// public key MUST be pinned by the operating host; never read it from the same
-// untrusted evidence as the signature. No AMBIENT fallback is permitted.
-func Admit(ctx context.Context, now time.Time, expectedAccountID string, ownerKey ed25519.PublicKey, signed SignedEvidence, getWorkers InventoryReader) (Decision, error) {
+// Admit checks signed evidence against the host-selected scope before observing
+// the inventory. The operating host must pin the owner key independently of the
+// evidence and supply the expected scope from the intended operation.
+func Admit(ctx context.Context, now time.Time, expected ExpectedScope, ownerKey ed25519.PublicKey, signed SignedEvidence, getWorkers InventoryReader) (Decision, error) {
 	blocked := Decision{Status: "BLOCKED", Reason: "Free/account/host evidence unavailable", Authoritative: false, AuthorizesExecution: false}
 	e := signed.Evidence
 	if ctx.Err() != nil || len(ownerKey) != ed25519.PublicKeySize || getWorkers == nil ||
 		!ed25519.Verify(ownerKey, signatureMessage(e), signed.Signature) ||
-		e.Version != 1 || e.AccountID != expectedAccountID || !accountPattern.MatchString(e.AccountID) || !pilotPattern.MatchString(e.WorkerName) ||
+		e.Version != 1 || !accountPattern.MatchString(e.AccountID) || !pilotPattern.MatchString(e.WorkerName) ||
 		e.Plan != "workers-free" || e.Origin != "owner-dashboard-attestation" ||
 		(e.Operation != "bootstrap" && e.Operation != "stage" && e.Operation != "cleanup") ||
 		e.ObservedUnix <= 0 || e.ExpiresUnix <= e.ObservedUnix || e.ExpiresUnix-e.ObservedUnix > 24*3600 ||
@@ -86,7 +94,10 @@ func Admit(ctx context.Context, now time.Time, expectedAccountID string, ownerKe
 		len(e.Workers) > MaxFreeWorkers || !canonicalWorkers(e.Workers) {
 		return blocked, errors.New("Cloudflare Free pilot is not admitted")
 	}
-	observed, err := getWorkers(ctx, e.AccountID)
+	if e.AccountID != expected.AccountID || e.WorkerName != expected.WorkerName || e.Operation != expected.Operation {
+		return blocked, errors.New("Cloudflare Free pilot scope does not match")
+	}
+	observed, err := getWorkers(ctx, expected.AccountID)
 	if err != nil || ctx.Err() != nil || !canonicalWorkers(observed) || !slices.Equal(observed, e.Workers) {
 		return blocked, errors.New("Cloudflare provider inventory unavailable or changed")
 	}
@@ -96,7 +107,7 @@ func Admit(ctx context.Context, now time.Time, expectedAccountID string, ownerKe
 		return blocked, errors.New("Cloudflare pilot target is not in the expected state")
 	}
 	sum := sha256.Sum256(signatureMessage(e))
-	return Decision{Status: "OWNER_ATTESTED_SCOPED", Reason: "Free dashboard asserted by pinned owner; separate live effect grant required", AccountID: e.AccountID, Pilot: e.WorkerName, ProofDigest: hex.EncodeToString(sum[:]), Authoritative: false, AuthorizesExecution: false}, nil
+	return Decision{Status: "OWNER_ATTESTED_SCOPED", Reason: "Free dashboard asserted by pinned owner; separate live effect grant required", AccountID: e.AccountID, Pilot: e.WorkerName, Operation: e.Operation, ProofDigest: hex.EncodeToString(sum[:]), Authoritative: false, AuthorizesExecution: false}, nil
 }
 
 func canonicalWorkers(xs []string) bool {

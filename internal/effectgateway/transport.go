@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"mime"
 	"net/http"
-	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // MaxEnvelopeBytes bounds a single submission.
@@ -33,39 +33,70 @@ func (g *Gateway) Handler(timeout time.Duration) http.Handler {
 		_, _ = io.WriteString(w, `{"status":"ok","gateway":true}`+"\n")
 	})
 	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-			writeError(w, http.StatusUnsupportedMediaType, "content-type must be application/json")
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, MaxEnvelopeBytes)
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		var env Envelope
-		if err := decoder.Decode(&env); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid envelope")
-			return
-		}
-
-		log.Printf("submit received mutation=%s owner=%s session=%s generation=%d at=%s",
-			env.Request.MutationID, env.Request.Owner, env.Request.Session, env.Request.Generation,
-			time.Now().UTC().Format(time.RFC3339Nano))
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
-		defer cancel()
-		receipt, err := g.Submit(ctx, env)
-		if err != nil {
-			status, code := errorStatus(err)
-			writeError(w, status, code)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(receipt)
+		g.serveMutation(w, r, timeout, "")
 	})
+	for _, action := range []string{ReadStatus, ReadReconcile} {
+		mux.HandleFunc("/"+action, func(w http.ResponseWriter, r *http.Request) {
+			g.serveMutation(w, r, timeout, action)
+		})
+	}
 	return mux
+}
+
+func (g *Gateway) serveMutation(w http.ResponseWriter, r *http.Request, timeout time.Duration, readAction string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED")
+		return
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE")
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxEnvelopeBytes))
+	if err != nil || !utf8.Valid(raw) || r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ENVELOPE")
+		return
+	}
+	var payload json.RawMessage
+	var signature string
+	if !decodeAuthorityObject(raw, map[string]any{"request": &payload, "signature": &signature}, nil) {
+		writeError(w, http.StatusBadRequest, "INVALID_ENVELOPE")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	var receipt Receipt
+	if readAction == "" {
+		var req Request
+		if !decodeAuthorityObject(payload, map[string]any{
+			"goal_id": &req.GoalID, "mutation_id": &req.MutationID, "provider": &req.Provider, "action": &req.Action,
+			"target_digest": &req.TargetDigest, "plan_digest": &req.PlanDigest, "grant_digest": &req.GrantDigest,
+			"generation": &req.Generation, "session": &req.Session, "owner": &req.Owner, "expires_at": &req.ExpiresAt,
+		}, map[string]any{"operation": &req.Operation}) {
+			writeError(w, http.StatusBadRequest, "INVALID_ENVELOPE")
+			return
+		}
+		receipt, err = g.Submit(ctx, Envelope{Request: req, Signature: signature})
+	} else {
+		var req ReadRequest
+		if !decodeAuthorityObject(payload, map[string]any{
+			"goal_id": &req.GoalID, "mutation_id": &req.MutationID, "owner": &req.Owner, "session": &req.Session,
+			"generation": &req.Generation, "expires_at": &req.ExpiresAt, "action": &req.Action,
+		}, nil) || req.Action != readAction {
+			writeError(w, http.StatusBadRequest, "INVALID_ENVELOPE")
+			return
+		}
+		receipt, err = g.Read(ctx, ReadEnvelope{Request: req, Signature: signature})
+	}
+	if err != nil {
+		status, code := errorStatus(err)
+		writeError(w, status, code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(receipt)
 }
 
 // errorStatus maps gateway errors to a transport status and a stable code.
@@ -87,14 +118,24 @@ func errorStatus(err error) (int, string) {
 		return http.StatusConflict, "CLAIM_LEASE_EXPIRED"
 	case errors.Is(err, ErrTargetPending):
 		return http.StatusConflict, "TARGET_PENDING"
+	case errors.Is(err, ErrMutationConflict):
+		return http.StatusConflict, "MUTATION_CONFLICT"
 	case errors.Is(err, ErrGatewayBusy):
 		return http.StatusTooManyRequests, "GATEWAY_BUSY"
 	case errors.Is(err, ErrAdmissionRejected):
 		return http.StatusForbidden, "ADMISSION_REJECTED"
+	case errors.Is(err, ErrReservationUnknown):
+		return http.StatusServiceUnavailable, "RESERVATION_UNKNOWN"
 	case errors.Is(err, ErrAuthorityUnavail):
 		return http.StatusServiceUnavailable, "AUTHORITY_UNAVAILABLE"
 	case errors.Is(err, ErrInvalidRequest):
 		return http.StatusBadRequest, "INVALID_REQUEST"
+	case errors.Is(err, ErrJournalUnavailable):
+		return http.StatusServiceUnavailable, "JOURNAL_UNAVAILABLE"
+	case errors.Is(err, ErrReadNotFound):
+		return http.StatusNotFound, "OPERATION_UNAVAILABLE"
+	case errors.Is(err, ErrProviderLocked):
+		return http.StatusForbidden, "PROVIDER_LOCKED"
 	case errors.Is(err, ErrNotConfigured):
 		return http.StatusServiceUnavailable, "GATEWAY_NOT_CONFIGURED"
 	default:

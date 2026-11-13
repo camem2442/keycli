@@ -67,6 +67,6 @@ func newAuthCmd() *cobra.Command {
 	for _, flag := range []string{"profile", "offline", "claims"} {
 		_ = probe.MarkFlagRequired(flag)
 	}
-	group.AddCommand(probe)
+	group.AddCommand(probe, newWIFCheckCmd())
 	return group
 }

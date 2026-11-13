@@ -64,7 +64,7 @@ func (b *Bridge) Authorize(ctx context.Context, provider, operation, target stri
 	}
 	decision, err := b.Admitter.Admit(request)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrAdmissionRejected, err)
+		return ErrAdmissionRejected
 	}
 	if err := b.checkDecision(request, decision, mutation); err != nil {
 		return err
@@ -84,6 +84,7 @@ func (b *Bridge) request(provider, action, operation, target string) (Request, e
 	return Request{
 		GoalID:                    id.GoalID,
 		OperationID:               id.OperationID,
+		MutationID:                id.MutationID,
 		Repository:                id.Repository,
 		HeadSHA:                   id.HeadSHA,
 		BaseSHA:                   id.BaseSHA,
@@ -92,6 +93,8 @@ func (b *Bridge) request(provider, action, operation, target string) (Request, e
 		TargetDigest:              targetDigest,
 		OperationDigest:           OperationDigest(id.OperationID, targetDigest),
 		WriterGeneration:          id.WriterGeneration,
+		WriterOwner:               id.WriterOwner,
+		WriterSession:             id.WriterSession,
 		HostIdentity:              id.HostIdentity,
 		Paths:                     append([]string(nil), id.Paths...),
 		BudgetCost:                id.BudgetCost,
@@ -103,11 +106,7 @@ func (b *Bridge) request(provider, action, operation, target string) (Request, e
 
 func (b *Bridge) checkDecision(request Request, decision Decision, mutation bool) error {
 	if decision.Status != StatusAdmitted {
-		reason := decision.Reason
-		if reason == "" {
-			reason = "no reason given"
-		}
-		return fmt.Errorf("%w: %s", ErrAdmissionRejected, reason)
+		return ErrAdmissionRejected
 	}
 	if !decision.AuthorizesExecution {
 		return fmt.Errorf("%w: decision does not authorise execution", ErrAdmissionInvalid)
