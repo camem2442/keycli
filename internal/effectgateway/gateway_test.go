@@ -56,7 +56,7 @@ type fakeBridge struct {
 	calls int32
 }
 
-func (f *fakeBridge) Authorize(context.Context, string, string, string) error {
+func (f *fakeBridge) AuthorizeEffect(context.Context, Request) error {
 	atomic.AddInt32(&f.calls, 1)
 	return f.err
 }
@@ -81,7 +81,7 @@ func activeClaim() ClaimSnapshot {
 
 func testRequest() Request {
 	return Request{
-		GoalID: testGoal, MutationID: "op-s2-1", Provider: "cloudflare", Action: "issue",
+		GoalID: testGoal, MutationID: "op-s2-1", Provider: "cloudflare", Operation: "create-account-token", Action: "issue",
 		TargetDigest: testTarget, PlanDigest: testPlan, GrantDigest: testGrant,
 		Generation: 7, Session: testSess, Owner: testOwner,
 		ExpiresAt: testNow.Add(time.Minute),
@@ -116,7 +116,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.gw = &Gateway{
 		Claims: h.claims, Keys: h.keys, Bridge: h.bridge,
-		Journal: journal.Store{Root: root}, Provider: h.provider,
+		Journal: journal.Store{Root: root}, Provider: h.provider, Synthetic: true,
 		Now: func() time.Time { return testNow },
 	}
 	return h
@@ -137,7 +137,7 @@ func TestSubmitAppliesOnce(t *testing.T) {
 	if receipt.Status != StatusApplied || receipt.ProviderCalls != 1 {
 		t.Fatalf("receipt = %+v", receipt)
 	}
-	if h.provider.calls != 1 || h.bridge.calls != 1 {
+	if h.provider.calls != 1 || h.bridge.calls != 2 {
 		t.Fatalf("provider=%d bridge=%d", h.provider.calls, h.bridge.calls)
 	}
 	record, err := h.gw.Journal.Status("op-s2-1")
@@ -336,7 +336,7 @@ func TestRestartDoesNotRedispatch(t *testing.T) {
 	}
 	restarted := &Gateway{
 		Claims: h.claims, Keys: h.keys, Bridge: h.bridge,
-		Journal: journal.Store{Root: h.root}, Provider: h.provider,
+		Journal: journal.Store{Root: h.root}, Provider: h.provider, Synthetic: true,
 		Now: func() time.Time { return testNow },
 	}
 	receipt, err := restarted.Submit(context.Background(), Sign(testRequest(), []byte(testKey)))

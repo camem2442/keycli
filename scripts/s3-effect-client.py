@@ -22,7 +22,7 @@ import sys
 import time
 import urllib.parse
 
-FIELDS = ("goal", "mutation", "provider", "action", "target", "plan", "grant",
+FIELDS = ("goal", "mutation", "provider", "operation", "action", "target", "plan", "grant",
           "generation", "session", "owner", "expires_at")
 
 
@@ -50,6 +50,7 @@ def main(argv):
     p.add_argument("--goal", required=True)
     p.add_argument("--mutation", required=True)
     p.add_argument("--provider", default="cloudflare")
+    p.add_argument("--operation", default="create-account-token")
     p.add_argument("--action", default="issue")
     p.add_argument("--target", required=True)
     p.add_argument("--plan", required=True)
@@ -72,7 +73,7 @@ def main(argv):
     expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + args.ttl))
     fields = {
         "goal": args.goal, "mutation": args.mutation, "provider": args.provider,
-        "action": args.action, "target": args.target, "plan": args.plan,
+        "operation": args.operation, "action": args.action, "target": args.target, "plan": args.plan,
         "grant": args.grant, "generation": str(args.generation),
         "session": args.session, "owner": args.owner, "expires_at": expires,
     }
@@ -80,7 +81,7 @@ def main(argv):
     body = json.dumps({
         "request": {
             "goal_id": fields["goal"], "mutation_id": fields["mutation"],
-            "provider": fields["provider"], "action": fields["action"],
+            "provider": fields["provider"], "operation": fields["operation"], "action": fields["action"],
             "target_digest": fields["target"], "plan_digest": fields["plan"],
             "grant_digest": fields["grant"], "generation": args.generation,
             "session": fields["session"], "owner": fields["owner"],

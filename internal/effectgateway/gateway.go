@@ -20,6 +20,9 @@ type Gateway struct {
 	Journal  journal.Store
 	Provider Provider
 	Now      func() time.Time
+	// Synthetic allows only the host-owned test provider. Defaults false so
+	// unknown real providers remain build+environment locked.
+	Synthetic bool
 }
 
 func (g *Gateway) now() time.Time {
@@ -66,7 +69,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		return Receipt{}, err
 	}
 
-	if err := g.Bridge.Authorize(ctx, req.Provider, req.Action, req.TargetDigest); err != nil {
+	if !g.Synthetic {
+		if err := AllowRealProvider(req.Provider); err != nil {
+			return Receipt{}, err
+		}
+	}
+	if err := g.Bridge.AuthorizeEffect(ctx, req); err != nil {
 		return Receipt{}, fmt.Errorf("%w: %v", ErrAdmissionRejected, err)
 	}
 
@@ -89,6 +97,18 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		if claimErr := checkClaim(fresh, req, g.now()); claimErr != nil {
 			return journal.Observation{State: journal.ObservedNoEffect,
 				ProofDigest: localNoEffectProof(req.MutationID, "stale-claim")}, nil
+		}
+		// The trusted host must reread the current mutation lease and Grant at
+		// the effect boundary; an earlier Bridge approval is never reused.
+		if authErr := g.Bridge.AuthorizeEffect(ctx, req); authErr != nil {
+			return journal.Observation{State: journal.ObservedNoEffect,
+				ProofDigest: localNoEffectProof(req.MutationID, "effect-admission-drift")}, nil
+		}
+		if !g.Synthetic {
+			if lockErr := AllowRealProvider(req.Provider); lockErr != nil {
+				return journal.Observation{State: journal.ObservedNoEffect,
+					ProofDigest: localNoEffectProof(req.MutationID, "provider-lock")}, nil
+			}
 		}
 		calls++
 		result, applyErr := g.Provider.Apply(ctx, req)

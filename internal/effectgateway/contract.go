@@ -60,6 +60,7 @@ type Request struct {
 	GoalID       string    `json:"goal_id"`
 	MutationID   string    `json:"mutation_id"`
 	Provider     string    `json:"provider"`
+	Operation    string    `json:"operation"`
 	Action       string    `json:"action"`
 	TargetDigest string    `json:"target_digest"`
 	PlanDigest   string    `json:"plan_digest"`
@@ -97,9 +98,11 @@ type KeyRing interface {
 	Key(ctx context.Context, goalID, owner, session string, generation int64) ([]byte, error)
 }
 
-// Authorizer is satisfied by *hostbridge.Bridge.
+// Authorizer must validate the entire signed request against independently
+// observed host Grant, target, source, Writer and current mutation lease.
+// A three-string callback cannot bind MutationID, PlanDigest or GrantDigest.
 type Authorizer interface {
-	Authorize(ctx context.Context, provider, operation, target string) error
+	AuthorizeEffect(ctx context.Context, req Request) error
 }
 
 // EffectResult is what the provider adapter reports. A gateway-local decision that
@@ -137,7 +140,7 @@ const (
 func (r Request) validate(now time.Time) error {
 	for name, value := range map[string]string{
 		"goal_id": r.GoalID, "mutation_id": r.MutationID, "provider": r.Provider,
-		"action": r.Action, "session": r.Session, "owner": r.Owner,
+		"operation": r.Operation, "action": r.Action, "session": r.Session, "owner": r.Owner,
 	} {
 		if strings.TrimSpace(value) == "" || len(value) > 200 {
 			return fmt.Errorf("%w: %s is empty or too long", ErrInvalidRequest, name)
@@ -171,7 +174,7 @@ func (r Request) validate(now time.Time) error {
 // signingPayload is unambiguous: every field is length-prefixed.
 func (r Request) signingPayload() []byte {
 	fields := []string{
-		r.GoalID, r.MutationID, r.Provider, r.Action, r.TargetDigest, r.PlanDigest,
+		r.GoalID, r.MutationID, r.Provider, r.Operation, r.Action, r.TargetDigest, r.PlanDigest,
 		r.GrantDigest, strconv.FormatInt(r.Generation, 10), r.Session, r.Owner,
 		r.ExpiresAt.UTC().Format(time.RFC3339Nano),
 	}

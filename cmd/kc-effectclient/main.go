@@ -25,7 +25,8 @@ func main() {
 	goal := flag.String("goal", "", "goal id")
 	mutation := flag.String("mutation", "", "mutation id")
 	provider := flag.String("provider", "cloudflare", "provider name")
-	action := flag.String("action", "issue", "provider action")
+	operation := flag.String("operation", "create-account-token", "exact provider operation id (synthetic default)")
+	action := flag.String("action", "issue", "provider action class")
 	target := flag.String("target", "", "target digest")
 	plan := flag.String("plan", "", "plan digest")
 	grant := flag.String("grant", "", "grant digest")
@@ -50,7 +51,7 @@ func main() {
 	}
 
 	req := effectgateway.Request{
-		GoalID: *goal, MutationID: *mutation, Provider: *provider, Action: *action,
+		GoalID: *goal, MutationID: *mutation, Provider: *provider, Operation: *operation, Action: *action,
 		TargetDigest: *target, PlanDigest: *plan, GrantDigest: *grant,
 		Generation: *generation, Session: *session, Owner: *owner,
 		ExpiresAt: time.Now().Add(*ttl).UTC(),

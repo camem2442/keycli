@@ -87,11 +87,11 @@ type allowAdmission struct {
 	n  int
 }
 
-func (a *allowAdmission) Authorize(_ context.Context, provider, operation, target string) error {
+func (a *allowAdmission) AuthorizeEffect(_ context.Context, req effectgateway.Request) error {
 	a.mu.Lock()
 	a.n++
 	a.mu.Unlock()
-	log.Printf("admission allow provider=%s action=%s target=%s", provider, operation, target)
+	log.Printf("synthetic admission provider=%s operation=%s action=%s target_digest=%s", req.Provider, req.Operation, req.Action, req.TargetDigest)
 	return nil
 }
 
@@ -198,6 +198,7 @@ func main() {
 		Bridge:   &allowAdmission{},
 		Journal:  journal.Store{Root: *journalPath},
 		Provider: &ledgerProvider{path: *ledger, failAfterApply: *failAfterApply},
+		Synthetic: true,
 	}
 	server := &http.Server{
 		Addr:              *addr,
