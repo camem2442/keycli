@@ -122,6 +122,8 @@ var operationTable = map[string]operationClass{
 	"github/delete-exact-repository-secret":             {ActionRevoke, true},
 	"oracle/stage-pending-vault-version":                {ActionStage, true},
 	"oracle/schedule-deprecated-vault-version-deletion": {ActionRevoke, true},
+	// Synthetic local_test only, never a provider credential operation.
+	"synthetic/record-local-test": {ActionStage, true},
 }
 
 // ClassifyOperation resolves provider + operation to an admission action.
