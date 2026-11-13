@@ -273,3 +273,86 @@ func trustedTestGateway(t *testing.T, server *httptest.Server, timeout time.Dura
 	t.Cleanup(client.CloseIdleConnections)
 	return *origin, client
 }
+
+func TestOperationalSubmitIntermediaryFailureReadsStatusOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		status         int
+		body           string
+		fallback       bool
+		statusRejected bool
+	}{
+		{name: "bad gateway", status: http.StatusBadGateway, body: "upstream unavailable", fallback: true},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, body: "upstream timed out", fallback: true},
+		{name: "intermediary unavailable", status: http.StatusServiceUnavailable, body: "no upstream", fallback: true},
+		{name: "unconfirmed status", status: http.StatusBadGateway, fallback: true, statusRejected: true},
+		{name: "gateway denial", status: http.StatusForbidden, body: `{"error":"ADMISSION_REJECTED"}`},
+		{name: "gateway unavailable", status: http.StatusServiceUnavailable, body: `{"error":"AUTHORITY_UNAVAILABLE"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := effectgateway.Request{GoalID: "goal", MutationID: "mutation", Owner: "owner",
+				Session: "session", Generation: 2, ExpiresAt: time.Now().Add(10 * time.Second).UTC()}
+			key := make([]byte, 32)
+			var mu sync.Mutex
+			var paths []string
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				paths = append(paths, r.URL.Path)
+				mu.Unlock()
+				switch r.URL.Path {
+				case "/submit":
+					w.WriteHeader(tc.status)
+					_, _ = io.WriteString(w, tc.body)
+				case "/status":
+					var env effectgateway.ReadEnvelope
+					err := json.NewDecoder(r.Body).Decode(&env)
+					expected := effectgateway.SignRead(effectgateway.ReadRequest{
+						GoalID: req.GoalID, MutationID: req.MutationID, Owner: req.Owner, Session: req.Session,
+						Generation: req.Generation, Action: effectgateway.ReadStatus, ExpiresAt: env.Request.ExpiresAt,
+					}, key)
+					if r.Method != http.MethodPost || err != nil || env != expected || !env.Request.ExpiresAt.After(req.ExpiresAt) {
+						t.Error("status must freshly sign the original mutation and claim identity")
+					}
+					if tc.statusRejected {
+						w.WriteHeader(http.StatusGatewayTimeout)
+						return
+					}
+					_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
+						MutationID: req.MutationID, Status: effectgateway.StatusUnknown,
+					})
+				default:
+					t.Errorf("unexpected path %q", r.URL.Path)
+				}
+			}))
+			defer server.Close()
+			origin, client := trustedTestGateway(t, server, 3*time.Second)
+			result, err := effectclient.Execute(context.Background(), client, origin, effectclient.Submit, req, key, time.Minute)
+			if result.StatusFallback != tc.fallback {
+				t.Fatalf("unexpected fallback: %+v, %v", result, err)
+			}
+			switch {
+			case tc.statusRejected:
+				if !errors.Is(err, effectclient.ErrSubmitUnconfirmed) {
+					t.Fatalf("want unconfirmed, got %+v, %v", result, err)
+				}
+			case tc.fallback:
+				if err != nil || result.Receipt.MutationID != req.MutationID || result.Receipt.Status != effectgateway.StatusUnknown {
+					t.Fatalf("want original mutation status, got %+v, %v", result, err)
+				}
+			default:
+				if err != nil || result.HTTPStatus != tc.status || result.ErrorCode == "" {
+					t.Fatalf("want original gateway refusal, got %+v, %v", result, err)
+				}
+			}
+			expectedPaths := "/submit"
+			if tc.fallback {
+				expectedPaths += ",/status"
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if strings.Join(paths, ",") != expectedPaths {
+				t.Fatalf("unexpected requests %v", paths)
+			}
+		})
+	}
+}

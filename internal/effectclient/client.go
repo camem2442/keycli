@@ -78,8 +78,9 @@ func NewHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// Execute sends one signed operation. If a submit response is unavailable
-// after obtaining a connection, it reads the same mutation's status once.
+// Execute sends one signed operation. After an ambiguous intermediary
+// response or a connected submit with no usable response, it reads the same
+// mutation's status once.
 // The caller sets req.ExpiresAt. The fallback uses a fresh expiry from ttl.
 func Execute(ctx context.Context, client *http.Client, origin url.URL, operation string, req effectgateway.Request, key []byte, ttl time.Duration) (Result, error) {
 	var connected atomic.Bool
@@ -98,9 +99,13 @@ func Execute(ctx context.Context, client *http.Client, origin url.URL, operation
 	}
 	result, err := send(requestCtx, client, origin, operation, req.MutationID, envelope)
 	if err == nil {
-		return result, nil
-	}
-	if operation != Submit || !connected.Load() {
+		intermediaryFailure := result.HTTPStatus == http.StatusBadGateway ||
+			result.HTTPStatus == http.StatusGatewayTimeout ||
+			(result.HTTPStatus == http.StatusServiceUnavailable && result.ErrorCode == "")
+		if operation != Submit || !intermediaryFailure {
+			return result, nil
+		}
+	} else if operation != Submit || !connected.Load() {
 		return result, ErrTransport
 	}
 
