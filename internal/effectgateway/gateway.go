@@ -110,6 +110,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 					ProofDigest: localNoEffectProof(req.MutationID, "provider-lock")}, nil
 			}
 		}
+		// Revalidate signed expiry AFTER host admission: a slow host callback
+		// must not turn an already-expired request into a provider effect.
+		if expiryErr := req.validate(g.now()); expiryErr != nil {
+			return journal.Observation{State: journal.ObservedNoEffect,
+				ProofDigest: localNoEffectProof(req.MutationID, "expired-intent-at-effect-boundary")}, nil
+		}
 		calls++
 		result, applyErr := g.Provider.Apply(ctx, req)
 		if applyErr != nil {

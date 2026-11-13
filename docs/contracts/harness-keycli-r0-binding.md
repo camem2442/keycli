@@ -54,3 +54,13 @@ under an owner-admitted Linux/Flip3 host.
 
 States remain separate: SOURCE_TEST_PASS, HOST_OBSERVED,
 PRODUCT_VERIFIED, OPERATING_ACCEPTED. No status promotion by document.
+
+## Exact-head review repair (2026-11-13)
+
+A PR reviewer observed that admission may be slow enough for the signed
+ExpiresAt to pass between the initial Request.validate and Provider.Apply.
+Gateway now revalidates the same signed request immediately before the
+provider effect, after its second trusted host admission. The synthetic
+clock-advance test holds the Claim lease valid to prove this expiry is
+independently enforced. A refused attempt settles journal NO_EFFECT and
+never retries the provider.

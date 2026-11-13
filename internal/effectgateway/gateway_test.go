@@ -54,10 +54,14 @@ func (f *fakeKeys) Key(context.Context, string, string, string, int64) ([]byte, 
 type fakeBridge struct {
 	err   error
 	calls int32
+	after func(int32)
 }
 
 func (f *fakeBridge) AuthorizeEffect(context.Context, Request) error {
-	atomic.AddInt32(&f.calls, 1)
+	n := atomic.AddInt32(&f.calls, 1)
+	if f.after != nil {
+		f.after(n)
+	}
 	return f.err
 }
 
@@ -420,6 +424,27 @@ func TestEffectBoundaryRecheckStopsProvider(t *testing.T) {
 	}
 	if h.provider.calls != 0 {
 		t.Fatalf("provider calls = %d", h.provider.calls)
+	}
+}
+
+
+func TestEffectBoundaryRejectsExpiredSignedIntentAfterHostAdmission(t *testing.T) {
+	h := newHarness(t)
+	now := testNow
+	h.gw.Now = func() time.Time { return now }
+	// Keep the Claim lease alive to isolate the signed request expiry.
+	h.claims.snapshot.LeaseExpiresAt = testNow.Add(10 * time.Minute)
+	h.bridge.after = func(n int32) {
+		if n == 2 {
+			// Time advances during the second trusted host re-admission.
+			now = testNow.Add(2 * time.Minute)
+		}
+	}
+	receipt, err := h.submit(t)
+	if err != nil || receipt.Status != StatusNoEffect || receipt.ProviderCalls != 0 ||
+		h.provider.calls != 0 || h.bridge.calls != 2 {
+		t.Fatalf("expired intent reached provider: receipt=%+v err=%v calls=%d host=%d",
+			receipt, err, h.provider.calls, h.bridge.calls)
 	}
 }
 
