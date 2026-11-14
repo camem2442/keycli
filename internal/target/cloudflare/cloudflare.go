@@ -80,6 +80,7 @@ func putOne(ctx context.Context, bin string, opts Options, sec target.Secret) er
 		_ = os.WriteFile(opts.ArgvLog, []byte(strings.Join(args, " ")+"\n"), 0o644)
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = target.CompatibilityPushEnv()
 	cmd.Stdin = bytes.NewReader(sec.Value)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out

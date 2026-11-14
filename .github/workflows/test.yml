@@ -12,8 +12,15 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest_sha: ${{ steps.bundle.outputs.manifest_sha }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      run_attempt: ${{ steps.bundle.outputs.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -23,7 +30,136 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y -qq ripgrep
           fi
+      - name: Verify release contract
+        env:
+          CGO_ENABLED: "0"
+        run: python3 scripts/verify-release-contract.py
+      - name: Set synthetic release identity
+        id: identity
+        run: |
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          {
+            echo "RELEASE_VERSION=v0.10.0-rc.999"
+            echo "SOURCE_SHA=$(git rev-parse HEAD)"
+            echo "RELEASE_CHANNEL=rc"
+            echo "TAG_OBJECT=$(git rev-parse HEAD)"
+            echo "WORKFLOW_SHA=$GITHUB_WORKFLOW_SHA"
+          } >> "$GITHUB_ENV"
       - name: Verify (Linux)
         env:
           CGO_ENABLED: "0"
-        run: ./verify.sh --suite all
+        run: |
+          KC_VERSION="$RELEASE_VERSION" KC_COMMIT="$SOURCE_SHA" KC_BUILD_CHANNEL="$RELEASE_CHANNEL" \
+            ./verify.sh --suite all
+      - name: Prepare synthetic release bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          bash scripts/release-contract.sh provenance > dist/provenance.json
+          (cd dist && sha256sum provenance.json >> SHA256SUMS)
+          echo "manifest_sha=$(sha256sum dist/SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Upload synthetic release bundle
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-release-${{ github.run_attempt }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Require uploaded artifact ID
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]'
+      - name: Download synthetic release bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
+          path: /tmp/keycli-release-contract/downloaded
+          merge-multiple: true
+      - name: Verify downloaded synthetic release bundle
+        env:
+          MANIFEST_SHA: ${{ steps.bundle.outputs.manifest_sha }}
+        run: |
+          set -euo pipefail
+          mv dist /tmp/keycli-release-contract/original
+          mv /tmp/keycli-release-contract/downloaded dist
+          bash scripts/release-contract.sh verify-bundle
+          bash scripts/release-contract.sh verify-binary amd64
+
+  linux-arm64-release:
+    needs: linux
+    runs-on: ubuntu-24.04-arm
+    env:
+      RELEASE_VERSION: v0.10.0-rc.999
+      SOURCE_SHA: ${{ needs.linux.outputs.source_sha }}
+      TAG_OBJECT: ${{ needs.linux.outputs.source_sha }}
+      RELEASE_CHANNEL: rc
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      MANIFEST_SHA: ${{ needs.linux.outputs.manifest_sha }}
+      BUILD_RUN_ATTEMPT: ${{ needs.linux.outputs.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.linux.outputs.source_sha }}
+          persist-credentials: false
+      - name: Require source and uploaded artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+      - name: Download synthetic release bundle
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Verify downloaded arm64 release binaries
+        run: |
+          set -euo pipefail
+          bash scripts/release-contract.sh verify-bundle
+          bash scripts/release-contract.sh verify-binary arm64
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and verify M4.6 development Gateway
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+          RC_ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == aarch64 ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          tree=$(git rev-parse 'HEAD^{tree}')
+          src=$(mktemp -d "$RUNNER_TEMP/keycli-dev-source.XXXXXX")
+          git archive "$SOURCE_SHA" | tar -xf - -C "$src"
+          cd "$src"
+          export GOWORK=off GOTOOLCHAIN=local
+          out="$RUNNER_TEMP/keycli-m46-dev"
+          mkdir "$out"
+          gateway="$out/kc-gateway-linux-arm64"
+          pkg=github.com/camem2442/keycli/internal
+          go build -mod=readonly -trimpath -ldflags "-s -w -X $pkg/version.Version=dev -X $pkg/version.Commit=$SOURCE_SHA -X $pkg/effectgateway.channel=dev" -o "$gateway" ./cmd/kc-gateway
+          [[ "$("$gateway" -version)" == "dev ($SOURCE_SHA)" ]]
+          env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report > "$out/lock-report.json"
+          KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report > "$out/lock-report-enabled-env.json"
+          cmp "$out/lock-report.json" "$out/lock-report-enabled-env.json"
+          jq -e '.schema_version == 1 and .channel == "dev" and .requires_env == true and .unlocked == false and .provider_enabled == false' "$out/lock-report.json" >/dev/null
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "$SOURCE_SHA" \
+            --arg source_tree "$tree" --arg workflow_sha "$WORKFLOW_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg rc_artifact_id "$RC_ARTIFACT_ID" --arg rc_build_attempt "$BUILD_RUN_ATTEMPT" \
+            --arg goversion "$(go env GOVERSION)" --arg go_sum_sha256 "$(sha256sum go.sum | cut -d ' ' -f1)" \
+            '{schema_version: 1, channel: "dev", goos: "linux", goarch: "arm64", $repository,
+              $source_sha, $source_tree, $workflow_sha, $run_id, $run_attempt, $rc_artifact_id,
+              $rc_build_attempt, $goversion, $go_sum_sha256}' \
+            > "$out/provenance.json"
+          (cd "$out" && sha256sum kc-gateway-linux-arm64 lock-report.json lock-report-enabled-env.json provenance.json > SHA256SUMS)
+      - name: Upload M4.6 development Gateway bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: m46-dev-gateway-arm64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/keycli-m46-dev/*
+          if-no-files-found: error

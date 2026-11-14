@@ -57,11 +57,19 @@ run_docs() {
   bash -n "$ROOT/scripts/check-rules.sh"
   bash "$ROOT/scripts/check-rules.sh"
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
+  bash "$ROOT/scripts/tests/test-device-debt.sh"
 }
 
 run_policy() {
+  local scan_status
   if rg -n 'AGE-SECRET-KEY-|ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{10,}' --glob '!verify.sh' .; then
     echo "possible secret pattern in tree" >&2
+    exit 1
+  else
+    scan_status=$?
+  fi
+  if [[ "$scan_status" -ne 1 ]]; then
+    echo "secret pattern scan failed (exit $scan_status)" >&2
     exit 1
   fi
 }

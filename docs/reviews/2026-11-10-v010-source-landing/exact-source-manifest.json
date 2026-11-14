@@ -1,0 +1,787 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-11-10T12:15:04Z",
+  "repository": "camem2442/keycli",
+  "source_landing_branch": "landing/keycli-v010-source-20261110",
+  "baseline": {
+    "ref": "origin/main",
+    "sha": "4c972d9815cf0f89f52dbcd91a772376c8c297dd",
+    "tree": "6568e23322c98c16434fc199d1b783fc427c2cdc"
+  },
+  "candidate": {
+    "commit": "7bbc01d533a0c7ca9eb8ff43cf51878f42289ace",
+    "tree": "ee73534082147438211d27d1adddbe25a9c97c5e"
+  },
+  "verification_only_prs": [
+    {
+      "pr": 54,
+      "head_sha": "76fb6afdb389ea22833d9f84cd160485878b166a",
+      "tree": "2077e2b7d0cf61cc3dd661534f003f5570df4000",
+      "do_not_merge": true
+    },
+    {
+      "pr": 57,
+      "head_sha": "60dca53541ba847b0caba64b840d79e2d5ebaf22",
+      "tree": "56bd06c9b03d7a69fdd573847a8113a8d522f89e",
+      "do_not_merge": true
+    },
+    {
+      "pr": 61,
+      "head_sha": "2ce3ccb0908ca5ee6c685122f54a487318acda6a",
+      "tree": "ac5c3d4a582d800ebb0996545df4a5ddacb3847b",
+      "test_merge_ref_sha": "f8ab4d319b57a3ccd12b8722222b6bc21a9d1067",
+      "do_not_merge": true
+    }
+  ],
+  "owning_prs": [
+    {
+      "pr": 47,
+      "label": "K09-01~03",
+      "base_sha": "4c972d9815cf0f89f52dbcd91a772376c8c297dd",
+      "head_sha": "e61beed451a5807023975f8650a57aa525097070",
+      "head_tree": "a820646899794efd8dc75a8db18206ee9beed6c7",
+      "test_merge_ref_sha": "0668db5cfbc86d6e2bc724c17c7190d0d3b4e965",
+      "test_merge_tree": "a820646899794efd8dc75a8db18206ee9beed6c7",
+      "files": [
+        {
+          "status": "M",
+          "path": "docs/contracts/cli.md",
+          "mode": "100644",
+          "blob": "438d004a28e4e03980f7e60820d32a45a4458408"
+        },
+        {
+          "status": "A",
+          "path": "docs/guides/delivery-plan.md",
+          "mode": "100644",
+          "blob": "589f99a3d95b558413abea36d6aa14942c3bcbe0"
+        },
+        {
+          "status": "M",
+          "path": "go.mod",
+          "mode": "100644",
+          "blob": "c429551bbd0b22d7ad210b5900aebee437f36147"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/auth.go",
+          "mode": "100644",
+          "blob": "b865c8a5ff41bd7dbc1a4c6eaa15995da71888f3"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/auth_test.go",
+          "mode": "100644",
+          "blob": "0b25997549391ea11a509ea21c3d49e03f05575b"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/delivery.go",
+          "mode": "100644",
+          "blob": "73b955336227054153449b345e5daa1787bdeda9"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/delivery_status.go",
+          "mode": "100644",
+          "blob": "c125a0efd46d10ac5e615bedd5ea7a698ddf34ea"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/delivery_status_test.go",
+          "mode": "100644",
+          "blob": "cadd79345c33c986bdb77e8c440d1f6e0d5f230f"
+        },
+        {
+          "status": "A",
+          "path": "internal/cli/delivery_test.go",
+          "mode": "100644",
+          "blob": "8be8a2735f27a30288fdfda4362fcf16d089e26c"
+        },
+        {
+          "status": "M",
+          "path": "internal/cli/root.go",
+          "mode": "100644",
+          "blob": "2b7978a79ad849661152d496146273d2ecf28057"
+        },
+        {
+          "status": "M",
+          "path": "internal/config/alias_validation.go",
+          "mode": "100644",
+          "blob": "751ca1b3307927d8447dfde7b01757d65c3757a1"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/github_secret_plan_test.go",
+          "mode": "100644",
+          "blob": "d3675df542d2970c21cbdf176e257318e4e37d15"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/github_wif.go",
+          "mode": "100644",
+          "blob": "56df613934f0f01b30fc65f271f96145a9f1d6f2"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/githubdelivery/run.go",
+          "mode": "100644",
+          "blob": "1e21639cca5c7c5cdd32050b6ed864400b1dcb47"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/githubdelivery/run_test.go",
+          "mode": "100644",
+          "blob": "79531895b434598256f0d29de36bf7067f2034af"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/journal/journal.go",
+          "mode": "100644",
+          "blob": "838ce964b5ce5d0278debf0d161cf86239faf977"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/journal/journal_test.go",
+          "mode": "100644",
+          "blob": "0bafaf63104bfb9c960e6b6f13d499e896c5c2fb"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/journal/storage.go",
+          "mode": "100644",
+          "blob": "76e9d345ce31b2bcc06ae73d2afb907f6ea37ac6"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/plan.go",
+          "mode": "100644",
+          "blob": "9c9649b90c19292b875c69443a9b95ef309b05d2"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/plan_test.go",
+          "mode": "100644",
+          "blob": "fe32334b7a8d1e20f10a257a6a30e7f334965795"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/profiles.go",
+          "mode": "100644",
+          "blob": "52c73d599895ab2eb78221816cc671ee9a5fe5ed"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/wif_runtime.go",
+          "mode": "100644",
+          "blob": "3f59cdb9e2d5d4f7e5e888eea4fd4ea5ce551846"
+        },
+        {
+          "status": "A",
+          "path": "internal/identity/githubwif/exchange.go",
+          "mode": "100644",
+          "blob": "5518c4fa2d6d3917bbfb55b961e3f78f0cf93d9b"
+        },
+        {
+          "status": "A",
+          "path": "internal/identity/githubwif/exchange_test.go",
+          "mode": "100644",
+          "blob": "f13a652e04a54d0add4e5f46b271af46a7b1a69f"
+        },
+        {
+          "status": "A",
+          "path": "internal/identity/githubwif/probe.go",
+          "mode": "100644",
+          "blob": "f4ca0ad64b8f6af25189db19242a0d323a14a482"
+        },
+        {
+          "status": "A",
+          "path": "internal/identity/githubwif/probe_test.go",
+          "mode": "100644",
+          "blob": "0ed7f4423fc951eab4f7acadecb9c245fe3662f7"
+        },
+        {
+          "status": "M",
+          "path": "internal/resolve/resolve.go",
+          "mode": "100644",
+          "blob": "94cb49e329b6da474a7afa306f52436548300992"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/gh/rest.go",
+          "mode": "100644",
+          "blob": "ab1f4fd325df3409f592b355531423eedffa93a6"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/gh/rest_identity.go",
+          "mode": "100644",
+          "blob": "a12d05607574ee3ab5bac0c1f2d89c672fa12196"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/gh/rest_test.go",
+          "mode": "100644",
+          "blob": "43c048cd4ed9227786a1f46b8c438814a9c47215"
+        }
+      ]
+    },
+    {
+      "pr": 48,
+      "label": "K09-04A",
+      "base_sha": "e61beed451a5807023975f8650a57aa525097070",
+      "head_sha": "1edf3cc520005039b886f87bf797e2d4f76fc5eb",
+      "head_tree": "0032a5eafe7a91584b8ba2139d0462a151a5b3a1",
+      "test_merge_ref_sha": "58afee10d46ca32862ae5044a7d90015ccdc9d8f",
+      "test_merge_tree": "0032a5eafe7a91584b8ba2139d0462a151a5b3a1",
+      "files": [
+        {
+          "status": "A",
+          "path": "internal/target/cloudflare/version_stage.go",
+          "mode": "100644",
+          "blob": "9f2f5f405c9b470dfad075a1e2081af218d97e10"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/cloudflare/version_stage_test.go",
+          "mode": "100644",
+          "blob": "13f724799e4ff85a7edc4f72b0c491f48dc588ab"
+        }
+      ]
+    },
+    {
+      "pr": 50,
+      "label": "K09-04B",
+      "base_sha": "1edf3cc520005039b886f87bf797e2d4f76fc5eb",
+      "head_sha": "378b59e615de5ca11d46223cc459afc5d8080a44",
+      "head_tree": "302d58bf3042531ddcedade7f6beca5cd37447bf",
+      "test_merge_ref_sha": "082b53aced765521d735776244194c43e02e4bd4",
+      "test_merge_tree": "302d58bf3042531ddcedade7f6beca5cd37447bf",
+      "files": [
+        {
+          "status": "A",
+          "path": "docs/guides/cloudflare-inactive-stage.md",
+          "mode": "100644",
+          "blob": "97302e3fb1189e4a9670d4545ebbcefe81ab764e"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/cloudflaredelivery/reconcile.go",
+          "mode": "100644",
+          "blob": "f489f977e624f310c76743b18adb6a0d10ccc051"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/cloudflaredelivery/run.go",
+          "mode": "100644",
+          "blob": "8549e73188ea51d0e5103383bce39546b1e8f721"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/cloudflaredelivery/run_test.go",
+          "mode": "100644",
+          "blob": "c9c251d3a6bd388380c59128bb7f2f4fabf7fb18"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/cloudflare/version_observe.go",
+          "mode": "100644",
+          "blob": "ec706fc67fc7a5b6cdd01541d7b94a00fe467d16"
+        },
+        {
+          "status": "A",
+          "path": "internal/target/cloudflare/version_observe_test.go",
+          "mode": "100644",
+          "blob": "b1113d34adef425ed12d696beddc4f4c6f28a211"
+        },
+        {
+          "status": "M",
+          "path": "internal/target/cloudflare/version_stage.go",
+          "mode": "100644",
+          "blob": "2a7a26a48161c484399c1ef34d4dfc5c4d7ee263"
+        }
+      ]
+    },
+    {
+      "pr": 55,
+      "label": "K09-04B fix",
+      "base_sha": "378b59e615de5ca11d46223cc459afc5d8080a44",
+      "head_sha": "87bc3a34224074fb060d2e41e5e81a2ee9ea1e98",
+      "head_tree": "e6ac37525092a5cd844dd0fd24542dc58d7d2a91",
+      "test_merge_ref_sha": "662989651d4ffce512008e17c6d26f082f0d23b5",
+      "test_merge_tree": "e6ac37525092a5cd844dd0fd24542dc58d7d2a91",
+      "files": [
+        {
+          "status": "M",
+          "path": "internal/target/cloudflare/version_observe.go",
+          "mode": "100644",
+          "blob": "675007106b2a0c06403de619aae96e4773bb5875"
+        },
+        {
+          "status": "M",
+          "path": "internal/target/cloudflare/version_observe_test.go",
+          "mode": "100644",
+          "blob": "971804a9f174d0f2ac95beac50deb312ed7d01de"
+        }
+      ]
+    },
+    {
+      "pr": 59,
+      "label": "K09 free gate",
+      "base_sha": "87bc3a34224074fb060d2e41e5e81a2ee9ea1e98",
+      "head_sha": "e6c9d0fb25697185e7164de460ebc7ab2f17d206",
+      "head_tree": "ae9bbf7b5a2de7303937bf0744798bff7d03ccbd",
+      "test_merge_ref_sha": "b4d8943081c23b3a77adaa1b4a0024f6afb67e3a",
+      "test_merge_tree": "ae9bbf7b5a2de7303937bf0744798bff7d03ccbd",
+      "files": [
+        {
+          "status": "A",
+          "path": "docs/guides/cloudflare-freegate-signed-pilot.md",
+          "mode": "100644",
+          "blob": "e25a0ca8b4a3a6fddc5129128bef45082e9d9c4c"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/freegate/gate.go",
+          "mode": "100644",
+          "blob": "f86d14cff4e21de034d5700225599436c48c7111"
+        },
+        {
+          "status": "A",
+          "path": "internal/delivery/freegate/gate_test.go",
+          "mode": "100644",
+          "blob": "9aae14290ca4b79aa270053fddff293d366460a5"
+        }
+      ]
+    },
+    {
+      "pr": 49,
+      "label": "K10-01",
+      "base_sha": "e61beed451a5807023975f8650a57aa525097070",
+      "head_sha": "ffc83ea0cab9279ceb1b0676542312e7faa43968",
+      "head_tree": "2d763a046cf08eb40ee9b00f61a48616e5261b47",
+      "test_merge_ref_sha": "fb81c11a7dc6d5e6b3299ec1fc97e063df563a78",
+      "test_merge_tree": "2d763a046cf08eb40ee9b00f61a48616e5261b47",
+      "files": [
+        {
+          "status": "A",
+          "path": "internal/rotation/plan.go",
+          "mode": "100644",
+          "blob": "5e1a693396e34ba1429379dc04590d399b760b44"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/plan_test.go",
+          "mode": "100644",
+          "blob": "e72bf003dc541348775f0dc62e716f1280d7a582"
+        }
+      ]
+    },
+    {
+      "pr": 51,
+      "label": "K10-02",
+      "base_sha": "ffc83ea0cab9279ceb1b0676542312e7faa43968",
+      "head_sha": "8dce0c6d612bd97e050fe84a60d7193d07d65d6c",
+      "head_tree": "72a105232d9af3da223fbb656681155616e3c838",
+      "test_merge_ref_sha": "317df41dd60b7734084d649fe4a60ec1d4956818",
+      "test_merge_tree": "72a105232d9af3da223fbb656681155616e3c838",
+      "files": [
+        {
+          "status": "A",
+          "path": "internal/rotation/prepare.go",
+          "mode": "100644",
+          "blob": "590967fba90ee58cb0a59164ed5c2be1bd760c7d"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/prepare_test.go",
+          "mode": "100644",
+          "blob": "a655f601cc72888d4ab19173ca74210ed8b733ad"
+        }
+      ]
+    },
+    {
+      "pr": 52,
+      "label": "K10-03",
+      "base_sha": "8dce0c6d612bd97e050fe84a60d7193d07d65d6c",
+      "head_sha": "82269ad4d61698caf020957ae8c12b97d41e3699",
+      "head_tree": "835610077b7388dc699508290a5fa1302b3ad146",
+      "test_merge_ref_sha": "5a6b1bef7898eff5f732742915a4fc60918006ae",
+      "test_merge_tree": "835610077b7388dc699508290a5fa1302b3ad146",
+      "files": [
+        {
+          "status": "A",
+          "path": "internal/rotation/attest.go",
+          "mode": "100644",
+          "blob": "df36db921c640f6da908d040a930258e1f931d87"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/attest_test.go",
+          "mode": "100644",
+          "blob": "b5ccdbf1545a0ae8ca40ed512bf36c6d3b7a56ea"
+        }
+      ]
+    },
+    {
+      "pr": 53,
+      "label": "K10-04",
+      "base_sha": "82269ad4d61698caf020957ae8c12b97d41e3699",
+      "head_sha": "7e6da52f1b837ed2f72c779c65efe3b3ac6b0f38",
+      "head_tree": "c3d89f34e74642dcd0e6d29a35507f8ff1427162",
+      "test_merge_ref_sha": "0210a4334a64d7d5716c1a021c0fc8839df50e41",
+      "test_merge_tree": "c3d89f34e74642dcd0e6d29a35507f8ff1427162",
+      "files": [
+        {
+          "status": "A",
+          "path": "docs/guides/credential-rotation-lifecycle.md",
+          "mode": "100644",
+          "blob": "13993e9eddc91aea8be70c6d713d2f84778d05d1"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/finalize.go",
+          "mode": "100644",
+          "blob": "ba8f7af939184406222a2b5a9d263947fb0df0d5"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/finalize_test.go",
+          "mode": "100644",
+          "blob": "ca3c1a882d202d962ee142874f5fdb3b7e34ef75"
+        }
+      ]
+    },
+    {
+      "pr": 56,
+      "label": "K10-04 fix",
+      "base_sha": "7e6da52f1b837ed2f72c779c65efe3b3ac6b0f38",
+      "head_sha": "54b087e304dd003c6371bce353f8e1ccdc7ebdd3",
+      "head_tree": "a61491e35d6d497168edbc1e2a2976f461e2c7d6",
+      "test_merge_ref_sha": "c8958a6f7d083d4301130247eda860714afe34ae",
+      "test_merge_tree": "a61491e35d6d497168edbc1e2a2976f461e2c7d6",
+      "files": [
+        {
+          "status": "M",
+          "path": "docs/guides/credential-rotation-lifecycle.md",
+          "mode": "100644",
+          "blob": "449296d245d816639aa0fb3c62212d06c03a510f"
+        },
+        {
+          "status": "M",
+          "path": "internal/rotation/finalize.go",
+          "mode": "100644",
+          "blob": "f983f6f21a17a1100aaa09f020177db945e4581f"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/finalize_identity_test.go",
+          "mode": "100644",
+          "blob": "6956e9e1bfe13dcbaf23a709bd4320dc400cd22b"
+        },
+        {
+          "status": "M",
+          "path": "internal/rotation/finalize_test.go",
+          "mode": "100644",
+          "blob": "3d67e55d21d074a41f081df6daa2a93135db022d"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/revocation_identity.go",
+          "mode": "100644",
+          "blob": "e513fb599a5f9efe30f9fd600ed36db8f67c16f5"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/revocation_identity_test.go",
+          "mode": "100644",
+          "blob": "ca8634325620aafef130cb0fd736714e48bcb6c1"
+        }
+      ]
+    },
+    {
+      "pr": 58,
+      "label": "K10-05",
+      "base_sha": "54b087e304dd003c6371bce353f8e1ccdc7ebdd3",
+      "head_sha": "d9255689f35e47ed06872f77feea9fbf946cf334",
+      "head_tree": "8369a38ecd019e2da092acec438824ada599613d",
+      "test_merge_ref_sha": "20506f48f3921485ae20330cd9c79451867a3aaf",
+      "test_merge_tree": "8369a38ecd019e2da092acec438824ada599613d",
+      "files": [
+        {
+          "status": "A",
+          "path": "docs/guides/provider-identity-readonly.md",
+          "mode": "100644",
+          "blob": "5931d42cc98fbe7e0f0aa535a01507dc841a83c5"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/provideridentity/cloudflare.go",
+          "mode": "100644",
+          "blob": "a37ab83aedfeaff0a4129c2cd514ec23464b67f3"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/provideridentity/common.go",
+          "mode": "100644",
+          "blob": "582acfadda0d815408c7607e4e26381a86032806"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/provideridentity/github.go",
+          "mode": "100644",
+          "blob": "9f5a68e1695695807e5800a4a4c5ef959cfa7cff"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/provideridentity/oracle.go",
+          "mode": "100644",
+          "blob": "98cff02daf9f711d032b0ba895b66362b5cc1c91"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/provideridentity/provideridentity_test.go",
+          "mode": "100644",
+          "blob": "f7625ccfcaf23fa5dc71da21c20af0a5f51ec3c9"
+        }
+      ]
+    },
+    {
+      "pr": 62,
+      "label": "K10-05 test fix",
+      "base_sha": "d9255689f35e47ed06872f77feea9fbf946cf334",
+      "head_sha": "dd77ef65f2692b8912464592febff0742a67648f",
+      "head_tree": "adcc31e88e16a97aab98a78385a6281466cb147d",
+      "test_merge_ref_sha": "00cb62e84f9f948d620c95c1cfbb1df7bee575e3",
+      "test_merge_tree": "adcc31e88e16a97aab98a78385a6281466cb147d",
+      "files": [
+        {
+          "status": "M",
+          "path": "internal/rotation/provideridentity/provideridentity_test.go",
+          "mode": "100644",
+          "blob": "9bf1a5255d6a7f90f096a434ee9759ce0912aecb"
+        }
+      ]
+    },
+    {
+      "pr": 60,
+      "label": "K10-06",
+      "base_sha": "d9255689f35e47ed06872f77feea9fbf946cf334",
+      "head_sha": "010d4d37a34dba9cff92017b47e0a8f8e0dd1d6a",
+      "head_tree": "247484b338437857b61394107a7bc17a6e7ba5a1",
+      "test_merge_ref_sha": "507465da61c13b17cca5ebf71db459f0c8c42f2f",
+      "test_merge_tree": "247484b338437857b61394107a7bc17a6e7ba5a1",
+      "files": [
+        {
+          "status": "A",
+          "path": "docs/guides/provider-lifecycle-effects-v010.md",
+          "mode": "100644",
+          "blob": "4b807a605856995528309cb221cf4780221c6bfe"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/providerlifecycle/client.go",
+          "mode": "100644",
+          "blob": "5589b19dc251bd61b16cc2d24c6e36d1917e4d7d"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/providerlifecycle/client_test.go",
+          "mode": "100644",
+          "blob": "f952e1d216dad99a0e915087c2cac48306640f62"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/providerlifecycle/cloudflare.go",
+          "mode": "100644",
+          "blob": "b5c817afe89f1c5c044cf0a2ff98fcf82994e1f6"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/providerlifecycle/github.go",
+          "mode": "100644",
+          "blob": "16e6a20d80159fce9c5d433bce4c4c8d9b626830"
+        },
+        {
+          "status": "A",
+          "path": "internal/rotation/providerlifecycle/oracle.go",
+          "mode": "100644",
+          "blob": "c6abc3fb0e843c30cd55ab94313a19294ff3f333"
+        }
+      ]
+    },
+    {
+      "pr": 63,
+      "label": "K10-06 fix",
+      "base_sha": "010d4d37a34dba9cff92017b47e0a8f8e0dd1d6a",
+      "head_sha": "18ff271c7e51f11d2d6f48d063aaf7b59879b8cc",
+      "head_tree": "45aa6b01ea00490fd5f68ebbede273c4eee280c7",
+      "test_merge_ref_sha": "bbecbb05a48894704964669969637e9b026fdbd7",
+      "test_merge_tree": "45aa6b01ea00490fd5f68ebbede273c4eee280c7",
+      "files": [
+        {
+          "status": "M",
+          "path": "docs/guides/provider-lifecycle-effects-v010.md",
+          "mode": "100644",
+          "blob": "f7d6622d531b582a61bba5baca9989c8c6ae3e80"
+        },
+        {
+          "status": "M",
+          "path": "internal/rotation/providerlifecycle/client_test.go",
+          "mode": "100644",
+          "blob": "855ebdafbaa9cd78fa28579ee982950a58d06da2"
+        },
+        {
+          "status": "M",
+          "path": "internal/rotation/providerlifecycle/cloudflare.go",
+          "mode": "100644",
+          "blob": "761fe08307c6f9861439c2f875359508b9109ca9"
+        }
+      ]
+    }
+  ],
+  "composition_order": [
+    47,
+    48,
+    50,
+    55,
+    59,
+    49,
+    51,
+    52,
+    53,
+    56,
+    58,
+    62,
+    60,
+    63
+  ],
+  "composition_methods": {
+    "patch_apply_tree": "ee73534082147438211d27d1adddbe25a9c97c5e",
+    "blob_overlay_tree": "ee73534082147438211d27d1adddbe25a9c97c5e"
+  },
+  "ci_evidence": {
+    "run_id": 42787409731,
+    "workflow": "test",
+    "job": "linux",
+    "conclusion": "success",
+    "event": "pull_request",
+    "pull_request": 61,
+    "checked_out_ref": "f8ab4d319b57a3ccd12b8722222b6bc21a9d1067",
+    "checked_out_tree": "ac5c3d4a582d800ebb0996545df4a5ddacb3847b",
+    "go": "go1.22.12 linux/amd64",
+    "platform": "ubuntu-latest (ubuntu26 image per setup-go cache key)",
+    "command": "./verify.sh --suite all",
+    "packages_ok": 37,
+    "mac_smoke": "skipped (NOT VERIFIED on Linux)"
+  },
+  "landing_branches": {
+    "source_single_commit": {
+      "branch": "landing/keycli-v010-source-20261110",
+      "commit": "7bbc01d533a0c7ca9eb8ff43cf51878f42289ace",
+      "tree": "ee73534082147438211d27d1adddbe25a9c97c5e"
+    },
+    "source_linear_replay": {
+      "branch": "landing/keycli-v010-source-history-20261110",
+      "commit": "80bdd82b587000636cd8b76bb68eaccf958784a4",
+      "tree": "ee73534082147438211d27d1adddbe25a9c97c5e",
+      "commits": 22,
+      "recommended_payload": true
+    },
+    "docs_commit": {
+      "note": "docs-only commit stacked on top of both branches; not pinned here because it changes with doc edits"
+    }
+  },
+  "parity": {
+    "unique_paths": 65,
+    "vs_pr61": {
+      "paths": 278,
+      "differing": 1,
+      "code_paths_differing": 0,
+      "differing_paths": [
+        {
+          "path": "docs/guides/credential-rotation-lifecycle.md",
+          "candidate_blob": "449296d245d816639aa0fb3c62212d06c03a510f",
+          "pr61_blob": "13993e9eddc91aea8be70c6d713d2f84778d05d1",
+          "owner_pr": 56,
+          "note": "#61 overlay used the #53-era blob; candidate keeps #56 (K10-04R section)"
+        }
+      ]
+    },
+    "vs_pr57": {
+      "paths": 263,
+      "differing": 16
+    },
+    "vs_pr54": {
+      "paths": 260,
+      "differing": 23
+    },
+    "vs_main": {
+      "paths": 218,
+      "differing": 65,
+      "added": 60,
+      "modified": 5,
+      "deleted": 0
+    }
+  },
+  "verification": {
+    "ci": {
+      "run_id": 42787409731,
+      "status": "success",
+      "axes": {
+        "EXACT_SOURCE_MATCH": false,
+        "SUITE_MATCH": true,
+        "TOOLCHAIN_MATCH": true,
+        "ENVIRONMENT_MATCH": false,
+        "BASE_AND_MERGE_TREE_MATCH": "expected-true-unconfirmed",
+        "REQUIRED_CHECKS_SATISFIED": "policy-only (main unprotected)"
+      },
+      "decision": "REUSED_VERIFIED scoped to code parity"
+    },
+    "local": {
+      "os": "darwin/arm64",
+      "go": "1.22.12",
+      "tmpdir": "non-symlink private dir",
+      "cgo": "0",
+      "docs": "ok",
+      "policy": "ok",
+      "gofmt": "ok",
+      "vet_darwin": "ok",
+      "vet_linux_amd64": "ok",
+      "unit": {
+        "packages_ok": 36,
+        "failed": [
+          "github.com/camem2442/keycli/internal/cursor"
+        ],
+        "failure_cause": "real Cursor process running (guard); reproduced identically at main 4c972d98"
+      },
+      "race": {
+        "toolchain": "go1.27.3",
+        "result": "ok",
+        "note": "go1.22.12 -race aborts on this macOS (dyld LC_UUID)"
+      },
+      "release": "ok",
+      "mac_smoke": "not run (real keychain forbidden)"
+    }
+  },
+  "verdicts": {
+    "SOURCE_PARITY": "PASS",
+    "INTEGRATION_CI": "REUSED_VERIFIED",
+    "MAIN_LANDING": "CANDIDATE_READY",
+    "TRUSTED_HOST": "SOURCE_PARTIAL",
+    "PROVIDER_LIVE": "NOT_VERIFIED",
+    "RELEASE": "BLOCKED",
+    "MERGE": "HOLD (not authorized)"
+  },
+  "external_effects": {
+    "provider_get": 0,
+    "provider_mutation": 0,
+    "workflow_dispatch": 0,
+    "git_push": 0,
+    "pr_create": 0,
+    "merge": 0,
+    "tag": 0,
+    "release": 0,
+    "keychain_write": 0,
+    "dot_kc_write": 0
+  }
+}

@@ -1,0 +1,211 @@
+package rotation
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/camem2442/keycli/internal/delivery/journal"
+)
+
+// RevocationGrant must be issued by a separately privileged and authenticated
+// host. A prepared-generation writer cannot revoke by reusing its stage grant.
+type RevocationGrant struct {
+	PlanDigest           string
+	GrantDigest          string
+	OldCredentialHandle  string // provider-specific immutable identifier, see VerifyOldCredential
+	OldIdentityDigest    string // independently observed provider identity bound to this grant
+	EvidenceDigest       string // binds one exact verified consumer/activation snapshot
+	PreapprovedOperation string // alternatively, binds one operation before fresh evidence exists
+	MinimumGrace         time.Duration
+	ExpiresAt            time.Time
+}
+
+type AuthorizeRevocation func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error)
+type RevokeOldGeneration func(context.Context, Generation, string) (journal.Observation, error)
+type RevokeWithFence func(context.Context, Generation, string, func(context.Context) error) (journal.Observation, error)
+
+// FinalizeAction binds a separately authorized revocation to its exact plan,
+// retirement evidence and old credential. The caller owns journal dispatch.
+type FinalizeAction struct {
+	intent           journal.Intent
+	plan             PreparationPlan
+	activation       ActivationEvidence
+	consumers        []ConsumerEvidence
+	verifyActivation VerifyActivation
+	verifyConsumer   VerifyConsumer
+	grant            RevocationGrant
+	verifyOld        VerifyOldCredential
+	revoke           RevokeWithFence
+}
+
+// Finalize attests activation, every required consumer and the old credential
+// before invoking a separately authorized revocation inside the durable journal.
+// A successful provider acknowledgement is NOT proof of revocation completion.
+func Finalize(ctx context.Context, store journal.Store, operationID string, plan PreparationPlan,
+	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
+	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
+	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeOldGeneration) (journal.Record, error) {
+	action, err := NewFinalizeAction(ctx, operationID, plan, activation, consumers, now, verifyActivation, verifyConsumer, authorizeRevoker, verifyOld, revoke)
+	if err != nil {
+		return journal.Record{}, err
+	}
+	intent := action.Intent()
+	if err := CheckRevokeEnrollment(store, intent); err != nil {
+		return journal.Record{}, err
+	}
+	ctx, cancel := context.WithDeadline(ctx, action.grant.ExpiresAt)
+	defer cancel()
+	// Preserve the direct caller's early rejection of an unverifiable identity.
+	if _, err := action.readIdentity(ctx); err != nil {
+		return journal.Record{}, errors.New("old credential provider identity not verified")
+	}
+	return dispatchAction(store, intent, func() (journal.Observation, error) {
+		if err := CheckRollbackFence(store, intent); err != nil {
+			return journal.Observation{}, err
+		}
+		return action.Execute(ctx, nil)
+	})
+}
+
+// NewFinalizeAction validates retirement evidence and admits the revocation.
+// Execute independently reads the old credential identity at dispatch time.
+func NewFinalizeAction(ctx context.Context, operationID string, plan PreparationPlan,
+	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
+	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
+	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeOldGeneration) (FinalizeAction, error) {
+	if revoke == nil {
+		return FinalizeAction{}, errors.New("credential revocation unavailable")
+	}
+	return NewFinalizeActionWithFence(ctx, operationID, plan, activation, consumers, now, verifyActivation, verifyConsumer, authorizeRevoker, verifyOld,
+		func(ctx context.Context, old Generation, handle string, fence func(context.Context) error) (journal.Observation, error) {
+			if err := fence(ctx); err != nil {
+				return journal.Observation{}, err
+			}
+			return revoke(ctx, old, handle)
+		})
+}
+
+// NewFinalizeActionWithFence lets a trusted adapter sign its exact request
+// before invoking the single journal's execution fence at the send boundary.
+func NewFinalizeActionWithFence(ctx context.Context, operationID string, plan PreparationPlan,
+	activation ActivationEvidence, consumers []ConsumerEvidence, now time.Time,
+	verifyActivation VerifyActivation, verifyConsumer VerifyConsumer,
+	authorizeRevoker AuthorizeRevocation, verifyOld VerifyOldCredential, revoke RevokeWithFence) (FinalizeAction, error) {
+	wall := time.Now()
+	if authorizeRevoker == nil || verifyOld == nil || revoke == nil || operationID == "" || ctx == nil || ctx.Err() != nil || now.Before(wall.Add(-30*time.Second)) || now.After(wall.Add(30*time.Second)) {
+		return FinalizeAction{}, errors.New("credential revocation host authorization missing")
+	}
+	plan = clonePreparationPlan(plan)
+	consumers = slices.Clone(consumers)
+	_, decision, err := Attest(ctx, clonePreparationPlan(plan), activation, consumers, now, verifyActivation, verifyConsumer)
+	if err != nil || decision.Status != RetirementCandidate || decision.AuthorizesRevocation {
+		return FinalizeAction{}, errors.New("credential generation not eligible for revocation")
+	}
+	evidence, encodeErr := json.Marshal(struct {
+		Activation ActivationEvidence
+		Consumers  []ConsumerEvidence
+	}{activation, consumers})
+	if encodeErr != nil {
+		return FinalizeAction{}, errors.New("cannot bind revocation evidence")
+	}
+	sum := sha256.Sum256(evidence)
+	proofDigest := hex.EncodeToString(sum[:])
+	grant, err := authorizeRevoker(ctx, operationID, clonePreparationPlan(plan), decision)
+	if err != nil || grant.PlanDigest != plan.ID || !digestPattern.MatchString(grant.GrantDigest) ||
+		!namePattern.MatchString(grant.OldCredentialHandle) || !grant.coversEvidence(operationID, activation, proofDigest) || !digestPattern.MatchString(grant.OldIdentityDigest) || !time.Now().Before(grant.ExpiresAt) || ctx.Err() != nil {
+		return FinalizeAction{}, errors.New("separate provider revocation grant not admitted")
+	}
+	intent := journal.Intent{OperationID: operationID, TargetDigest: targetDigest(plan), PlanDigest: plan.ID, GrantDigest: grant.GrantDigest}
+	return FinalizeAction{intent: intent, plan: plan, activation: activation, consumers: consumers, verifyActivation: verifyActivation, verifyConsumer: verifyConsumer, grant: grant, verifyOld: verifyOld, revoke: revoke}, nil
+}
+
+// A preapproval keeps the operation, plan and old provider identity pinned
+// while letting trusted host verifiers refresh consumer evidence at dispatch.
+func (g RevocationGrant) coversEvidence(operation string, activation ActivationEvidence, digest string) bool {
+	if g.PreapprovedOperation == "" {
+		return g.MinimumGrace == 0 && g.EvidenceDigest == digest
+	}
+	return g.EvidenceDigest == "" && g.PreapprovedOperation == operation &&
+		g.MinimumGrace > 0 && !activation.GraceUntil.Before(activation.ActivatedAt.Add(g.MinimumGrace))
+}
+
+func (a FinalizeAction) Intent() journal.Intent { return a.intent }
+
+// Plan returns a copy of the admitted metadata for trusted target binding.
+func (a FinalizeAction) Plan() PreparationPlan { return clonePreparationPlan(a.plan) }
+
+// Execute reads the exact old identity and invokes the caller's execution fence
+// before attempting revocation.
+func (a FinalizeAction) Execute(ctx context.Context, beforeEffect func(context.Context) error) (journal.Observation, error) {
+	if a.verifyOld == nil || !actionCurrent(ctx, a.grant.ExpiresAt) {
+		return journal.Observation{}, ErrActionNotCurrent
+	}
+	ctx, cancel := context.WithDeadline(ctx, a.grant.ExpiresAt)
+	defer cancel()
+	retirement, decision, err := Attest(ctx, clonePreparationPlan(a.plan), a.activation, a.consumers, time.Now(), a.verifyActivation, a.verifyConsumer)
+	if err != nil || decision.Status != RetirementCandidate {
+		return journal.Observation{}, ErrActionNotCurrent
+	}
+	identity, err := a.readIdentity(ctx)
+	if err != nil {
+		return journal.Observation{}, err
+	}
+	return a.revokeVerified(ctx, retirement, identity, beforeEffect)
+}
+
+func (a FinalizeAction) readIdentity(ctx context.Context) (VerifiedOldCredential, error) {
+	// An opaque handle echoed by the revoker grant is not a provider identity.
+	identity, err := a.verifyOld(ctx, clonePreparationPlan(a.plan), a.grant.OldCredentialHandle)
+	if err != nil || validOldCredentialIdentity(a.plan, a.grant.OldCredentialHandle, identity, time.Now()) != nil ||
+		RevocationIdentityDigest(identity) != a.grant.OldIdentityDigest || !actionCurrent(ctx, a.grant.ExpiresAt) {
+		return VerifiedOldCredential{}, fmt.Errorf("old credential provider identity not verified: %w", ErrActionNotCurrent)
+	}
+	return identity, nil
+}
+
+func (a FinalizeAction) revokeVerified(ctx context.Context, retirement RetirementInput, identity VerifiedOldCredential, beforeEffect func(context.Context) error) (journal.Observation, error) {
+	if !a.evidenceCurrent(retirement, identity) {
+		return journal.Observation{}, ErrActionNotCurrent
+	}
+	called := false
+	var fenceErr error
+	observation, err := a.revoke(ctx, a.plan.Old, a.grant.OldCredentialHandle, func(boundary context.Context) error {
+		if called {
+			fenceErr = ErrActionNotCurrent
+			return fenceErr
+		}
+		called = true
+		if !a.evidenceCurrent(retirement, identity) {
+			fenceErr = ErrActionNotCurrent
+		} else {
+			fenceErr = verifyActionBoundary(boundary, a.grant.ExpiresAt, beforeEffect)
+		}
+		if fenceErr == nil && beforeEffect != nil && !a.evidenceCurrent(retirement, identity) {
+			fenceErr = ErrActionNotCurrent
+		}
+		return fenceErr
+	})
+	if fenceErr != nil {
+		return journal.Observation{}, fenceErr
+	}
+	if errors.Is(err, ErrActionNotCurrent) {
+		return journal.Observation{}, ErrActionNotCurrent
+	}
+	if !called {
+		return journal.Observation{}, journal.ErrUnknownEffect
+	}
+	return acknowledged(observation, err)
+}
+
+func (a FinalizeAction) evidenceCurrent(retirement RetirementInput, identity VerifiedOldCredential) bool {
+	retirement.Now = time.Now()
+	decision, err := EvaluateRetirement(retirement)
+	return err == nil && decision.Status == RetirementCandidate &&
+		validOldCredentialIdentity(a.plan, a.grant.OldCredentialHandle, identity, retirement.Now) == nil
+}

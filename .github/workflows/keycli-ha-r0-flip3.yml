@@ -1,0 +1,54 @@
+name: KeyCLI HA R0 Flip3 source-only
+
+on:
+  push:
+    branches: [pilot/keycli-ha-r0-binding-20261113]
+    paths:
+      - "internal/effectgateway/**"
+      - "internal/hostbridge/**"
+      - "cmd/kc-gateway/**"
+      - "cmd/kc-gateway-r0/**"
+      - "cmd/kc-effectclient/**"
+      - "scripts/s3-effect-client.py"
+      - ".github/workflows/keycli-ha-r0-flip3.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keycli-ha-r0-flip3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  go-source:
+    if: ${{ github.repository == 'camem2442/keycli' }}
+    runs-on: [self-hosted, Linux, ARM64, android, wi]
+    timeout-minutes: 14
+    steps:
+      - name: SHA-specific checkout, never clean shared runner
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: keycli-ha-r0-${{ github.sha }}
+          clean: false
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Exact Go source tests, no provider credentials
+        working-directory: keycli-ha-r0-${{ github.sha }}
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "0"
+          KC_PROVIDER_EFFECTS: ""
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = "flip3-a14-wi"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          go version
+          go test -count=1 ./internal/hostbridge ./internal/effectgateway ./internal/delivery/journal
+          go test -count=1 ./cmd/kc-gateway ./cmd/kc-gateway-r0 ./cmd/kc-effectclient
+          python3 -c 'import ast, pathlib; ast.parse(pathlib.Path("scripts/s3-effect-client.py").read_text())'
+          test -z "$(git status --porcelain)"
+          echo "SOURCE_R0_HEAD=$EXPECTED_SHA"
