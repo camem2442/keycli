@@ -244,9 +244,11 @@ func rotationHTTPError(result effectclient.Result) (int, string) {
 
 func projectRotationEffect(result effectclient.Result, action string) (*rotationEffectOutput, int) {
 	r := result.Receipt
-	if !journal.ValidOperationID(r.MutationID) || r.ProviderCalls < 0 || r.ProviderCalls > 1 ||
-		((action != effectclient.Submit || result.StatusFallback) && r.ProviderCalls != 0) ||
-		(r.ProofDigest != "" && !journal.ValidDigest(r.ProofDigest)) {
+	operation := action
+	if result.StatusFallback {
+		operation = effectgateway.ReadStatus
+	}
+	if !effectclient.ValidReceipt(r, operation) {
 		return nil, rotationUnconfirmedExit
 	}
 	effect := &rotationEffectOutput{MutationID: r.MutationID, JournalState: r.OperationState,
@@ -261,20 +263,11 @@ func projectRotationEffect(result effectclient.Result, action string) (*rotation
 	code := rotationUnconfirmedExit
 	switch journal.State(r.OperationState) {
 	case journal.Acknowledged:
-		if r.Status != effectgateway.StatusApplied || !journal.ValidDigest(r.ProofDigest) {
-			return nil, code
-		}
 		effect.Outcome = "ACKNOWLEDGED_UNVERIFIED"
 	case journal.ObservedApplied:
-		if r.Status != effectgateway.StatusApplied || !journal.ValidDigest(r.ProofDigest) {
-			return nil, code
-		}
 		effect.Outcome = "OBSERVED_APPLIED"
 		code = 0
 	case journal.ObservedNoEffect:
-		if r.Status != effectgateway.StatusNoEffect || !journal.ValidDigest(r.ProofDigest) || r.ProviderCalls != 0 {
-			return nil, code
-		}
 		effect.Outcome = "OBSERVED_NO_EFFECT"
 		if action == effectgateway.ReadReconcile {
 			code = 0
@@ -285,14 +278,8 @@ func projectRotationEffect(result effectclient.Result, action string) (*rotation
 			}
 		}
 	case journal.IntentWritten, journal.Dispatched, journal.UnknownEffect:
-		if r.Status != effectgateway.StatusUnknown || r.ProofDigest != "" {
-			return nil, code
-		}
 		effect.Outcome = "UNKNOWN_EFFECT"
 	case "":
-		if r.Status != effectgateway.StatusDuplicate || r.ProofDigest != "" || r.ProviderCalls != 0 {
-			return nil, code
-		}
 		effect.Outcome = "DUPLICATE"
 	default:
 		return nil, code

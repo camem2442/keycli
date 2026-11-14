@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
 )
@@ -68,6 +69,7 @@ func TestInstalledEffectClientModes(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
 				MutationID: "mutation", Status: effectgateway.StatusApplied,
+				OperationState: string(journal.Acknowledged), ProviderCalls: 1, ProofDigest: strings.Repeat("a", 64),
 			})
 		}))
 		defer server.Close()
@@ -170,6 +172,7 @@ func TestOperationalSubmitTimeoutReadsOriginalMutation(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
 				MutationID: req.MutationID, Status: effectgateway.StatusUnknown,
+				OperationState: string(journal.UnknownEffect),
 			})
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
@@ -281,11 +284,16 @@ func TestOperationalSubmitIntermediaryFailureReadsStatusOnce(t *testing.T) {
 		body           string
 		fallback       bool
 		statusRejected bool
+		statusBody     string
 	}{
 		{name: "bad gateway", status: http.StatusBadGateway, body: "upstream unavailable", fallback: true},
 		{name: "gateway timeout", status: http.StatusGatewayTimeout, body: "upstream timed out", fallback: true},
 		{name: "intermediary unavailable", status: http.StatusServiceUnavailable, body: "no upstream", fallback: true},
 		{name: "unconfirmed status", status: http.StatusBadGateway, fallback: true, statusRejected: true},
+		{name: "incomplete submit receipt", status: http.StatusOK, fallback: true,
+			body: `{"mutation_id":"mutation","status":"APPLIED","provider_calls":1}`},
+		{name: "incomplete status receipt", status: http.StatusBadGateway, fallback: true,
+			statusBody: `{"mutation_id":"mutation","status":"UNKNOWN_EFFECT","operation_state":"UNKNOWN_EFFECT"}`},
 		{name: "gateway denial", status: http.StatusForbidden, body: `{"error":"ADMISSION_REJECTED"}`},
 		{name: "gateway unavailable", status: http.StatusServiceUnavailable, body: `{"error":"AUTHORITY_UNAVAILABLE"}`},
 	} {
@@ -317,8 +325,13 @@ func TestOperationalSubmitIntermediaryFailureReadsStatusOnce(t *testing.T) {
 						w.WriteHeader(http.StatusGatewayTimeout)
 						return
 					}
+					if tc.statusBody != "" {
+						_, _ = io.WriteString(w, tc.statusBody)
+						return
+					}
 					_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
 						MutationID: req.MutationID, Status: effectgateway.StatusUnknown,
+						OperationState: string(journal.UnknownEffect),
 					})
 				default:
 					t.Errorf("unexpected path %q", r.URL.Path)
@@ -331,7 +344,7 @@ func TestOperationalSubmitIntermediaryFailureReadsStatusOnce(t *testing.T) {
 				t.Fatalf("unexpected fallback: %+v, %v", result, err)
 			}
 			switch {
-			case tc.statusRejected:
+			case tc.statusRejected || tc.statusBody != "":
 				if !errors.Is(err, effectclient.ErrSubmitUnconfirmed) {
 					t.Fatalf("want unconfirmed, got %+v, %v", result, err)
 				}

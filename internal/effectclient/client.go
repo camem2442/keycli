@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectgateway"
 )
 
@@ -105,7 +106,7 @@ func Execute(ctx context.Context, client *http.Client, origin url.URL, operation
 		if operation != Submit || !intermediaryFailure {
 			return result, nil
 		}
-	} else if operation != Submit || !connected.Load() {
+	} else if operation != Submit || (!connected.Load() && result.HTTPStatus != http.StatusOK) {
 		return result, ErrTransport
 	}
 
@@ -153,14 +154,41 @@ func send(ctx context.Context, client *http.Client, origin url.URL, operation, m
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, effectgateway.MaxEnvelopeBytes+1))
 	if err != nil || len(raw) > effectgateway.MaxEnvelopeBytes {
-		return Result{}, errors.New("gateway receipt unavailable")
+		return result, errors.New("gateway receipt unavailable")
 	}
-	var receipt effectgateway.Receipt
-	if json.Unmarshal(raw, &receipt) != nil || receipt.MutationID != mutation || receipt.Status == "" {
-		return Result{}, errors.New("invalid gateway receipt")
+	var wire struct {
+		effectgateway.Receipt
+		ProviderCalls *int `json:"provider_calls"`
 	}
-	result.Receipt = receipt
+	if json.Unmarshal(raw, &wire) != nil || wire.ProviderCalls == nil {
+		return result, errors.New("invalid gateway receipt")
+	}
+	wire.Receipt.ProviderCalls = *wire.ProviderCalls
+	if wire.MutationID != mutation || !ValidReceipt(wire.Receipt, operation) {
+		return result, errors.New("invalid gateway receipt")
+	}
+	result.Receipt = wire.Receipt
 	return result, nil
+}
+
+// ValidReceipt checks the journal and effect fields expected from an operation.
+func ValidReceipt(r effectgateway.Receipt, operation string) bool {
+	if !journal.ValidOperationID(r.MutationID) || r.ProviderCalls < 0 || r.ProviderCalls > 1 ||
+		(operation != Submit && r.ProviderCalls != 0) {
+		return false
+	}
+	switch journal.State(r.OperationState) {
+	case journal.Acknowledged, journal.ObservedApplied:
+		return r.Status == effectgateway.StatusApplied && journal.ValidDigest(r.ProofDigest)
+	case journal.ObservedNoEffect:
+		return r.Status == effectgateway.StatusNoEffect && journal.ValidDigest(r.ProofDigest) && r.ProviderCalls == 0
+	case journal.IntentWritten, journal.Dispatched, journal.UnknownEffect:
+		return r.Status == effectgateway.StatusUnknown && r.ProofDigest == ""
+	case "":
+		return operation == Submit && r.Status == effectgateway.StatusDuplicate && r.ProofDigest == "" && r.ProviderCalls == 0
+	default:
+		return false
+	}
 }
 
 // readErrorCode accepts only the fixed gateway error codes. Server-provided
