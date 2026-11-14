@@ -132,8 +132,11 @@ jobs:
           set -euo pipefail
           [[ "$(uname -m)" == aarch64 ]]
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          git diff --quiet HEAD --
           tree=$(git rev-parse 'HEAD^{tree}')
+          src=$(mktemp -d "$RUNNER_TEMP/keycli-dev-source.XXXXXX")
+          git archive "$SOURCE_SHA" | tar -xf - -C "$src"
+          cd "$src"
+          export GOWORK=off GOTOOLCHAIN=local
           out="$RUNNER_TEMP/keycli-m46-dev"
           mkdir "$out"
           gateway="$out/kc-gateway-linux-arm64"
@@ -148,10 +151,10 @@ jobs:
             --arg source_tree "$tree" --arg workflow_sha "$WORKFLOW_SHA" \
             --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
             --arg rc_artifact_id "$RC_ARTIFACT_ID" --arg rc_build_attempt "$BUILD_RUN_ATTEMPT" \
-            --arg goversion "$(go env GOVERSION)" \
+            --arg goversion "$(go env GOVERSION)" --arg go_sum_sha256 "$(sha256sum go.sum | cut -d ' ' -f1)" \
             '{schema_version: 1, channel: "dev", goos: "linux", goarch: "arm64", $repository,
               $source_sha, $source_tree, $workflow_sha, $run_id, $run_attempt, $rc_artifact_id,
-              $rc_build_attempt, $goversion}' \
+              $rc_build_attempt, $goversion, $go_sum_sha256}' \
             > "$out/provenance.json"
           (cd "$out" && sha256sum kc-gateway-linux-arm64 lock-report.json lock-report-enabled-env.json provenance.json > SHA256SUMS)
       - name: Upload M4.6 development Gateway bundle
