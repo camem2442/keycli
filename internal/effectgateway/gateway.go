@@ -108,6 +108,15 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 			return Receipt{Status: StatusNoEffect}, ErrAdmissionRejected
 		}
 	}
+	intent := journal.Intent{
+		OperationID:  req.MutationID,
+		TargetDigest: req.TargetDigest,
+		PlanDigest:   req.PlanDigest,
+		GrantDigest:  req.GrantDigest,
+	}
+	if req.Action == hostbridge.ActionRevoke && rotation.CheckRevokeEnrollment(g.Journal, intent) != nil {
+		return Receipt{Status: StatusNoEffect}, ErrAdmissionRejected
+	}
 	if err := bound.Preflight(ctx); err != nil {
 		if errors.Is(err, errDuplicateReservation) {
 			return Receipt{MutationID: req.MutationID, Status: StatusDuplicate,
@@ -118,12 +127,6 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 
 	calls := 0
 	noEffectCode := ""
-	intent := journal.Intent{
-		OperationID:  req.MutationID,
-		TargetDigest: req.TargetDigest,
-		PlanDigest:   req.PlanDigest,
-		GrantDigest:  req.GrantDigest,
-	}
 	effect := func(verifyExecution func(context.Context) error, executionCurrent func() bool) (journal.Observation, error) {
 		// The journal is durable and locked. Recheck the writer and the exact
 		// authority binding before allowing any provider call.
@@ -193,12 +196,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 				return journal.Observation{}, err
 			}
 		}
-		if action != nil {
-			if _, finalizing := action.(rotation.FinalizeAction); finalizing {
-				if err := rotation.CheckRollbackFence(g.Journal, req.PlanDigest); err != nil {
-					return outcome(err)
-				}
+		if req.Action == hostbridge.ActionRevoke {
+			if err := rotation.CheckRollbackFence(g.Journal, intent); err != nil {
+				return outcome(err)
 			}
+		}
+		if action != nil {
 			fencePassed := false
 			observation, err := action.Execute(ctx, func(actionCtx context.Context) error {
 				err := checkFence(actionCtx)

@@ -93,14 +93,20 @@ func actionIntent(req Request) journal.Intent {
 
 func TestGatewayFinalizeChecksIdentityAndAuthorityBeforeRevocation(t *testing.T) {
 	for _, tc := range []struct {
-		name                    string
-		drift, denied, restored bool
-		want                    []string
+		name       string
+		drift      bool
+		denied     bool
+		enrollment string
+		want       []string
 	}{
 		{name: "approved", want: []string{"identity", "fence", "revoke"}},
 		{name: "different identity", drift: true, want: []string{"identity"}},
 		{name: "denied at execution", denied: true, want: []string{"identity", "fence"}},
-		{name: "old generation restored", restored: true},
+		{name: "enrolled gateway intent", enrollment: "exact", want: []string{"identity", "fence", "revoke"}},
+		{name: "old generation restored", enrollment: "restored"},
+		{name: "rollback has no revoke enrollment", enrollment: "missing"},
+		{name: "enrollment target mismatch", enrollment: "mismatch"},
+		{name: "mismatched enrollment appears during preflight", enrollment: "preflight"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -133,7 +139,15 @@ func TestGatewayFinalizeChecksIdentityAndAuthorityBeforeRevocation(t *testing.T)
 				ObservedAt: now, ProofDigest: strings.Repeat("d", 64),
 			}
 			var calls []string
-			h.gw.Authority = boundaryAuthority{before: func() {}, verify: func() error {
+			preflights := 0
+			var duringPreflight func()
+			h.gw.Authority = boundaryAuthority{before: func() {
+				preflights++
+				if duringPreflight != nil {
+					duringPreflight()
+					duringPreflight = nil
+				}
+			}, verify: func() error {
 				calls = append(calls, "fence")
 				if tc.denied {
 					return hostbridge.ErrAdmissionRejected
@@ -173,28 +187,59 @@ func TestGatewayFinalizeChecksIdentityAndAuthorityBeforeRevocation(t *testing.T)
 				t.Fatal(err)
 			}
 			h.gw.RotationActions = rotationResolverFunc(func(context.Context, Request) (RotationAction, error) { return action, nil })
-			if tc.restored {
-				stage, rollback := actionIntent(req), actionIntent(req)
+			if tc.enrollment != "" {
+				stage, rollback, revoke := actionIntent(req), actionIntent(req), actionIntent(req)
 				stage.OperationID, rollback.OperationID = "prior-stage", "restore-old"
-				if _, err := rotation.SaveSession(h.gw.Journal, rotation.SessionSnapshot{}, rotation.Session{
-					Version: 1, Plan: plan, OldIdentityDigest: rotation.RevocationIdentityDigest(identity), Stage: stage, Rollback: &rollback,
-				}); err != nil {
-					t.Fatal(err)
+				session := rotation.Session{
+					Version: 1, Plan: plan, OldIdentityDigest: rotation.RevocationIdentityDigest(identity), Stage: stage, Rollback: &rollback, Revoke: &revoke,
 				}
-				if _, err := h.gw.Journal.Dispatch(rollback, func() (journal.Observation, error) {
-					return journal.Observation{State: journal.Acknowledged, ProofDigest: testPlan}, nil
-				}); err != nil {
-					t.Fatal(err)
+				switch tc.enrollment {
+				case "missing":
+					session.Revoke = nil
+				case "mismatch", "preflight":
+					revoke.TargetDigest = action.Intent().TargetDigest
+				}
+				save := func() {
+					if _, err := rotation.SaveSession(h.gw.Journal, rotation.SessionSnapshot{}, session); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tc.enrollment == "preflight" {
+					duringPreflight = save
+				} else {
+					save()
+				}
+				if tc.enrollment == "restored" {
+					if _, err := h.gw.Journal.Dispatch(rollback, func() (journal.Observation, error) {
+						return journal.Observation{State: journal.Acknowledged, ProofDigest: testPlan}, nil
+					}); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			envelope := Sign(req, []byte(testKey))
 			receipt, err := h.gw.Submit(ctx, envelope)
+			if tc.enrollment == "missing" || tc.enrollment == "mismatch" {
+				_, statusErr := h.gw.Journal.Status(req.MutationID)
+				if !errors.Is(err, ErrAdmissionRejected) || !errors.Is(statusErr, journal.ErrNotFound) ||
+					receipt.ProviderCalls != 0 || len(calls) != 0 || preflights != 0 {
+					t.Fatalf("unexpected dispatch: receipt=%+v calls=%v preflights=%d status=%v error=%v", receipt, calls, preflights, statusErr, err)
+				}
+				return
+			}
 			wantStatus, wantProviderCalls := StatusApplied, 1
-			if tc.drift || tc.denied || tc.restored {
+			if tc.drift || tc.denied || tc.enrollment == "restored" || tc.enrollment == "preflight" {
 				wantStatus, wantProviderCalls = StatusNoEffect, 0
 			}
 			if err != nil || receipt.Status != wantStatus || receipt.ProviderCalls != wantProviderCalls || !slices.Equal(calls, tc.want) {
 				t.Fatalf("receipt=%+v calls=%v error=%v", receipt, calls, err)
+			}
+			if tc.enrollment == "preflight" {
+				record, err := h.gw.Journal.Status(req.MutationID)
+				if err != nil || record.Intent != actionIntent(req) || record.State != journal.ObservedNoEffect {
+					t.Fatalf("late enrollment rejection did not settle the actual intent: record=%+v error=%v", record, err)
+				}
+				return
 			}
 			replay, err := h.gw.Submit(ctx, envelope)
 			if err != nil || replay.Status != StatusDuplicate || !slices.Equal(calls, tc.want) || h.provider.calls != 0 {

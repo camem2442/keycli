@@ -70,6 +70,15 @@ Each read grant selects one endpoint and one session. A host-approved
 operation with matching provider evidence. A role change or restart requires a
 new key. Recovery never sends the original mutation again.
 
+Rotation sessions that enroll rollback must also enroll the exact revoke
+journal intent before either operation can proceed. For Gateway revocation
+this means the request's mutation ID, provider target digest, plan digest
+and grant digest. The Gateway checks enrollment before reserving Authority
+and again under the journal writer lock. Under that same lock, rollback
+allows only an absent or confirmed no-effect revoke record and checks for
+older same-plan records that could represent revocation. An unclassified
+same-plan record must prove no effect before rollback can proceed.
+
 ## Guarantees
 
 | Guarantee | How |

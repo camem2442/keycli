@@ -46,7 +46,7 @@ func Rollback(ctx context.Context, store journal.Store, planID string, authorize
 		return journal.Record{}, err
 	}
 	s := snapshot.Session
-	if s.Rollback == nil || s.Rollback.TargetDigest != targetDigest(s.Plan) || s.Activate == nil || s.Activation == nil {
+	if s.Rollback == nil || s.Rollback.TargetDigest != targetDigest(s.Plan) || s.Activate == nil || s.Activation == nil || s.Revoke == nil {
 		return journal.Record{}, ErrActionNotCurrent
 	}
 	grant, err := authorize(ctx, s.Rollback.OperationID, clonePreparationPlan(s.Plan))
@@ -63,6 +63,19 @@ func Rollback(ctx context.Context, store journal.Store, planID string, authorize
 		}
 		activation, err := store.Status(s.Activate.OperationID)
 		if err != nil || activation.Intent != *s.Activate || !effectObserved(activation) || !noEffectOrAbsent(store, s.Revoke) {
+			return journal.Observation{}, ErrActionNotCurrent
+		}
+		// Older dispatches could use an unenrolled operation ID. The journal
+		// does not identify their action, so require every unclassified record
+		// for this plan to prove no effect before restoring the old generation.
+		err = store.CheckPlanRecords(planID, func(record journal.Record) error {
+			if record.State == journal.ObservedNoEffect || record.Intent == s.Stage ||
+				record.Intent == *s.Activate || record.Intent == *s.Rollback {
+				return nil
+			}
+			return ErrActionNotCurrent
+		})
+		if err != nil {
 			return journal.Observation{}, ErrActionNotCurrent
 		}
 		started := time.Now()
@@ -113,17 +126,41 @@ func ConfirmRollback(ctx context.Context, store journal.Store, planID string,
 	return SaveSession(store, snapshot, s)
 }
 
-// CheckRollbackFence is evaluated while the caller owns the journal dispatch
-// lock. An unresolved or applied restoration invalidates the revocation path.
-func CheckRollbackFence(store journal.Store, planID string) error {
-	snapshot, err := LoadSession(store, planID)
-	if errors.Is(err, journal.ErrNotFound) {
-		return nil
-	}
-	if err != nil || !noEffectOrAbsent(store, snapshot.Session.Rollback) {
+// CheckRevokeEnrollment allows an early read-only rejection before reserving
+// authority. The actual journal intent must be checked again under the lock.
+func CheckRevokeEnrollment(store journal.Store, intent journal.Intent) error {
+	_, err := revokeSession(store, intent)
+	return err
+}
+
+// CheckRollbackFence checks enrollment and restoration while the caller owns
+// the journal dispatch lock, using the intent actually persisted by dispatch.
+func CheckRollbackFence(store journal.Store, intent journal.Intent) error {
+	s, err := revokeSession(store, intent)
+	if err != nil || !noEffectOrAbsent(store, s.Rollback) {
 		return ErrActionNotCurrent
 	}
 	return nil
+}
+
+func revokeSession(store journal.Store, intent journal.Intent) (Session, error) {
+	snapshot, err := LoadSession(store, intent.PlanDigest)
+	if errors.Is(err, journal.ErrNotFound) {
+		return Session{}, nil
+	}
+	if err != nil {
+		return Session{}, ErrActionNotCurrent
+	}
+	s := snapshot.Session
+	if s.Revoke != nil {
+		if *s.Revoke != intent {
+			return Session{}, ErrActionNotCurrent
+		}
+	} else if s.Rollback != nil || s.Stage.OperationID == intent.OperationID ||
+		(s.Activate != nil && s.Activate.OperationID == intent.OperationID) {
+		return Session{}, ErrActionNotCurrent
+	}
+	return s, nil
 }
 
 func noEffectOrAbsent(store journal.Store, intent *journal.Intent) bool {

@@ -55,14 +55,18 @@ func Finalize(ctx context.Context, store journal.Store, operationID string, plan
 	if err != nil {
 		return journal.Record{}, err
 	}
+	intent := action.Intent()
+	if err := CheckRevokeEnrollment(store, intent); err != nil {
+		return journal.Record{}, err
+	}
 	ctx, cancel := context.WithDeadline(ctx, action.grant.ExpiresAt)
 	defer cancel()
 	// Preserve the direct caller's early rejection of an unverifiable identity.
 	if _, err := action.readIdentity(ctx); err != nil {
 		return journal.Record{}, errors.New("old credential provider identity not verified")
 	}
-	return dispatchAction(store, action.Intent(), func() (journal.Observation, error) {
-		if err := CheckRollbackFence(store, action.intent.PlanDigest); err != nil {
+	return dispatchAction(store, intent, func() (journal.Observation, error) {
+		if err := CheckRollbackFence(store, intent); err != nil {
 			return journal.Observation{}, err
 		}
 		return action.Execute(ctx, nil)

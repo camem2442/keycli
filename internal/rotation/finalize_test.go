@@ -81,6 +81,38 @@ func TestFinalizeRejectsForgedGrantBeforeEffect(t *testing.T) {
 	}
 }
 
+func TestFinalizeRejectsMismatchedRevokeEnrollmentBeforeDispatch(t *testing.T) {
+	ctx := context.Background()
+	store, plan, now := rotationStore(t), planFixture(t), time.Now()
+	grantDigest := strings.Repeat("e", 64)
+	handle := cloudflareOldHandle()
+	identity := RevocationIdentityDigest(fixtureOldCredential(plan, handle))
+	stage := journal.Intent{OperationID: "stage", TargetDigest: targetDigest(plan), PlanDigest: plan.ID, GrantDigest: grantDigest}
+	revoke := stage
+	revoke.OperationID = "enrolled"
+	if _, err := SaveSession(store, SessionSnapshot{}, Session{
+		Version: 1, Plan: plan, OldIdentityDigest: identity, Stage: stage, Revoke: &revoke,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Finalize(ctx, store, "different-revoke", plan, activationFixture(now), evidenceFixture(now), now,
+		verifyActivationOK, verifyConsumerOK,
+		func(context.Context, string, PreparationPlan, RetirementDecision) (RevocationGrant, error) {
+			return RevocationGrant{PlanDigest: plan.ID, GrantDigest: grantDigest, OldCredentialHandle: handle,
+				OldIdentityDigest: identity, PreapprovedOperation: "different-revoke", MinimumGrace: time.Minute,
+				ExpiresAt: now.Add(time.Minute)}, nil
+		}, func(context.Context, PreparationPlan, string) (VerifiedOldCredential, error) {
+			t.Fatal("mismatched enrollment reached identity verification")
+			return VerifiedOldCredential{}, nil
+		}, func(context.Context, Generation, string) (journal.Observation, error) {
+			t.Fatal("mismatched enrollment reached revocation")
+			return journal.Observation{}, nil
+		})
+	if _, statusErr := store.Status("different-revoke"); !errors.Is(err, ErrActionNotCurrent) || !errors.Is(statusErr, journal.ErrNotFound) {
+		t.Fatalf("mismatched enrollment was dispatched: status=%v error=%v", statusErr, err)
+	}
+}
+
 func TestFinalizeUnknownRevokeMustNotAutoRetry(t *testing.T) {
 	p := planFixture(t)
 	now := time.Now()

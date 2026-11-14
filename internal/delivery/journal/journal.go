@@ -139,6 +139,26 @@ func (s Store) Status(id string) (Record, error) {
 	return unresolved(record), err
 }
 
+// CheckPlanRecords checks the records of one plan, including legacy records
+// without an Authority binding. An effect caller must already hold the writer
+// lock to rely on this check for admission.
+func (s Store) CheckPlanRecords(planID string, check func(Record) error) error {
+	if !ValidDigest(planID) || check == nil {
+		return errors.New("invalid delivery plan record check")
+	}
+	dir, err := s.open(false)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return walkRecords(dir, func(record Record) error {
+		if record.PlanDigest == planID {
+			return check(unresolved(record))
+		}
+		return nil
+	})
+}
+
 // Reconcile invokes a trusted read-only observer under the writer lock.
 // Only operation-bound proof closes the latch. The callback cannot request
 // redispatch, and the journal has no transition back to an unattempted state.
@@ -254,6 +274,15 @@ func admit(dir *os.File, candidate Record) error {
 	if !errors.Is(err, ErrNotFound) {
 		return err
 	}
+	return walkRecords(dir, func(record Record) error {
+		if pending(record.State) && conflictsWithPending(record, candidate) {
+			return ErrTargetPending
+		}
+		return nil
+	})
+}
+
+func walkRecords(dir *os.File, visit func(Record) error) error {
 	for {
 		entries, err := dir.ReadDir(128)
 		for _, entry := range entries {
@@ -263,10 +292,10 @@ func admit(dir *os.File, candidate Record) error {
 			}
 			record, err := readRecord(dir, id)
 			if err != nil {
-				return fmt.Errorf("read delivery target latch: %w", err)
+				return fmt.Errorf("read delivery journal record: %w", err)
 			}
-			if pending(record.State) && conflictsWithPending(record, candidate) {
-				return ErrTargetPending
+			if err := visit(record); err != nil {
+				return err
 			}
 		}
 		if errors.Is(err, io.EOF) {
