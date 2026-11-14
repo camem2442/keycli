@@ -11,18 +11,16 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    # Flip3 self-hosted ARM64 (hosted allowance exhausted). No hosted fallback.
+    # Needs a keycli-registered Flip3 runner carrying these labels; until then the job queues.
+    runs-on: [self-hosted, Linux, ARM64, android]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Ensure ripgrep
-        run: |
-          if ! command -v rg >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ripgrep
-          fi
+      - name: Require preinstalled ripgrep (no in-job install)
+        run: command -v rg >/dev/null
       - name: Verify (Linux)
         env:
           CGO_ENABLED: "0"
