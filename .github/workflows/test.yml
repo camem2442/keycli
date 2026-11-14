@@ -101,6 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.linux.outputs.source_sha }}
+          persist-credentials: false
       - name: Require source and uploaded artifact ID
         env:
           ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
@@ -118,3 +119,44 @@ jobs:
           set -euo pipefail
           bash scripts/release-contract.sh verify-bundle
           bash scripts/release-contract.sh verify-binary arm64
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and verify M4.6 development Gateway
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+          RC_ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == aarch64 ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          git diff --quiet HEAD --
+          tree=$(git rev-parse 'HEAD^{tree}')
+          out="$RUNNER_TEMP/keycli-m46-dev"
+          mkdir "$out"
+          gateway="$out/kc-gateway-linux-arm64"
+          pkg=github.com/camem2442/keycli/internal
+          go build -mod=readonly -trimpath -ldflags "-s -w -X $pkg/version.Version=dev -X $pkg/version.Commit=$SOURCE_SHA -X $pkg/effectgateway.channel=dev" -o "$gateway" ./cmd/kc-gateway
+          [[ "$("$gateway" -version)" == "dev ($SOURCE_SHA)" ]]
+          env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report > "$out/lock-report.json"
+          KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report > "$out/lock-report-enabled-env.json"
+          cmp "$out/lock-report.json" "$out/lock-report-enabled-env.json"
+          jq -e '.schema_version == 1 and .channel == "dev" and .requires_env == true and .unlocked == false and .provider_enabled == false' "$out/lock-report.json" >/dev/null
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "$SOURCE_SHA" \
+            --arg source_tree "$tree" --arg workflow_sha "$WORKFLOW_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg rc_artifact_id "$RC_ARTIFACT_ID" --arg rc_build_attempt "$BUILD_RUN_ATTEMPT" \
+            --arg goversion "$(go env GOVERSION)" \
+            '{schema_version: 1, channel: "dev", goos: "linux", goarch: "arm64", $repository,
+              $source_sha, $source_tree, $workflow_sha, $run_id, $run_attempt, $rc_artifact_id,
+              $rc_build_attempt, $goversion}' \
+            > "$out/provenance.json"
+          (cd "$out" && sha256sum kc-gateway-linux-arm64 lock-report.json lock-report-enabled-env.json provenance.json > SHA256SUMS)
+      - name: Upload M4.6 development Gateway bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: m46-dev-gateway-arm64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/keycli-m46-dev/*
+          if-no-files-found: error
