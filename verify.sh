@@ -57,6 +57,7 @@ run_docs() {
   bash -n "$ROOT/scripts/check-rules.sh"
   bash "$ROOT/scripts/check-rules.sh"
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
+  bash -n "$ROOT/scripts/select-release-binary.sh"
 }
 
 run_policy() {
@@ -69,7 +70,10 @@ run_policy() {
 run_release() {
   bash "$ROOT/scripts/lifecycle.sh" release
   # Exercise the built Linux release binary, not just its Go unit-test source.
-  bash "$ROOT/scripts/verify-mcp-binary.sh" "$ROOT/dist/kc-linux-amd64"
+  # Both release binaries are still built by lifecycle.sh; only the one matching the
+  # host CPU is executed (no x86-64 emulation on ARM64 hosts).
+  bash "$ROOT/scripts/test-select-release-binary.sh"
+  bash "$ROOT/scripts/verify-mcp-binary.sh" "$(bash "$ROOT/scripts/select-release-binary.sh" "$ROOT/dist")"
 }
 
 run_mac_smoke() {
