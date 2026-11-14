@@ -119,15 +119,29 @@ func (r GitHubRotation) retire(ctx context.Context, req effectgateway.Request) (
 		req.TargetDigest != hostbridge.TargetDigest("github", githubDeleteOperation, target) {
 		return nil, effectgateway.ErrAdmissionRejected
 	}
-	return rotation.NewFinalizeAction(ctx, req.MutationID, r.Plan, retirement.Activation, retirement.Consumers, time.Now(),
+	return rotation.NewFinalizeActionWithFence(ctx, req.MutationID, r.Plan, retirement.Activation, retirement.Consumers, time.Now(),
 		retirement.VerifyActivation, retirement.VerifyConsumer, retirement.Authorize, t.Verify,
-		func(ctx context.Context, old rotation.Generation, handle string) (journal.Observation, error) {
-			result, err := retirement.Client.DeleteGitHubGenerationSecret(ctx, func(_ context.Context, provider, operation, canonical string) error {
+		func(ctx context.Context, old rotation.Generation, handle string, fence func(context.Context) error) (journal.Observation, error) {
+			dispatchAdmitted := false
+			result, err := retirement.Client.DeleteGitHubGenerationSecretWithFence(ctx, func(_ context.Context, provider, operation, canonical string) error {
 				if provider != "github" || operation != githubDeleteOperation || canonical != target || handle != t.SecretName {
 					return effectgateway.ErrAdmissionRejected
 				}
 				return nil
-			}, t.Repository, handle, t.RepositoryID, t.OwnerID, old.Number)
-			return journal.Observation{State: journal.Acknowledged, ProofDigest: result.ProofDigest}, err
+			}, t.Repository, handle, t.RepositoryID, t.OwnerID, old.Number, func(ctx context.Context) error {
+				if err := fence(ctx); err != nil {
+					return err
+				}
+				dispatchAdmitted = true
+				return nil
+			})
+			if err != nil {
+				// Finalize preserves any error returned by the fence itself.
+				if !dispatchAdmitted {
+					return journal.Observation{}, rotation.ErrActionNotCurrent
+				}
+				return journal.Observation{}, journal.ErrUnknownEffect
+			}
+			return journal.Observation{State: journal.Acknowledged, ProofDigest: result.ProofDigest}, nil
 		})
 }

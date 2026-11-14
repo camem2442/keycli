@@ -58,14 +58,6 @@ func NewClient(sign Authenticate, transport http.RoundTripper) (Client, error) {
 	return Client{http: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, sign: sign}, nil
 }
 
-func (c Client) call(ctx context.Context, method, origin, path string, body []byte, expected ...int) ([]byte, error) {
-	return c.callHeaders(ctx, method, origin, path, body, nil, expected...)
-}
-
-func (c Client) callHeaders(ctx context.Context, method, origin, path string, body []byte, headers map[string]string, expected ...int) ([]byte, error) {
-	return c.callBeforeSend(ctx, method, origin, path, body, headers, nil, expected...)
-}
-
 func (c Client) callBeforeSend(ctx context.Context, method, origin, path string, body []byte, headers map[string]string, beforeSend func(context.Context) error, expected ...int) ([]byte, error) {
 	if c.http == nil || c.sign == nil || ctx.Err() != nil {
 		return nil, errors.New("provider mutation client unavailable")

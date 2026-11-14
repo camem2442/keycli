@@ -183,13 +183,16 @@ func githubResponse(status int, body string) *http.Response {
 func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name, status string
+		state        journal.State
 		deletes      int
 	}{
-		{"delete exact old name", effectgateway.StatusApplied, 1},
-		{"repository renamed", effectgateway.StatusNoEffect, 0},
-		{"generation metadata changed", effectgateway.StatusNoEffect, 0},
-		{"authority denies", effectgateway.StatusNoEffect, 0},
-		{"delete reply lost", effectgateway.StatusUnknown, 1},
+		{"delete exact old name", effectgateway.StatusApplied, journal.Acknowledged, 1},
+		{"repository renamed", effectgateway.StatusNoEffect, journal.ObservedNoEffect, 0},
+		{"generation metadata changed", effectgateway.StatusNoEffect, journal.ObservedNoEffect, 0},
+		{"signer refuses", effectgateway.StatusNoEffect, journal.ObservedNoEffect, 0},
+		{"authority denies", effectgateway.StatusNoEffect, journal.ObservedNoEffect, 0},
+		{"authority outcome unknown", effectgateway.StatusUnknown, journal.UnknownEffect, 0},
+		{"delete reply lost", effectgateway.StatusUnknown, journal.UnknownEffect, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -201,7 +204,7 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 				t.Fatal(err)
 			}
 			gateway, req, key, plan := githubGateway(t, githubDeleteOperation, hostbridge.ActionRevoke, canonical)
-			reads, fences, deletes := 0, 0, 0
+			reads, signs, fences, deletes := 0, 0, 0, 0
 			const issuerStatus = "https://issuer.invalid/credentials/fixture"
 			present := map[string]bool{"https://api.github.com" + path: true, issuerStatus: true}
 			pin := true
@@ -252,14 +255,29 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 				}
 				return githubResponse(http.StatusNoContent, ""), nil
 			})
-			client, err := providerlifecycle.NewClient(func(*http.Request) error { return nil }, transport)
+			client, err := providerlifecycle.NewClient(func(*http.Request) error {
+				signs++
+				if reads != 2 || fences != 0 || deletes != 0 {
+					t.Fatal("signing must follow identity verification and precede the final fence and DELETE")
+				}
+				if tc.name == "signer refuses" {
+					return errors.New("fixture signer refused")
+				}
+				return nil
+			}, transport)
 			if err != nil {
 				t.Fatal(err)
 			}
 			gateway.Authority = githubAuthority(func() error {
 				fences++
-				if tc.name == "authority denies" {
+				if signs != 1 || deletes != 0 {
+					t.Fatal("the final fence must run between signing and DELETE")
+				}
+				switch tc.name {
+				case "authority denies":
 					return hostbridge.ErrAdmissionRejected
+				case "authority outcome unknown":
+					return hostbridge.ErrGuardedExecutionUnknown
 				}
 				return nil
 			})
@@ -289,6 +307,16 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 				present["https://api.github.com"+path] != (tc.deletes == 0) {
 				t.Fatalf("receipt=%+v deletes=%d secret present=%t error=%v", result, deletes, present["https://api.github.com"+path], err)
 			}
+			record, err := gateway.Journal.Status(req.MutationID)
+			if err != nil || record.State != tc.state || result.OperationState != string(tc.state) {
+				t.Fatalf("unexpected journal outcome: receipt=%s record=%s error=%v", result.OperationState, record.State, err)
+			}
+			if tc.name == "signer refuses" && (signs != 1 || fences != 0) {
+				t.Fatalf("signer failure must prevent the final fence: signs=%d fences=%d", signs, fences)
+			}
+			if tc.name == "authority denies" && (fences != 1 || result.Note != "EXECUTION_FENCE_REJECTED") {
+				t.Fatalf("late authority denial must retain the fence outcome: receipt=%+v fences=%d", result, fences)
+			}
 			status, err := http.NewRequestWithContext(ctx, http.MethodGet, issuerStatus, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -301,8 +329,10 @@ func TestGitHubRetirementDeletesOnlyExactRepositoryGeneration(t *testing.T) {
 			if issuerReply.StatusCode != http.StatusOK {
 				t.Fatal("repository secret deletion affected the issuer credential")
 			}
+			previousSigns, previousFences := signs, fences
 			replay, err := gateway.Submit(ctx, envelope)
-			if err != nil || replay.Status != effectgateway.StatusDuplicate || deletes != tc.deletes {
+			if err != nil || replay.Status != effectgateway.StatusDuplicate || replay.ProviderCalls != 0 ||
+				deletes != tc.deletes || signs != previousSigns || fences != previousFences {
 				t.Fatalf("replay=%+v deletes=%d error=%v", replay, deletes, err)
 			}
 		})

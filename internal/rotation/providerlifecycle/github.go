@@ -16,16 +16,36 @@ import (
 // GitHub has no compare-and-delete; the host must fence all writers across
 // machines for this repository+secret. The caller must not retry an unknown effect.
 func (c Client) DeleteGitHubGenerationSecret(ctx context.Context, gate HostAuthorize, repo, name string, repoID, ownerID int64, generation uint64) (Receipt, error) {
+	return c.deleteGitHubGenerationSecret(ctx, gate, repo, name, repoID, ownerID, generation, nil)
+}
+
+// DeleteGitHubGenerationSecretWithFence lets Finalize check its execution
+// authority after signing and immediately before dispatching the DELETE.
+func (c Client) DeleteGitHubGenerationSecretWithFence(ctx context.Context, gate HostAuthorize, repo, name string, repoID, ownerID int64, generation uint64, beforeSend func(context.Context) error) (Receipt, error) {
+	if beforeSend == nil {
+		return Receipt{}, errors.New("GitHub final revocation fence required")
+	}
+	return c.deleteGitHubGenerationSecret(ctx, gate, repo, name, repoID, ownerID, generation, beforeSend)
+}
+
+func (c Client) deleteGitHubGenerationSecret(ctx context.Context, gate HostAuthorize, repo, name string, repoID, ownerID int64, generation uint64, beforeSend func(context.Context) error) (Receipt, error) {
 	target, err := GitHubGenerationTarget(repo, name, repoID, ownerID, generation)
 	if err != nil {
 		return Receipt{}, err
 	}
-	if err := authorize(ctx, gate, "github", "delete-exact-repository-secret", target); err != nil {
+	checkTarget := func(ctx context.Context) error {
+		return authorize(ctx, gate, "github", "delete-exact-repository-secret", target)
+	}
+	if err := checkTarget(ctx); err != nil {
 		return Receipt{}, err
+	}
+	if beforeSend == nil {
+		beforeSend = checkTarget
 	}
 	// IDs were bound by provideridentity.GitHubRepositorySecret immediately
 	// before calling this function; never infer them from repo spelling.
-	_, err = c.callHeaders(ctx, http.MethodDelete, "https://api.github.com", "/repos/"+repo+"/actions/secrets/"+name, nil, map[string]string{"X-GitHub-Api-Version": "2026-03-10", "Accept": "application/vnd.github+json"}, http.StatusNoContent)
+	headers := map[string]string{"X-GitHub-Api-Version": "2026-03-10", "Accept": "application/vnd.github+json"}
+	_, err = c.callBeforeSend(ctx, http.MethodDelete, "https://api.github.com", "/repos/"+repo+"/actions/secrets/"+name, nil, headers, beforeSend, http.StatusNoContent)
 	if err != nil {
 		return Receipt{}, err
 	}
