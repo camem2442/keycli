@@ -128,7 +128,11 @@ and read-only recovery. Startup rejects an unsupported provider operation or
 a product entry that differs from its Authority registration. Issuer and
 reader tokens are loaded from separate private files. The service-owned
 private store holds the issued value and its provider ID under the original
-mutation ID. The client receives the session key file only.
+mutation ID. After the Gateway validates the issuance response, the local
+store receives its own five-second context deadline, independent of the
+client request. Provider authorization and HTTP still use the request context.
+An unconfirmed store result leaves the issuance uncertain. The client
+receives the session key file only.
 
 The host supervisor creates the configuration from trusted registration data.
 Use a regular, single-link file with mode `0600` owned by the gateway's

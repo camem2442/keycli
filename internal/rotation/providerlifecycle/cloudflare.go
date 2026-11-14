@@ -17,6 +17,8 @@ type CloudflarePolicy struct {
 	} `json:"permission_groups"`
 }
 
+const cloudflareIssueStoreTimeout = 5 * time.Second
+
 // SecretSink stores the issued value and its token ID under an operation ID.
 // Lookup reports only the token ID from a committed store record.
 type SecretSink interface {
@@ -93,7 +95,11 @@ func (c Client) createCloudflareAccountToken(ctx context.Context, gate HostAutho
 			value[i] = 0
 		}
 	}()
-	if err := store(ctx, response.Result.ID, value); err != nil {
+	// The provider has already issued the token. Give local custody its own
+	// deadline so a caller disconnect cannot discard the validated response.
+	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cloudflareIssueStoreTimeout)
+	defer cancel()
+	if err := store(storeCtx, response.Result.ID, value); err != nil {
 		return Receipt{}, errors.New("Cloudflare issued token but storage outcome unknown")
 	}
 	return receipt("cloudflare", "create-account-token", account, response.Result.ID), nil

@@ -4,12 +4,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+type cancelOnClose struct {
+	io.Reader
+	cancel context.CancelFunc
+}
+
+func (b cancelOnClose) Close() error {
+	b.cancel()
+	return nil
+}
+
+func TestCloudflareIssueKeepsValidatedResponseAfterCallerCancellation(t *testing.T) {
+	account, group, token := strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)
+	for _, tc := range []struct {
+		name         string
+		responseName string
+		wantStored   bool
+	}{
+		{name: "valid acknowledgement", responseName: "kc-rot-fixture", wantStored: true},
+		{name: "wrong token name", responseName: "kc-rot-other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			requestDeadline, _ := ctx.Deadline()
+			sends, stores := 0, 0
+			client := clientFixture(t, func(req *http.Request) (*http.Response, error) {
+				sends++
+				if deadline, ok := req.Context().Deadline(); !ok || !deadline.Equal(requestDeadline) || req.Context().Err() != nil {
+					t.Fatal("provider request lost the caller's deadline")
+				}
+				body := fmt.Sprintf(`{"success":true,"result":{"id":%q,"name":%q,"value":"synthetic"}}`, token, tc.responseName)
+				res := response(http.StatusCreated, "")
+				res.Body = cancelOnClose{Reader: strings.NewReader(body), cancel: cancel}
+				return res, nil
+			})
+			got, err := client.CreateCloudflareAccountToken(ctx, authorized, account, "kc-rot-fixture", group, time.Now().Add(time.Hour),
+				func(storeCtx context.Context, value []byte) error {
+					stores++
+					if ctx.Err() == nil || storeCtx.Err() != nil {
+						t.Fatal("storage was canceled with its caller")
+					}
+					deadline, ok := storeCtx.Deadline()
+					if !ok || time.Until(deadline) > 5*time.Second || string(value) != "synthetic" {
+						t.Fatal("storage did not receive the issued value with an independent deadline")
+					}
+					return nil
+				})
+			if sends != 1 {
+				t.Fatalf("unexpected provider calls: %d", sends)
+			}
+			if tc.wantStored {
+				if err != nil || stores != 1 || got.CredentialID != token {
+					t.Fatalf("issued token was not stored: calls=%d err=%v", stores, err)
+				}
+			} else if err == nil || stores != 0 || got != (Receipt{}) {
+				t.Fatal("an invalid acknowledgement reached storage")
+			}
+		})
+	}
+}
 
 type tokenStoreFixture struct {
 	operations map[string]string
