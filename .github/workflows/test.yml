@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   linux:
+    # Same-repository events only: fork PR code never reaches the resident Flip3 runner.
+    # A skipped job is NOT a pass.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Flip3 self-hosted ARM64 (hosted allowance exhausted). No hosted fallback.
     # Needs a keycli-registered Flip3 runner carrying these labels; until then the job queues.
     runs-on: [self-hosted, Linux, ARM64, android]
