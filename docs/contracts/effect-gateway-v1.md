@@ -227,6 +227,18 @@ dispatch. An exact resubmission that finds the prior reservation returns
 `DUPLICATE` without spending budget again. The reservation remains subject
 to Authority recovery and settlement.
 
+If the original reservation has no journal record, a signed `/reconcile`
+with a separately enrolled grant can ask Authority to finish that exact
+reservation. Authority checks the original admission decision, SQLite
+reservation and journal while holding the shared writer lock. It must
+establish that the reservation is still `RUNNING` and execution has never
+been claimed. It then publishes a terminal `OBSERVED_NO_EFFECT` record
+before settling the reservation as `FAILED`. A late dispatch encounters
+the terminal record and returns `DUPLICATE`. No provider is contacted.
+`/status` continues to read only the journal. Existing pending records,
+claimed reservations and Authority takeover recovery follow their own
+recovery rules.
+
 The guarded client sends one EOF-framed JSON object and one `SCM_RIGHTS`
 descriptor, borrowed from the already-held Go dispatch lock. The object has
 `v: 2` on Linux or `v: 3` on macOS, `method: "verify_guarded_execution"`, a fresh 32-character lowercase

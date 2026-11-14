@@ -142,6 +142,9 @@ func (g *Gateway) Read(ctx context.Context, env ReadEnvelope) (Receipt, error) {
 		return Receipt{}, err
 	}
 	record, err := g.Journal.Status(env.Request.MutationID)
+	if errors.Is(err, journal.ErrNotFound) && env.Request.Action == ReadReconcile {
+		return g.reconcileReservation(ctx, env)
+	}
 	if errors.Is(err, journal.ErrNotFound) || (err == nil && record.Binding == nil) {
 		return Receipt{}, ErrReadNotFound
 	}
@@ -175,11 +178,71 @@ func (g *Gateway) Read(ctx context.Context, env ReadEnvelope) (Receipt, error) {
 		if err != nil && !errors.Is(err, journal.ErrUnknownEffect) {
 			return Receipt{}, ErrJournalUnavailable
 		}
-		if _, err := g.authorizeRead(ctx, env, binding); err != nil {
+		grant, err := g.authorizeRead(ctx, env, binding)
+		if err != nil {
 			return Receipt{}, err
+		}
+		if record.State == journal.ObservedNoEffect {
+			receipt := readReceipt(record)
+			receipt.AuthoritySettlement = g.finishReconciledReservation(ctx, grant)
+			if _, err := g.authorizeRead(ctx, env, binding); err != nil {
+				return Receipt{}, err
+			}
+			return receipt, nil
 		}
 	}
 	return readReceipt(record), nil
+}
+
+// Use only the host's protected read grant to recover a missing original
+// binding. Authority independently verifies the reservation and journal.
+func (g *Gateway) reconcileReservation(ctx context.Context, env ReadEnvelope) (Receipt, error) {
+	registry, ok := g.ReadAuthority.(readGrantRegistry)
+	if !ok {
+		return Receipt{}, ErrReadNotFound
+	}
+	registered, ok := registry.registeredRead(env.Request)
+	if !ok {
+		return Receipt{}, ErrReadNotFound
+	}
+	binding := registered.Binding
+	grant, err := g.authorizeRead(ctx, env, binding)
+	if err != nil {
+		return Receipt{}, err
+	}
+	settlement := g.finishReconciledReservation(ctx, grant)
+	if settlement == "" {
+		return Receipt{}, ErrReadNotFound
+	}
+	record, err := g.Journal.Status(binding.MutationID)
+	if errors.Is(err, journal.ErrNotFound) || (err == nil && (record.Binding == nil || *record.Binding != binding)) {
+		return Receipt{}, ErrReadNotFound
+	}
+	if err != nil {
+		return Receipt{}, ErrJournalUnavailable
+	}
+	if _, err := g.authorizeRead(ctx, env, binding); err != nil {
+		return Receipt{}, err
+	}
+	receipt := readReceipt(record)
+	if record.State == journal.ObservedNoEffect {
+		receipt.AuthoritySettlement = settlement
+	}
+	return receipt, nil
+}
+
+func (g *Gateway) finishReconciledReservation(ctx context.Context, grant RecoveryGrant) string {
+	local, ok := g.Authority.(LocalAuthority)
+	if !ok || local.Admitter == nil || local.Execution == nil {
+		return ""
+	}
+	finishCtx, cancel := context.WithTimeout(ctx, grant.ExpiresAt.Sub(g.now()))
+	defer cancel()
+	result, err := local.Admitter.Finish(finishCtx, grant.Binding)
+	if err != nil || result.State != SettlementFailed {
+		return SettlementUnconfirmed
+	}
+	return SettlementFailed
 }
 
 func readReceipt(record journal.Record) Receipt {

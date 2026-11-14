@@ -19,12 +19,17 @@ type readGrantKey struct {
 type readGrantRegistry map[readGrantKey]RecoveryGrant
 
 func (r readGrantRegistry) AuthorizeRead(ctx context.Context, req ReadRequest, binding authoritybinding.Binding) (RecoveryGrant, error) {
-	key := readGrantKey{req.GoalID, req.MutationID, req.Owner, req.Session, req.Action, req.Generation}
-	grant, ok := r[key]
+	grant, ok := r.registeredRead(req)
 	if !ok || ctx.Err() != nil || grant.Binding != binding {
 		return RecoveryGrant{}, ErrAdmissionRejected
 	}
 	return grant, nil
+}
+
+func (r readGrantRegistry) registeredRead(req ReadRequest) (RecoveryGrant, bool) {
+	key := readGrantKey{req.GoalID, req.MutationID, req.Owner, req.Session, req.Action, req.Generation}
+	grant, ok := r[key]
+	return grant, ok
 }
 
 // LoadReadAuthority loads separately registered, owner-private grants for exact
