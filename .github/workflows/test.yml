@@ -4,13 +4,22 @@ on:
   push:
     branches: ["main"]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Only one pending revision per PR/branch; never interrupt an executing test.
+# Draft PR events have no runner job. Ready promotes the actual owning Go test.
+concurrency:
+  group: keycli-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   linux:
+    # A Draft PR is not an accepted test candidate; do not enqueue a hosted job.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
