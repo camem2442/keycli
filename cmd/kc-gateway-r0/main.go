@@ -108,7 +108,8 @@ func main() {
 		log.Fatal("claim path is not owned by the declared Goal STATE root")
 	}
 	for _, name := range []string{*keyFile, *ledgerFile, *journalRoot} {
-		if _, err := os.Lstat(name); err == nil {
+		_, err := os.Lstat(name)
+		if err == nil {
 			log.Fatal("new synthetic output already exists")
 		}
 		if !errors.Is(err, os.ErrNotExist) {

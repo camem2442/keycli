@@ -1,5 +1,17 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-15 — PR #69 소스 통합·R0 시작 회귀 수정
+
+사용자는 #69 소스 병합과 두 저장소 main 조합의 합성 연동 확인을 승인했다.
+Ready 후 Bugbot이 찾은 `cmd/kc-gateway-r0/main.go`의 `Lstat` 오류 변수 가림을
+수정했다. 정상 신규 출력도 항상 거부되던 문제이며, 다섯 경로의 subprocess
+시작 검사를 추가했다. 원본 `c2ffd8a3` + 새 테스트의 Linux ARM64 실행에서
+정상 경로 실패를 재현했다. 수정본·정확 HEAD CI·병합 후 결과는
+[PR #69](https://github.com/camem2442/keycli/pull/69)와 호스트 증거
+`_management/evidence/keycli-pr69-main-integration-20261115/`가 소유한다.
+테스트 대기·미실행은 성공이 아니다. 이 수정은 운영 인수나 릴리스가 아니며
+실 Keychain/provider·설치 pin·M4.6 활성화·기존 PR/branch 삭제는 범위 밖이다.
+
 ## 2026-11-10 — v0.9/v0.10 소스 랜딩 후보 (MERGE_HOLD)
 
 Draft PR #47~#63(검증 전용 #54/#57/#61 제외)의 고유 변경분만으로 후보 Tree
