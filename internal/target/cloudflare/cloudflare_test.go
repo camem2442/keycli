@@ -26,7 +26,10 @@ func fakeWrangler(t *testing.T, body string) (script, argvLog, stdinLog string) 
 }
 
 func TestPushStdinNotArgv(t *testing.T) {
-	script, argvLog, stdinLog := fakeWrangler(t, "")
+	for _, name := range []string{"KC_KEY", "KC_AGENT", "KC_EFFECT_KEY", "KC_PROVIDER_EFFECTS", "CLOUDFLARE_API_TOKEN"} {
+		t.Setenv(name, "fixture")
+	}
+	script, argvLog, stdinLog := fakeWrangler(t, `test -z "${KC_KEY+x}${KC_AGENT+x}${KC_EFFECT_KEY+x}${KC_PROVIDER_EFFECTS+x}" && test "$CLOUDFLARE_API_TOKEN" = fixture || exit 91`)
 	err := cloudflare.Push(context.Background(), cloudflare.Options{
 		WranglerBin: script, Worker: "my-worker", Env: "staging", Config: "wrangler.toml",
 	}, config.Config{}, []target.Secret{{Name: "MY_TOKEN", Value: []byte("super-secret")}})

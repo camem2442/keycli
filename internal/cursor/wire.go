@@ -124,6 +124,10 @@ func ReadCursorBaseURL(dbPath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// observeCursor is the process-observation seam. Tests replace it so the guard
+// can be exercised deterministically on a machine where Cursor is running.
+var observeCursor = IsCursorRunning
+
 // IsCursorRunning detects if Cursor desktop is currently executing.
 func IsCursorRunning() (bool, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -158,7 +162,7 @@ func QuitCursor(ctx context.Context) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	running, pid, err := IsCursorRunning()
+	running, pid, err := observeCursor()
 	if err != nil {
 		return err
 	}
@@ -172,7 +176,7 @@ func QuitCursor(ctx context.Context) error {
 	}
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
-		if r, _, err := IsCursorRunning(); err != nil {
+		if r, _, err := observeCursor(); err != nil {
 			return err
 		} else if !r {
 			return nil
@@ -185,7 +189,7 @@ func QuitCursor(ctx context.Context) error {
 	}
 
 	// 2. If still alive, send SIGTERM to allow graceful flush
-	if r, p, err := IsCursorRunning(); err != nil {
+	if r, p, err := observeCursor(); err != nil {
 		return err
 	} else if r && p > 0 {
 		if err := syscall.Kill(p, syscall.SIGTERM); err != nil {
@@ -193,7 +197,7 @@ func QuitCursor(ctx context.Context) error {
 		}
 		deadline = time.Now().Add(4 * time.Second)
 		for time.Now().Before(deadline) {
-			if r, _, err := IsCursorRunning(); err != nil {
+			if r, _, err := observeCursor(); err != nil {
 				return err
 			} else if !r {
 				return nil
@@ -206,7 +210,7 @@ func QuitCursor(ctx context.Context) error {
 		}
 	}
 
-	if r, _, err := IsCursorRunning(); err != nil {
+	if r, _, err := observeCursor(); err != nil {
 		return err
 	} else if r {
 		return fmt.Errorf("timed out waiting for Cursor to quit (PID %d still alive)", pid)
@@ -254,7 +258,7 @@ func WireCursorVertex(home, overrideDB, overrideBaseURL string, dryRun, restart 
 	if err != nil {
 		return WireResult{}, err
 	}
-	isRunning, runningPID, err := IsCursorRunning()
+	isRunning, runningPID, err := observeCursor()
 	if err != nil {
 		return WireResult{}, err
 	}

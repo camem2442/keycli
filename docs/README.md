@@ -15,6 +15,7 @@
 | v0.8.0 릴리스 증거·Cursor 파일럿 | [planning/v080-release-evidence.md](planning/v080-release-evidence.md) |
 | Mac TUI·Cursor 검증 매트릭스 | [planning/v08-mac-tui-cursor-acceptance.md](planning/v08-mac-tui-cursor-acceptance.md) |
 | 코딩 에이전트 설정 | [guides/agents.md](guides/agents.md) |
+| v0.9/v0.10 소스 랜딩 증거 | [reviews/2026-11-10-v010-source-landing/README.md](reviews/2026-11-10-v010-source-landing/README.md) |
 | 선행 구현 조사 | [reviews/2026-10-24-prior-art.md](reviews/2026-10-24-prior-art.md) |
 
 읽기 순서: README → cli → architecture → backends → transfer → security-model.

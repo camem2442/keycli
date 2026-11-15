@@ -1,0 +1,67 @@
+---
+status: partial
+owner: keycli-delivery
+date: 2026-11-13
+---
+
+# HA × KeyCLI R0 — signed intent binding
+
+Source-only integration stacked on KeyCLI #66. It does NOT enable real
+provider operations, install a binary, or change the released v0.8.0 CLI.
+
+## Authority and identity
+
+The signed gateway Request binds goal, mutation, provider, **concrete operation**,
+action class, target digest, plan and grant digests, Writer generation, owner,
+session and expiry. Its exact operation name cannot be changed after HMAC signing.
+
+The trusted-host GatewayBinding must independently obtain immutable raw provider
+resource identity (not a caller-supplied digest), original Plan/Grant values,
+current repository HEAD and live Writer mutation lease. It verifies that the
+HostBridge's own Goal, operation ID, generation and source are identical.
+A mandatory CheckCurrent callback must re-read original authority and mutation
+lease before dispatch and again just before a provider call. An inert callback
+or a forged host proof is outside this source-only guarantee; operation
+qualification requires a genuinely trusted host.
+
+The HostBridge keeps the existing fixed operation/action table and original
+Admitter; this package does not create new authority, ClaimStore, scheduler,
+credential store, or provider. A missing callback or mismatch refuses the effect.
+
+The operational Gateway requires both the build and runtime provider locks
+to permit effects. The R0 Gateway uses a synthetic provider. This is an application-layer
+gate; an adversarial same-UID actor who can construct a Go provider interface
+is not isolated by this flag. Real provider adapters, OS isolation, and
+credential host admission remain out of scope.
+
+Use `kc-effectclient -mode synthetic -provider-operation record-local-test`
+for an R0 submission. The Python S3 client uses `--operation`. Both sign the
+concrete operation when present. Operational submissions keep their existing
+envelope format and reject a concrete operation field;
+this does not change the released KeyCLI v0.8 CLI contract.
+
+## Tests and next receipts
+
+Go source command:
+    go test -count=1 ./internal/hostbridge ./internal/effectgateway ./internal/delivery/journal
+
+The hostbridge R0 test instantiates the real Gateway, real Bridge, normal
+journal and a local synthetic provider. It checks one effect, duplicate
+suppression, operation/action/target/plan/grant/owner/session/generation/HEAD
+mismatch, required independent host callback, effect-boundary stale lease,
+tampered HMAC and rejection of operational configuration. This is not proof of an independent
+production Grant verifier or cross-host identity until run and inspected
+under an owner-admitted Linux/Flip3 host.
+
+States remain separate: SOURCE_TEST_PASS, HOST_OBSERVED,
+PRODUCT_VERIFIED, OPERATING_ACCEPTED. No status promotion by document.
+
+## Exact-head review repair (2026-11-13)
+
+A PR reviewer observed that admission may be slow enough for the signed
+ExpiresAt to pass between the initial Request.validate and Provider.Apply.
+Gateway now revalidates the same signed request immediately before the
+provider effect, after its second trusted host admission. The synthetic
+clock-advance test holds the Claim lease valid to prove this expiry is
+independently enforced. A refused attempt settles journal NO_EFFECT and
+never retries the provider.

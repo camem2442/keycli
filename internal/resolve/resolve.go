@@ -60,21 +60,7 @@ func (r *Resolver) CurrentAgent() string {
 
 // CanonicalName returns the primary name for any alias (case-insensitive).
 func (r *Resolver) CanonicalName(name string) string {
-	n := strings.ToLower(strings.TrimSpace(name))
-	if n == "" {
-		return name
-	}
-	for canon, aliases := range r.cfg.Alias {
-		if strings.ToLower(canon) == n {
-			return canon
-		}
-		for _, a := range aliases {
-			if strings.ToLower(a) == n {
-				return canon
-			}
-		}
-	}
-	return name
+	return r.cfg.CanonicalName(name)
 }
 
 // EnvNames returns environment variable names to set for a canonical secret name.
