@@ -27,6 +27,12 @@ class NoQueueContractTests(unittest.TestCase):
         self.assertIn('runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]',
                       self.text)
 
+    def test_public_repositories_never_allocate_selfhosted_job(self):
+        # Owner-only manual mode is also disabled in this PUBLIC repository.
+        # Actual native source execution is owned by PRIVATE Infra #529.
+        self.assertIn('      false\n', self.text)
+        self.assertIn('github.event_name == \'workflow_dispatch\'', self.text)
+
     def test_owner_manual_branch_scope(self):
         for required in ("github.repository == 'camem2442/keycli'",
                          "github.ref == 'refs/heads/main'",
