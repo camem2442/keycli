@@ -46,7 +46,18 @@ export RELEASE_VERSION="$KC_VERSION" SOURCE_SHA="$source_sha" RELEASE_CHANNEL=rc
 export TAG_OBJECT="$source_sha" WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA"
 export RUNNER_MODE=isolated-vm CGO_ENABLED=0 GOTOOLCHAIN=local GOWORK=off
 export GOPROXY=off GOFLAGS=-mod=readonly
-bash verify.sh --suite all
+# The original all suite executes a Linux-amd64 release binary. Running it
+# on native ARM64 would require emulation and is NOT native ARM64 acceptance.
+if [[ "$arch" == amd64 ]]; then
+  bash verify.sh --suite all
+else
+  bash verify.sh --suite docs
+  bash verify.sh --suite policy
+  bash verify.sh --suite unit
+  GOOS=darwin GOARCH=arm64 go vet ./...
+  GOOS=darwin GOARCH=amd64 go vet ./...
+  bash scripts/lifecycle.sh release
+fi
 bash scripts/release-contract.sh provenance > dist/provenance.json
 (cd dist && sha256sum provenance.json >> SHA256SUMS)
 export MANIFEST_SHA="$(sha256sum dist/SHA256SUMS | cut -d ' ' -f1)"
