@@ -29,6 +29,7 @@ concurrency:
 
 jobs:
   isolated-source:
+    # Public KeyCLI self-hosted execution is disabled; Infra #529 is the private owner.
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'camem2442/keycli' &&
@@ -36,7 +37,7 @@ jobs:
       github.actor == 'camem2442' &&
       github.triggering_actor == 'camem2442' &&
       inputs.admitted_isolated_vm == true &&
-      false # Public-repo runner permanently disabled; private owner is Infra #529.
+      false
     runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     timeout-minutes: 20
     steps:
