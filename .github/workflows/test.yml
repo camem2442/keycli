@@ -1,165 +1,108 @@
-name: test
+name: KeyCLI no-queue verification
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Owner reviewed same-repository PR number"
+        required: true
+        type: string
+      reviewed_head:
+        description: "Reviewed exact PR HEAD SHA"
+        required: true
+        type: string
+      admitted_isolated_vm:
+        description: "Independent ephemeral VM and runner admission"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+concurrency:
+  group: keycli-pr-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      manifest_sha: ${{ steps.bundle.outputs.manifest_sha }}
-      source_sha: ${{ steps.identity.outputs.source_sha }}
-      run_attempt: ${{ steps.bundle.outputs.run_attempt }}
+  isolated-source:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'camem2442/keycli' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'camem2442' &&
+      github.triggering_actor == 'camem2442' &&
+      inputs.admitted_isolated_vm == true
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Ensure ripgrep
-        run: |
-          if ! command -v rg >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ripgrep
-          fi
-      - name: Verify release contract
-        env:
-          CGO_ENABLED: "0"
-        run: python3 scripts/verify-release-contract.py
-      - name: Set synthetic release identity
-        id: identity
-        run: |
-          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          {
-            echo "RELEASE_VERSION=v0.10.0-rc.999"
-            echo "SOURCE_SHA=$(git rev-parse HEAD)"
-            echo "RELEASE_CHANNEL=rc"
-            echo "TAG_OBJECT=$(git rev-parse HEAD)"
-            echo "WORKFLOW_SHA=$GITHUB_WORKFLOW_SHA"
-          } >> "$GITHUB_ENV"
-      - name: Verify (Linux)
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          KC_VERSION="$RELEASE_VERSION" KC_COMMIT="$SOURCE_SHA" KC_BUILD_CHANNEL="$RELEASE_CHANNEL" \
-            ./verify.sh --suite all
-      - name: Prepare synthetic release bundle
-        id: bundle
+      - name: Check dedicated VM environment before public source checkout
+        shell: bash
         run: |
           set -euo pipefail
-          bash scripts/release-contract.sh provenance > dist/provenance.json
-          (cd dist && sha256sum provenance.json >> SHA256SUMS)
-          echo "manifest_sha=$(sha256sum dist/SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-      - name: Upload synthetic release bundle
-        id: upload
-        uses: actions/upload-artifact@v4
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = ARM64
+          test "$(uname -m)" = aarch64
+          test "$(id -u)" -ne 0
+          case "$RUNNER_NAME" in keycli-ephemeral-vm-*) ;; *) exit 2;; esac
+          for cmd in git python3 bash go gofmt rg; do command -v "$cmd" >/dev/null; done
+          test -d /opt/keycli-go-modcache
+          test ! -w /opt/keycli-go-modcache
+      - name: Checkout reviewed SHA (no persistent GitHub token)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
-          name: synthetic-release-${{ github.run_attempt }}
-          path: dist/*
-          if-no-files-found: error
-      - name: Require uploaded artifact ID
-        env:
-          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-        run: '[[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]'
-      - name: Download synthetic release bundle
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ steps.upload.outputs.artifact-id }}
-          path: /tmp/keycli-release-contract/downloaded
-          merge-multiple: true
-      - name: Verify downloaded synthetic release bundle
-        env:
-          MANIFEST_SHA: ${{ steps.bundle.outputs.manifest_sha }}
-        run: |
-          set -euo pipefail
-          mv dist /tmp/keycli-release-contract/original
-          mv /tmp/keycli-release-contract/downloaded dist
-          bash scripts/release-contract.sh verify-bundle
-          bash scripts/release-contract.sh verify-binary amd64
-
-  linux-arm64-release:
-    needs: linux
-    runs-on: ubuntu-24.04-arm
-    env:
-      RELEASE_VERSION: v0.10.0-rc.999
-      SOURCE_SHA: ${{ needs.linux.outputs.source_sha }}
-      TAG_OBJECT: ${{ needs.linux.outputs.source_sha }}
-      RELEASE_CHANNEL: rc
-      WORKFLOW_SHA: ${{ github.workflow_sha }}
-      MANIFEST_SHA: ${{ needs.linux.outputs.manifest_sha }}
-      BUILD_RUN_ATTEMPT: ${{ needs.linux.outputs.run_attempt }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.linux.outputs.source_sha }}
+          ref: ${{ inputs.reviewed_head }}
+          path: source
           persist-credentials: false
-      - name: Require source and uploaded artifact ID
+          clean: false
+          fetch-depth: 1
+      - name: Verify PR original before and after scoped Go test
+        shell: bash
         env:
-          ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
-        run: |
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-      - name: Download synthetic release bundle
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.linux.outputs.artifact_id }}
-          path: dist
-          merge-multiple: true
-      - name: Verify downloaded arm64 release binaries
+          PR: ${{ inputs.pr_number }}
+          HEAD: ${{ inputs.reviewed_head }}
         run: |
           set -euo pipefail
-          bash scripts/release-contract.sh verify-bundle
-          bash scripts/release-contract.sh verify-binary arm64
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build and verify M4.6 development Gateway
-        env:
-          CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: arm64
-          RC_ARTIFACT_ID: ${{ needs.linux.outputs.artifact_id }}
-        run: |
-          set -euo pipefail
-          [[ "$(uname -m)" == aarch64 ]]
-          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          tree=$(git rev-parse 'HEAD^{tree}')
-          src=$(mktemp -d "$RUNNER_TEMP/keycli-dev-source.XXXXXX")
-          git archive "$SOURCE_SHA" | tar -xf - -C "$src"
-          cd "$src"
-          export GOWORK=off GOTOOLCHAIN=local
-          out="$RUNNER_TEMP/keycli-m46-dev"
-          mkdir "$out"
-          gateway="$out/kc-gateway-linux-arm64"
-          pkg=github.com/camem2442/keycli/internal
-          go build -mod=readonly -trimpath -ldflags "-s -w -X $pkg/version.Version=dev -X $pkg/version.Commit=$SOURCE_SHA -X $pkg/effectgateway.channel=dev" -o "$gateway" ./cmd/kc-gateway
-          [[ "$("$gateway" -version)" == "dev ($SOURCE_SHA)" ]]
-          env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report > "$out/lock-report.json"
-          KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report > "$out/lock-report-enabled-env.json"
-          cmp "$out/lock-report.json" "$out/lock-report-enabled-env.json"
-          jq -e '.schema_version == 1 and .channel == "dev" and .requires_env == true and .unlocked == false and .provider_enabled == false' "$out/lock-report.json" >/dev/null
-          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "$SOURCE_SHA" \
-            --arg source_tree "$tree" --arg workflow_sha "$WORKFLOW_SHA" \
-            --arg run_id "$GITHUB_RUN_ID" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg rc_artifact_id "$RC_ARTIFACT_ID" --arg rc_build_attempt "$BUILD_RUN_ATTEMPT" \
-            --arg goversion "$(go env GOVERSION)" --arg go_sum_sha256 "$(sha256sum go.sum | cut -d ' ' -f1)" \
-            '{schema_version: 1, channel: "dev", goos: "linux", goarch: "arm64", $repository,
-              $source_sha, $source_tree, $workflow_sha, $run_id, $run_attempt, $rc_artifact_id,
-              $rc_build_attempt, $goversion, $go_sum_sha256}' \
-            > "$out/provenance.json"
-          (cd "$out" && sha256sum kc-gateway-linux-arm64 lock-report.json lock-report-enabled-env.json provenance.json > SHA256SUMS)
-      - name: Upload M4.6 development Gateway bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: m46-dev-gateway-arm64-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/keycli-m46-dev/*
-          if-no-files-found: error
+          python3 -I -B - <<'PY'
+          import json, os, re, subprocess
+          from urllib.request import Request, urlopen
+          n, sha = os.environ['PR'], os.environ['HEAD']
+          if not re.fullmatch(r'[1-9][0-9]{0,5}', n) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('HOLD: invalid source identity')
+          def check():
+              req = Request('https://api.github.com/repos/camem2442/keycli/pulls/'+n,
+                            headers={'User-Agent':'keycli-owner-g2'})
+              with urlopen(req, timeout=15) as r:
+                  raw = r.read(1024*1024+1)
+              if len(raw)>1024*1024:
+                  raise SystemExit('HOLD: oversized metadata')
+              p=json.loads(raw)
+              if (p.get('number')!=int(n) or p.get('state')!='open'
+                  or p.get('draft') is not False
+                  or p.get('user',{}).get('login')!='camem2442'
+                  or p.get('head',{}).get('sha')!=sha
+                  or p.get('head',{}).get('repo',{}).get('full_name')!='camem2442/keycli'
+                  or p.get('base',{}).get('ref')!='main'):
+                  raise SystemExit('HOLD: PR review identity changed')
+          check()
+          if subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip()!=sha:
+              raise SystemExit('HOLD: checkout mismatch')
+          if subprocess.check_output(['git','-C','source','status','--porcelain'],text=True).strip():
+              raise SystemExit('HOLD: dirty source')
+          env = {k:v for k,v in os.environ.items()
+                 if k in ('PATH','HOME','LANG','LC_ALL','TMPDIR','GOROOT','GOPATH','GOCACHE')}
+          env.update({'CGO_ENABLED':'0','GOWORK':'off','GOTOOLCHAIN':'local',
+                      'GOPROXY':'off','GOFLAGS':'-mod=readonly',
+                      'GOMODCACHE':'/opt/keycli-go-modcache'})
+          for suite in ('docs','policy','unit'):
+              code=subprocess.run(['bash','verify.sh','--suite',suite],
+                                  cwd='source',env=env,check=False).returncode
+              if code: raise SystemExit(code)
+          check()
+          if subprocess.check_output(['git','-C','source','status','--porcelain'],text=True).strip():
+              raise SystemExit('HOLD: source drift')
+          print('SCOPED_SOURCE_PASS; no release, Mac Keychain or provider qualification')
+          PY
