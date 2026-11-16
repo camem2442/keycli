@@ -57,6 +57,13 @@ scope: source and PR reconciliation; no operating grant
 
 #64/#65/#66/#68 원본 PR은 closed/unmerged이지만 그 변경 계열이 #69 통합을 거쳐 main에 들어왔다. 이는 개별 PR이 병합됐다는 뜻이 아니다. 정확 중복만 HEAD 재조회·근거 댓글 후 close; 그 밖에 코드 차이가 있는 오래된 PR은 새 main에서 독립 재구성·검증하기 전까지 Draft 또는 HOLD.
 
+### 같은 날 변경된 PR 상태 (감사 이후 전환)
+
+- [#52](https://github.com/camem2442/keycli/pull/52)는 소유한 2개 파일의 main blob 동일성을 원본으로 재확인한 뒤 설명 댓글을 남기고 **CLOSED / NOT MERGED**. 기존 branch와 역사 기록 유지.
+- [#40](https://github.com/camem2442/keycli/pull/40)은 오래된 HANDOFF diff 및 최신 HEAD 적격 검증 부재를 기록한 뒤 **DRAFT / HOLD**로 전환. 과거 Linux Job 성공은 현재 main에 대한 완료 근거가 아니다.
+- [#72](https://github.com/camem2442/keycli/pull/72)는 이 로드맵의 문서 전용 신규 **DRAFT** PR이다. 위 13행은 #72 생성 **이전**의 감사 대상이며, #52 이력 보존을 위해 표에서 삭제하지 않는다.
+- 상태 전환 후 GitHub 재조회: 열린 PR **13건** (Draft **13건**, 일반 **0건**). 이후 변동은 이 기록을 자동으로 갱신하지 않으며 새 감사가 필요하다.
+
 ## Q2 — KeyCLI vs workspace-infra 구현 차이와 미완료 게이트
 
 | 경계 | KeyCLI 현행 기능 | Infra 소유 | 미검증 조건 |
