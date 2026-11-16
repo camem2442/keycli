@@ -35,6 +35,14 @@ class G4ContractTests(unittest.TestCase):
             self.assertIn(token, self.source)
         self.assertNotIn('gh release create', self.source)
 
+    def test_arm64_never_executes_amd64_release_smoke(self):
+        for token in ('if [[ "$arch" == amd64 ]]; then',
+                      'bash verify.sh --suite all', 'bash verify.sh --suite docs',
+                      'bash verify.sh --suite policy', 'bash verify.sh --suite unit',
+                      'bash scripts/lifecycle.sh release',
+                      'GOOS=darwin GOARCH=arm64 go vet ./...'):
+            self.assertIn(token, self.source)
+
     def test_host_provenance_and_offline_module_lock(self):
         for token in ('GITHUB_WORKFLOW_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT',
                       'GOTOOLCHAIN=local', 'GOPROXY=off', 'GOFLAGS=-mod=readonly'):
