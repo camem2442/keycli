@@ -23,3 +23,10 @@ The docs owning suite now invokes six Python stdlib source-contract tests for th
 manual-only event, isolated runner, exact PR identity, GitHub concurrency,
 checkout credentials and offline no-duplicate suite. **These tests have not
 been executed on the changed PR HEAD**; their source presence is not PASS.
+
+
+## G4 release source candidate #74 (2026-11-17)
+
+[KeyCLI PR #74](https://github.com/camem2442/keycli/pull/74) implements a **separate**, offline native Linux ARM64/AMD64 release-contract acceptance script using existing `verify.sh --suite all`, checksums, native binary smoke and a temporary development installation. Its seven source tests have run locally on exact Git blobs. It does **not** register an ephemeral runner, publish a release, validate both architectures in original hosts or replace the still-hosted `release.yml`.
+
+Consequently, **#73 remains DRAFT/HOLD**. Before merging its removal of the old automatic release Jobs, the owner must separately accept the real arm64 + native x64 host receipts, protected no-paid workflow topology, and exact current reviewed source. Source tests for #73 6/6 and #74 7/7 do not satisfy these operating gates. Never switch the public KeyCLI repository onto the persistent Flip3 runner or treat a user-set admission checkbox as host proof.
