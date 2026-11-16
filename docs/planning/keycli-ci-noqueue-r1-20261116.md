@@ -16,3 +16,10 @@ The manual owner-only input requires a reviewed PR number and exact SHA, indepen
 **DRAFT/HOLD:** The KeyCLI-scoped ephemeral VM is NOT VERIFIED or registered. This proposal also removes the previous automatic dual-architecture Linux release jobs; that release verification must be replaced by independently validated free-host G4 before Ready/merge. No source Go or actual VM run was executed here, and no Mac native, Keychain or real provider success is claimed. Workflow YAML and policy must be independently tested on the exact HEAD, with original suite receipts and effective branch checks. Automatic paid fallback remains forbidden.
 
 Ownership stays split: KeyCLI product source gate; workspace-infra host/Goal/CI admission and original receipts; standard-vm ephemeral VM lifecycle and teardown.
+
+## Static regression gate (candidate)
+
+The docs owning suite now invokes six Python stdlib source-contract tests for the
+manual-only event, isolated runner, exact PR identity, GitHub concurrency,
+checkout credentials and offline no-duplicate suite. **These tests have not
+been executed on the changed PR HEAD**; their source presence is not PASS.
