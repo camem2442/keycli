@@ -35,7 +35,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'camem2442' &&
       github.triggering_actor == 'camem2442' &&
-      inputs.admitted_isolated_vm == true
+      inputs.admitted_isolated_vm == true &&
+      false # Public-repo runner permanently disabled; private owner is Infra #529.
     runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     timeout-minutes: 20
     steps:
