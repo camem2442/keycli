@@ -59,6 +59,7 @@ run_docs() {
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
   bash "$ROOT/scripts/tests/test-device-debt.sh"
   python3 -B "$ROOT/scripts/tests/test-ci-noqueue-source.py"
+  python3 -B "$ROOT/scripts/tests/test-g4-free-release-contract.py"
 }
 
 run_policy() {
