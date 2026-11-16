@@ -1,5 +1,9 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-16 — 현재 계획 정본·PR 감사
+
+현재 main `2897465f`는 #69로 v0.10 **소스만** 통합, [post-merge CI](https://github.com/camem2442/keycli/actions/runs/43695782808) 두 Job 성공. 정식 릴리스·Mac 설치 pin은 v0.8.0 유지. 열린 PR 13개와 main 531경로의 blob을 비교해 중복·역사적 검증·독립 변경을 분리했다. 현재 구현 격차와 G1~G6 의존성은 [2026-11-16 정본](docs/planning/keycli-current-roadmap-2026-11-16.md) 참조. 아래 2026-11-15 이하 원본 기록은 변경 없이 보존한다. 운영 효과/설치/CI dispatch 없음.
+
 ## 2026-11-15 — PR #69 소스 통합·R0 시작 회귀 수정
 
 사용자는 #69 소스 병합과 두 저장소 main 조합의 합성 연동 확인을 승인했다.
