@@ -1,11 +1,7 @@
 name: release
 
+# G4 SOURCE HOLD: no tag-triggered builds; isolated ephemeral producer not admitted.
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-dev.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
@@ -44,11 +40,15 @@ concurrency:
 env:
   REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
   WORKFLOW_SHA: ${{ github.workflow_sha }}
-  RUNNER_MODE: ${{ inputs.use_utm_runner && 'utm-ci' || 'hosted' }}
+  RUNNER_MODE: utm-ci
 
 jobs:
   classify:
-    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
+    # This source-only G4 candidate has no live public-repo builder.
+    # G4 must verify exact reviewed source, isolated one-shot VM, and
+    # original release admission before enabling even a manual dispatch.
+    if: false
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     outputs:
       version: ${{ steps.classify.outputs.version }}
       source_sha: ${{ steps.classify.outputs.source_sha }}
@@ -77,7 +77,7 @@ jobs:
 
   guard:
     needs: classify
-    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     steps:
       - name: Hold stable publication pending independent acceptance
         env:
@@ -92,7 +92,7 @@ jobs:
 
   verify:
     needs: [classify, guard]
-    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     defaults:
       run:
         working-directory: source
@@ -136,7 +136,7 @@ jobs:
 
   build:
     needs: [classify, verify]
-    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || 'ubuntu-latest' }}
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     defaults:
       run:
         working-directory: source
@@ -194,10 +194,10 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: keycli-ephemeral-vm
           - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ inputs.use_utm_runner && github.event_name == 'workflow_dispatch' && inputs.candidate_channel == 'operational' && github.event.repository.visibility == 'private' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && fromJSON('["self-hosted","Linux","ARM64","keycli-pr02"]') || matrix.runner }}
+            runner: keycli-ephemeral-vm
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     defaults:
       run:
         working-directory: source
@@ -243,7 +243,7 @@ jobs:
   publish:
     needs: [classify, verify, build, gate]
     if: ${{ (needs.classify.outputs.channel == 'dev' || needs.classify.outputs.channel == 'rc') && (github.event_name == 'push' || inputs.dry_run == false) }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     environment: release
     permissions:
       contents: write
