@@ -26,7 +26,9 @@ MARKER = ".kc-dev-pilot.json"
 PIN = "selected.json"
 LOCK = ".selection.lock"
 MAX_BINARY = 32 * 1024 * 1024
+MAX_SUMS = 64 * 1024
 MAX_JSON = 16 * 1024
+ASSET_NAMES = frozenset(("kc-darwin-arm64", "kc-darwin-amd64", "kc-linux-arm64", "kc-linux-amd64"))
 SCHEMA = "keycli.disposable-byte-cas.v1"
 
 
@@ -45,6 +47,33 @@ def _sha(raw):
 
 def _json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _check_sums(raw, *, asset_name, artifact_sha256):
+    """Bind a real KeyCLI release asset name to exact SHA256SUMS bytes.
+
+    A matching local pair is NOT a signed producer or a native execution grant.
+    """
+    _require(asset_name in ASSET_NAMES and isinstance(artifact_sha256, str)
+             and SHA64.fullmatch(artifact_sha256), "invalid target asset")
+    _require(0 < len(raw) <= MAX_SUMS and raw.endswith(b"\n")
+             and b"\r" not in raw and b"\x00" not in raw, "invalid sums envelope")
+    try:
+        lines = raw.decode("ascii", "strict").splitlines()
+    except UnicodeError as error:
+        raise Hold("invalid sums encoding") from error
+    names = set()
+    for line in lines:
+        _require(len(line) >= 67 and SHA64.fullmatch(line[:64])
+                 and line[64:66] in ("  ", " *")
+                 and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", line[66:]),
+                 "invalid checksum row")
+        name = line[66:]
+        _require(name not in names, "duplicate checksum asset")
+        names.add(name)
+        if name == asset_name:
+            _require(line[:64] == artifact_sha256, "checksum asset digest mismatch")
+    _require(asset_name in names, "missing target asset in sums")
 
 
 def _read_dir(fd, name, *, limit=MAX_JSON, optional=False, mode=None):
@@ -147,8 +176,15 @@ def _locked(root, *, exclusive=True):
 
 
 def _asset(fd, digest):
-    raw = _read_dir(fd, "asset-" + digest, limit=MAX_BINARY, mode=0o500)
+    raw = _read_dir(fd, "asset-" + digest, limit=MAX_BINARY, mode=0o400)
     _require(_sha(raw) == digest, "staged bytes drift")
+    return raw
+
+
+def _manifest(fd, digest, *, asset_name, artifact_sha256):
+    raw = _read_dir(fd, "manifest-" + digest, limit=MAX_SUMS, mode=0o400)
+    _require(_sha(raw) == digest, "staged manifest drift")
+    _check_sums(raw, asset_name=asset_name, artifact_sha256=artifact_sha256)
     return raw
 
 
@@ -165,8 +201,13 @@ def _selection(fd, root_id, raw):
              and isinstance(record.get("tag"), str)
              and DEV.fullmatch(record["tag"])
              and isinstance(record.get("artifact_sha256"), str)
-             and SHA64.fullmatch(record["artifact_sha256"]), "invalid selection")
+             and SHA64.fullmatch(record["artifact_sha256"])
+             and record.get("asset_name") in ASSET_NAMES
+             and isinstance(record.get("sums_sha256"), str)
+             and SHA64.fullmatch(record["sums_sha256"]), "invalid selection")
     _asset(fd, record["artifact_sha256"])
+    _manifest(fd, record["sums_sha256"], asset_name=record["asset_name"],
+              artifact_sha256=record["artifact_sha256"])
     return record
 
 
@@ -216,24 +257,41 @@ def init(*, base=None):
 
 
 def stage(root, source, *, expected_sha256, tag, source_head,
-          allow_disposable=False):
+          sums_path, asset_name, expected_sums_sha256, allow_disposable=False):
     """Copy verified local bytes into a private content address, never execute."""
     _require(allow_disposable is True, "explicit disposable stage required")
     _require(isinstance(expected_sha256, str) and SHA64.fullmatch(expected_sha256)
              and isinstance(tag, str) and DEV.fullmatch(tag)
              and isinstance(source_head, str) and SHA40.fullmatch(source_head),
              "invalid reviewed identity shape")
+    _require(isinstance(asset_name, str) and asset_name in ASSET_NAMES
+             and Path(source).name == asset_name
+             and Path(sums_path).name == "SHA256SUMS"
+             and isinstance(expected_sums_sha256, str)
+             and SHA64.fullmatch(expected_sums_sha256), "invalid checksum source binding")
     data = _source(source)
+    sums = _source(sums_path)
     _require(_sha(data) == expected_sha256, "source binary SHA mismatch")
+    _require(_sha(sums) == expected_sums_sha256, "source manifest SHA mismatch")
+    _check_sums(sums, asset_name=asset_name, artifact_sha256=expected_sha256)
     with _locked(root) as (fd, _root_id):
         meta = {"schema": SCHEMA, "tag": tag, "source_head": source_head,
-                "artifact_sha256": expected_sha256}
+                "artifact_sha256": expected_sha256, "asset_name": asset_name,
+                "sums_sha256": expected_sums_sha256}
         leaf = "asset-" + expected_sha256
-        existing = _read_dir(fd, leaf, limit=MAX_BINARY, optional=True, mode=0o500)
+        existing = _read_dir(fd, leaf, limit=MAX_BINARY, optional=True, mode=0o400)
         if existing is None:
-            _fresh(fd, leaf, data, mode=0o500)
+            _fresh(fd, leaf, data, mode=0o400)
         else:
             _require(existing == data, "content address conflicts")
+        manifest_leaf = "manifest-" + expected_sums_sha256
+        old_manifest = _read_dir(fd, manifest_leaf, limit=MAX_SUMS, optional=True, mode=0o400)
+        if old_manifest is None:
+            _fresh(fd, manifest_leaf, sums, mode=0o400)
+        else:
+            _require(old_manifest == sums, "manifest content address conflicts")
+        _manifest(fd, expected_sums_sha256, asset_name=asset_name,
+                  artifact_sha256=expected_sha256)
         name = "stage-" + expected_sha256 + ".json"
         previous = _read_dir(fd, name, optional=True)
         if previous is None:
@@ -258,9 +316,19 @@ def select(root, *, artifact_sha256, tag, source_head,
              "invalid CAS input identity")
     with _locked(root) as (fd, root_id):
         binding = json.loads(_read_dir(fd, "stage-"+artifact_sha256+".json"))
-        _require(binding == {"schema": SCHEMA, "tag": tag, "source_head": source_head,
-                             "artifact_sha256": artifact_sha256}, "unrecognized staged identity")
+        _require(isinstance(binding, dict) and set(binding) == {
+                     "schema", "tag", "source_head", "artifact_sha256",
+                     "asset_name", "sums_sha256"} and
+                 binding.get("schema") == SCHEMA and binding.get("tag") == tag and
+                 binding.get("source_head") == source_head and
+                 binding.get("artifact_sha256") == artifact_sha256 and
+                 binding.get("asset_name") in ASSET_NAMES and
+                 isinstance(binding.get("sums_sha256"), str) and
+                 SHA64.fullmatch(binding["sums_sha256"]),
+                 "unrecognized staged identity")
         _asset(fd, artifact_sha256)
+        _manifest(fd, binding["sums_sha256"], asset_name=binding["asset_name"],
+                  artifact_sha256=artifact_sha256)
         old = _read_dir(fd, PIN, optional=True)
         _selection(fd, root_id, old)
         _require((_sha(old) if old is not None else None)
@@ -268,7 +336,9 @@ def select(root, *, artifact_sha256, tag, source_head,
         tx = secrets.token_hex(32)
         new_pin = _json({"schema":SCHEMA,"root_id":root_id,"transaction":tx,
                          "source_head":source_head,"tag":tag,
-                         "artifact_sha256":artifact_sha256})
+                         "artifact_sha256":artifact_sha256,
+                         "asset_name":binding["asset_name"],
+                         "sums_sha256":binding["sums_sha256"]})
         receipt = _json({"schema":SCHEMA,"root_id":root_id,"transaction":tx,
                          "old_pin_sha256":expected_previous_pin_sha256,
                          "old_pin_b64":base64.b64encode(old).decode() if old is not None else None,
