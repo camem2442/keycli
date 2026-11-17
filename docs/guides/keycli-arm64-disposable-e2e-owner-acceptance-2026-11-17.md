@@ -56,7 +56,10 @@ is **not** an eligible `dev_cas_pilot.DEV` pin and cannot be relabeled into
 a trustable `v0.10.0-dev.N` candidate by changing metadata.
 
 The existing [KeyCLI product-owned builder](../../scripts/lifecycle.sh)
-already creates `kc-linux-arm64`, `kc-gateway-linux-arm64` and the
+already provides the precise version/channel linker flags. For an inexpensive
+ARM64-only sandbox pilot, reuse **its two native Go build commands** rather
+than running the full four-platform release matrix; the full release build
+remains a separate G4 producer gate. The full product release script creates `kc-linux-arm64`, `kc-gateway-linux-arm64` and the
 complete `SHA256SUMS`. On an **independently admitted credential-free
 aarch64 guest** with exact two reviewed source trees and pre-provisioned
 read-only Go module cache, the host may run the following once in **each**
@@ -73,14 +76,19 @@ test "$(git rev-parse HEAD)" = "$REVIEWED_SOURCE_SHA"
 # The owner supplies the actual approved DEV_TAG for this exact source.
 case "$DEV_TAG" in *-dev.*|*-rc.*) ;; *) exit 2;; esac
 export GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off CGO_ENABLED=0
-export KC_BUILD_CHANNEL=dev
+export KC_BUILD_CHANNEL="${DEV_TAG##*-}"
+case "$DEV_TAG" in *-dev.*) KC_BUILD_CHANNEL=dev ;; *-rc.*) KC_BUILD_CHANNEL=rc ;; esac
 export KC_VERSION="$DEV_TAG"
 export KC_COMMIT="$REVIEWED_SOURCE_SHA"
-bash scripts/lifecycle.sh release
-test -f dist/kc-linux-arm64
-test -f dist/kc-gateway-linux-arm64
-test -f dist/SHA256SUMS
-(cd dist && sha256sum --check --strict SHA256SUMS)
+# Execute only the ARM64 build commands already owned by lifecycle.sh.
+# Do not build the unrelated Darwin/AMD64 release matrix for this pilot.
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/kc-arm64-assets.XXXXXXXX")"
+chmod 700 "$OUT"
+LDFLAGS="-s -w -X github.com/camem2442/keycli/internal/version.Version=$KC_VERSION -X github.com/camem2442/keycli/internal/version.Commit=$KC_COMMIT"
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/kc-linux-arm64" ./cmd/kc
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS -X github.com/camem2442/keycli/internal/effectgateway.channel=$KC_BUILD_CHANNEL" -o "$OUT/kc-gateway-linux-arm64" ./cmd/kc-gateway
+(cd "$OUT" && sha256sum kc-linux-arm64 kc-gateway-linux-arm64 > SHA256SUMS && sha256sum --check --strict SHA256SUMS)
+# Move only this private asset pair + source-bound provenance to owner custody.
 ```
 
 Each old/new build must use **independent immutable source/manifest
