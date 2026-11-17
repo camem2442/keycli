@@ -154,7 +154,7 @@ python3 -I -B scripts/dev_cas_native_e2e.py \
   --allow-native-disposable-exec
 ```
 
-Nine authored negative/source regression methods in
+Fourteen authored negative/source regression methods in
 [scripts/tests/test-dev-cas-native-e2e.py](../../scripts/tests/test-dev-cas-native-e2e.py)
 are wired into the existing `verify.sh --suite docs`. They are **NOT**
 an actually executed original native host receipt. Real E0–E6 requires
