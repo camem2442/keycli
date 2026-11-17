@@ -60,6 +60,29 @@ def owner_file(path, expected_sha, *, name):
     return data
 
 
+def check_original_checkout(observed_head, dirty, expected_head):
+    """Never execute a dev binary from a different/mutated source tree."""
+    require(type(observed_head) is str and observed_head == expected_head,
+            "CHECKOUT_NEW_SOURCE_DRIFT")
+    require(type(dirty) is str and dirty == "", "CHECKOUT_WORKTREE_DIRTY")
+
+
+def observe_checkout():
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+           "HOME": tempfile.gettempdir(),
+           "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_CONFIG_GLOBAL": "/dev/null",
+           "GIT_LFS_SKIP_SMUDGE": "1"}
+    def git(*cmd):
+        done = subprocess.run(["git", "-C", str(ROOT), *cmd],
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              env=env, text=True, timeout=15, check=False)
+        require(done.returncode == 0 and len(done.stdout) < 8192,
+                "SOURCE_GIT_INSPECTION_UNAVAILABLE")
+        return done.stdout.strip()
+    return git("rev-parse", "HEAD"), git("status", "--porcelain=v1")
+
+
 def preflight(args):
     require(args.allow_native_disposable_exec is True, "EXPLICIT_NATIVE_OPT_IN_REQUIRED")
     require(platform.system() == "Linux" and platform.machine() == "aarch64"
@@ -89,6 +112,9 @@ def preflight(args):
                 and directory.lstat().st_uid == os.geteuid()
                 and not directory.lstat().st_mode & 0o077,
                 "ASSET_DIRECTORY_NOT_PRIVATE")
+
+    current_head, dirty = observe_checkout()
+    check_original_checkout(current_head, dirty, args.new_head)
 
 
 def load_cas():
