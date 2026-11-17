@@ -29,6 +29,10 @@ func writeRotationInputFixture(t *testing.T, data string, mode os.FileMode) stri
 	if err := os.WriteFile(path, []byte(data), mode); err != nil {
 		t.Fatal(err)
 	}
+	// Permission tests must exercise the requested mode independently of umask.
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
 

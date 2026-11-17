@@ -103,6 +103,10 @@ func TestReadPrivateDeliveryInputRejectsPublicAndSpecialFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte("schema_version = 1"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// Enforce the unsafe fixture mode even under a restrictive host umask.
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := readPrivateDeliveryInput(path, "delivery configuration"); err == nil {
 		t.Fatal("delivery config readable by other users accepted")
 	}
