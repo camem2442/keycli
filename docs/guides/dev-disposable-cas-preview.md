@@ -39,3 +39,9 @@ Only after an independently verified source/manifest/native host, a *human-owned
 ### CI cost fence
 
 Current KeyCLI `main` retains `test.yml` with GitHub-hosted Linux jobs on every pull_request, and `release.yml` retains hosted paths. This source is staged on a dedicated feature branch **without opening a new public PR** to avoid inadvertently billing forbidden hosted minutes. Review/PR can be created when KeyCLI G2 noqueue change is integrated and reverified. Branch source and authored tests are NOT an original host PASS, and no release/VM or live kc install has occurred.
+
+## Draft PR paid-runner guard
+
+The source may be opened as a Draft public PR with a latest HEAD commit containing the GitHub-standard `[skip ci]` token. GitHub documents that push/pull_request workflows at this HEAD are not triggered, and any required checks can remain Pending. That is NOT a source PASS and cannot justify Ready/merge.
+
+The skip token is a temporary **cost gate**, not a replacement for G2's independent free native runner, original Go/release tests or real user installation proof. Do not remove it while public main's automatic test.yml allocates hosted ubuntu runners. Any later synchronize or Ready transition must re-evaluate the latest HEAD and its paid-runner impact. Source, host, Keychain, provider and actual installed kc operating effects remain HOLD.
