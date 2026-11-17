@@ -107,6 +107,62 @@ This product build is **not** a Release upload, publishing authority or
 service install. It must run under existing standard-vm #16/#527 owner
 admission, not automatically from a public PR or a persistent rooted phone.
 
+## One-shot product native CAS orchestrator (source candidate)
+
+This PR now includes an opt-in product runner
+[scripts/dev_cas_native_e2e.py](../../scripts/dev_cas_native_e2e.py).
+It **reuses** the canonical `dev_cas_pilot.py` and original
+`verify-dev-release.sh --require-all-checks`, never a second scheduler.
+An admitted one-use private Linux/aarch64 host must supply
+`RUNNER_NAME=keycli-ephemeral-vm-arm64-*`, `RUNNER_OS=Linux`,
+`RUNNER_ARCH=ARM64`, `GITHUB_RUN_ATTEMPT=1`, nonroot and no runner,
+provider or cloud credentials in the environment. An explicit
+`--allow-native-disposable-exec` is mandatory. Stable tags, identical
+old/new source or SHA, unsafe owner-private inputs, malformed hashes,
+and unrelated runner identity all HOLD **before executing a binary**.
+
+**The command-line SHA/head strings are not signatures.** The original
+private Goal/host owner must independently attest signed producer/source,
+real host/guest isolation, absence of runner credential paths, and
+the one-use guest/overlay teardown. This source cannot grant any of those.
+
+After host/producer admission, generate two distinct real Linux ARM64
+dev/rc candidate pairs, each with `kc-linux-arm64` and `SHA256SUMS`;
+the new pair must include `kc-gateway-linux-arm64`. Copy the exact
+hash-pinned inputs to distinct new `0700` dirs, with input files `0600`.
+Independent old/new source/asset/manifest SHA identities are required;
+merely renaming one stable build to a dev label is not acceptable.
+
+The product runner copies genuine old executable bytes into a private
+temporary HOME, runs old version/MCP, runs the real strict native verifier
+on new bytes, stages both immutable CAS assets, selects new only inside
+the private CAS, restores the exact prior pin, refuses receipt replay,
+and repeats old version/MCP and SHA checks. Source-only output remains
+`LOCAL_DEV_NATIVE_CAS_RESTORED_NOT_ATTESTED`; all operating, merge,
+install, host and producer authorization flags are false.
+
+Owner-only example in the admitted private one-use Linux ARM64 guest:
+
+```sh
+python3 -I -B scripts/dev_cas_native_e2e.py \
+  --old-dir "$OLD_DIR" --new-dir "$NEW_DIR" \
+  --old-head "$OLD_SOURCE_SHA" --new-head "$NEW_SOURCE_SHA" \
+  --old-tag "$OLD_TAG" --new-tag "$NEW_TAG" \
+  --old-sha "$OLD_ASSET_SHA" --new-sha "$NEW_ASSET_SHA" \
+  --old-sums-sha "$OLD_SUMS_SHA" --new-sums-sha "$NEW_SUMS_SHA" \
+  --new-gateway-sha "$NEW_GATEWAY_SHA" \
+  --allow-native-disposable-exec
+```
+
+Nine authored negative/source regression methods in
+[scripts/tests/test-dev-cas-native-e2e.py](../../scripts/tests/test-dev-cas-native-e2e.py)
+are wired into the existing `verify.sh --suite docs`. They are **NOT**
+an actually executed original native host receipt. Real E0–E6 requires
+the signed host/producer identity, raw native logs, old/new exact source
+and SHA, teardown, and a postrun live owner `kc` unchanged check.
+No actual private VM, Runner, old/new binary execution or Release
+publication was performed by this source commit.
+
 ## Host entry / bounded preconditions
 
 Only an *already admitted* one-shot, credential-free Ubuntu/Linux aarch64 host using [standard-vm #16](https://github.com/camem2442/standard-vm/pull/16) owner/Golden and a **fresh writable overlay** is eligible. Owner supplies original exact reviewed source HEAD/TREE, runner/request/run/attempt, offline toolchain and verified producer signature/manifest. Do not use a public-repo resident runner, rooted Flip3/PRoot or `qemu-aarch64` as independent native ARM64.
