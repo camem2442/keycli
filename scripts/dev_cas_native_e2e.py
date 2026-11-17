@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import socket
 import shutil
 import stat
 import subprocess
@@ -83,6 +84,65 @@ def observe_checkout():
     return git("rev-parse", "HEAD"), git("status", "--porcelain=v1")
 
 
+def check_sealed_runtime(probe):
+    """Mandatory direct kernel proof before executing any untrusted kc bytes.
+
+    This is deliberately stricter than an ephemeral runner name: the private
+    G2/G4 host must launch this inside its pre-probed rootless Podman sandbox.
+    A source-supplied or self-reported identity alone never suffices.
+    """
+    require(type(probe) is dict, "SEALED_RUNTIME_UNOBSERVED")
+    require(probe.get("uid") == 1001 and probe.get("gid") == 1001
+            and probe.get("root_uid") == 0
+            and probe.get("no_new_privileges") is True,
+            "SEALED_RUNTIME_IDENTITY_MISSING")
+    require(probe.get("capabilities_zero") is True
+            and probe.get("credential_paths_absent") is True
+            and probe.get("interfaces") == ["lo"],
+            "SEALED_RUNTIME_SECRET_OR_NETWORK_EXPOSURE")
+    mounts = probe.get("mounts")
+    require(type(mounts) is dict and "ro" in mounts.get("/", [])
+            and "rw" in mounts.get("/work", [])
+            and "ro" in mounts.get("/opt/keycli-go-modcache", []),
+            "SEALED_RUNTIME_MOUNT_BOUNDARY_MISSING")
+    mappings = probe.get("uid_maps")
+    require(type(mappings) is list and len(mappings) >= 2
+            and all(type(r) is list and len(r) == 3
+                    and all(type(v) is int and v >= 0 for v in r)
+                    for r in mappings),
+            "SEALED_RUNTIME_USER_NAMESPACE_UNPROVED")
+
+
+def observe_sealed_runtime():
+    """Read current kernel facts, never trust caller-supplied JSON or env."""
+    lines = Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+    fields = dict(line.split(":", 1) for line in lines if ":" in line)
+    caps = ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"]
+    require(all(k in fields for k in caps + ["NoNewPrivs"]),
+            "SEALED_RUNTIME_PROC_STATUS_INCOMPLETE")
+    mounts = {}
+    for line in Path("/proc/self/mountinfo").read_text(encoding="ascii").splitlines():
+        columns = line.split()
+        if len(columns) > 5:
+            mounts[columns[4]] = columns[5].split(",")
+    uid_map = []
+    for line in Path("/proc/self/uid_map").read_text(encoding="ascii").splitlines():
+        fields3 = [int(z) for z in line.split()]
+        uid_map.append(fields3)
+    absent = all(not os.path.lexists(p) for p in (
+        "/home/runner", "/run/secrets", "/run/host",
+        "/run/podman/podman.sock", "/var/run/docker.sock"))
+    return {
+        "uid": os.getuid(), "gid": os.getgid(),
+        "root_uid": Path("/").stat().st_uid,
+        "no_new_privileges": fields["NoNewPrivs"].strip() == "1",
+        "capabilities_zero": all(int(fields[k].strip(), 16) == 0 for k in caps),
+        "credential_paths_absent": absent,
+        "interfaces": sorted(name for _, name in socket.if_nameindex()),
+        "mounts": mounts, "uid_maps": uid_map,
+    }
+
+
 def preflight(args):
     require(args.allow_native_disposable_exec is True, "EXPLICIT_NATIVE_OPT_IN_REQUIRED")
     require(platform.system() == "Linux" and platform.machine() == "aarch64"
@@ -95,6 +155,7 @@ def preflight(args):
             "ONE_SHOT_PRIVATE_RUNNER_REQUIRED")
     require(not any(os.environ.get(key) for key in CREDENTIALS),
             "CREDENTIAL_ENVIRONMENT_PRESENT")
+    check_sealed_runtime(observe_sealed_runtime())
     for value in (args.old_head, args.new_head):
         require(SHA40.fullmatch(value) is not None, "SOURCE_HEAD_INVALID")
     for value in (args.old_sha, args.new_sha, args.old_sums_sha, args.new_sums_sha,
