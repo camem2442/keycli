@@ -30,6 +30,7 @@ Require:
 # The owning isolated VM provides OLD_DIR, NEW_DIR, OLD_TAG,
 # NEW_TAG, OLD_SOURCE_SHA and NEW_SOURCE_SHA after independent trust checks.
 # Never run on the owner's ordinary macOS HOME or a resident phone runner.
+set -euo pipefail
 test "$(uname -s)" = Linux
 test "$(uname -m)" = aarch64
 test "$(id -u)" -ne 0
@@ -48,7 +49,7 @@ test "$(sha256sum "$E2E_HOME/.local/bin/kc" | awk '{print $1}')" = "$OLD_SHA256"
 # tests its --version, MCP smoke, optional gateway provider lock and old bytes.
 # Its final JSON summary PASS is INSUFFICIENT if a mandatory check was SKIP.
 HOME="$E2E_HOME" bash scripts/verify-dev-release.sh \
-  --tag "$NEW_TAG" --assets-dir "$NEW_DIR" | tee "$E2E_HOME/native-checks.log"
+  --tag "$NEW_TAG" --assets-dir "$NEW_DIR" --require-all-checks | tee "$E2E_HOME/native-checks.log"
 
 # Independently examine exact lines for checksums, host_asset, installed_bytes,
 # installed_version, mcp_smoke, provider_lock, existing_install_unchanged.
@@ -102,7 +103,7 @@ else:
 print("LOCAL_CAS_RESTORED_BYTES_NOT_OPERATING", root, old_sha, new_sha)
 ```
 
-The owner additionally repeats a real **old-version** `--version`/MCP smoke in disposable temp PREFIX after rollback and checks the unchanged old installed SHA in the private HOME. Verify `provider_lock` with the real gateway asset; a missing gateway cannot be promoted to PASS by the script's coarse summary. Stage-only mode 0400 is deliberately never executed directly; execution requires separately admitted copies under the host's native product verifier. Retain the CAS root and original receipt until custody is confirmed; unreviewed cleanup is not an acceptance claim.
+Strict mode rejects missing or skipped checks, but its JSON result still states `original_host_verified=false` and never grants a real deployment. The native owner must independently bind the actual unredacted product log to the admitted run/guest/producer.\n\nThe owner additionally repeats a real **old-version** `--version`/MCP smoke in disposable temp PREFIX after rollback and checks the unchanged old installed SHA in the private HOME. Verify `provider_lock` with the real gateway asset; a missing gateway cannot be promoted to PASS by the script's coarse summary. Stage-only mode 0400 is deliberately never executed directly; execution requires separately admitted copies under the host's native product verifier. Retain the CAS root and original receipt until custody is confirmed; unreviewed cleanup is not an acceptance claim.
 
 ## Required original evidence / stop conditions
 
