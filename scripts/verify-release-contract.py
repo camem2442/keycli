@@ -196,16 +196,27 @@ class ReleaseContractTests(unittest.TestCase):
         (dist / "provenance.json").write_text(provenance.replace(self.source, self.workflow_sha))
         self.contract("verify-bundle", fails=True, MANIFEST_SHA=manifest())
 
-    def test_utm_runner_selection_is_restricted_before_scheduling(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        lines = [line for line in workflow.splitlines() if "runs-on:" in line and "self-hosted" in line]
-        self.assertEqual(len(lines), 5)
-        for line in lines:
-            for condition in ("inputs.use_utm_runner", "github.event_name == 'workflow_dispatch'",
-                              "inputs.candidate_channel == 'operational'",
-                              "github.event.repository.visibility == 'private'",
-                              "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"):
-                self.assertIn(condition, line)
+    def test_release_dispatch_is_source_hold_without_paid_or_auto_jobs(self):
+        workflow = WORKFLOW.read_text()
+        triggers = workflow.split("\njobs:\n", 1)[0]
+        self.assertIn("workflow_dispatch:", triggers)
+        self.assertNotIn("\n  push:\n", triggers)
+        self.assertNotIn("ubuntu-latest", workflow)
+        self.assertNotIn("ubuntu-24.04-arm", workflow)
+        self.assertNotIn("RUNNER_MODE: hosted", workflow)
+        jobs = dict(re.findall(r"^  ([a-z-]+):\n(.*?)(?=^  [a-z-]+:\n|\Z)",
+                               workflow.split("\njobs:\n", 1)[1], re.M | re.S))
+        self.assertEqual(set(jobs), {"classify", "guard", "verify", "build", "gate", "publish"})
+        lines = [line for line in workflow.splitlines() if line.strip().startswith("runs-on:")]
+        self.assertEqual(len(lines), 6)
+        self.assertTrue(all(
+            line.strip() == "runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]"
+            for line in lines
+        ))
+        self.assertIn("if: false", jobs["classify"])
+        for job in ("guard", "verify", "build", "gate", "publish"):
+            self.assertRegex(jobs[job], r"needs: \[(?:[^\]]*classify[^\]]*)\]|needs: classify")
+        self.assertIn('stable) echo "::error::stable release requires PR-14', jobs["guard"])
 
     def test_dev_release_checks_non_executable_gateway(self):
         import platform
