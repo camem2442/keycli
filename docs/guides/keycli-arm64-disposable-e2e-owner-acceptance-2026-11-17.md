@@ -163,6 +163,36 @@ and SHA, teardown, and a postrun live owner `kc` unchanged check.
 No actual private VM, Runner, old/new binary execution or Release
 publication was performed by this source commit.
 
+## Sealed host requirement for native CAS binary execution
+
+The native CAS runner now refuses raw one-use Runner UID execution even
+when `RUNNER_NAME` is valid. Running untrusted Go binaries under the GitHub
+Runner's own UID can expose runner registration credentials in its HOME.
+An environment variable by itself cannot prove credential isolation.
+
+Before old or new kc is executed, the product runner directly probes kernel
+facts: nonroot UID/GID 1001, root-owned filesystem root, NoNewPrivs=1,
+all ambient/permitted/effective/bounding capabilities zero, root mount
+read-only, `/work` writable but `/opt/keycli-go-modcache` read-only,
+loopback-only network, separate non-identity user namespace mapping, and
+absence of `/home/runner`, `/run/secrets`, `/run/host` and Docker/Podman
+host sockets. A bare Runner, legacy rooted Flip3 or failed/missing namespace
+returns HOLD before native execution. The existing private
+`workspace-infra/.github/workflows/keycli-g2g4-free-host-owner.yml`
+already constructs a rootless, no-network Podman sandbox with this
+style of kernel probe; the new CAS source runner must be invoked **inside**
+that independently admitted sandbox, never directly as a workflow job step.
+
+The native CAS invocation needs trusted runner metadata copied explicitly
+into that sealed sandbox: `RUNNER_NAME`, `RUNNER_OS`, `RUNNER_ARCH`,
+`GITHUB_RUN_ATTEMPT`. The existing private workflow does **not** yet
+expose a CAS lane or inject these fields into its G2/G4 sandbox;
+therefore neither successful #73 G2/G4 source jobs nor passing source
+fixtures constitute E2E acceptance. The original host/standard-vm owner
+must integrate this lane with the current private workflow and genuine
+old/new source manifests, then capture the credential isolation/teardown
+evidence before any Ready/merge. No new resident Runner or hosted fallback.
+
 ## Host entry / bounded preconditions
 
 Only an *already admitted* one-shot, credential-free Ubuntu/Linux aarch64 host using [standard-vm #16](https://github.com/camem2442/standard-vm/pull/16) owner/Golden and a **fresh writable overlay** is eligible. Owner supplies original exact reviewed source HEAD/TREE, runner/request/run/attempt, offline toolchain and verified producer signature/manifest. Do not use a public-repo resident runner, rooted Flip3/PRoot or `qemu-aarch64` as independent native ARM64.
