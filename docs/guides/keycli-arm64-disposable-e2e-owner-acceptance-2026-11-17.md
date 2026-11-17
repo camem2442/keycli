@@ -46,6 +46,59 @@ into a new run. Freshly produce **two distinct real dev/rc binaries** and
 matching SHA256SUMS from reviewed source in the admitted guest; the original
 jobs did not preserve those files for reuse.
 
+## Concrete native dev/rc asset production — original owner only
+
+At this observation, GitHub's public KeyCLI Release API lists **only stable**
+releases `v0.1.0`–`v0.8.0`, with no dev/rc prerelease asset pair.
+The latest stable `v0.8.0` has a Linux ARM64 binary and
+`SHA256SUMS`, but its Release has `immutable=false`. A stable Release
+is **not** an eligible `dev_cas_pilot.DEV` pin and cannot be relabeled into
+a trustable `v0.10.0-dev.N` candidate by changing metadata.
+
+The existing [KeyCLI product-owned builder](../../scripts/lifecycle.sh)
+already creates `kc-linux-arm64`, `kc-gateway-linux-arm64` and the
+complete `SHA256SUMS`. On an **independently admitted credential-free
+aarch64 guest** with exact two reviewed source trees and pre-provisioned
+read-only Go module cache, the host may run the following once in **each**
+source tree. It must bind the actual source SHA/TREE and approved dev tag;
+this example is a host plan, not an executed receipt:
+
+```bash
+set -euo pipefail
+test "$(uname -s)" = Linux
+test "$(uname -m)" = aarch64
+test "$(id -u)" -ne 0
+test -z "$(git status --porcelain=v1)"
+test "$(git rev-parse HEAD)" = "$REVIEWED_SOURCE_SHA"
+# The owner supplies the actual approved DEV_TAG for this exact source.
+case "$DEV_TAG" in *-dev.*|*-rc.*) ;; *) exit 2;; esac
+export GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local GOWORK=off CGO_ENABLED=0
+export KC_BUILD_CHANNEL=dev
+export KC_VERSION="$DEV_TAG"
+export KC_COMMIT="$REVIEWED_SOURCE_SHA"
+bash scripts/lifecycle.sh release
+test -f dist/kc-linux-arm64
+test -f dist/kc-gateway-linux-arm64
+test -f dist/SHA256SUMS
+(cd dist && sha256sum --check --strict SHA256SUMS)
+```
+
+Each old/new build must use **independent immutable source/manifest
+identities**, an approved dev/rc label consistent with the build channel,
+and a **different** actual Linux ARM64 binary SHA. Merely varying the
+`KC_VERSION` linker label on an otherwise identical build does **not**
+prove a previous code version or a meaningful rollback regression; the
+owner must record a previously approved source/tree and its genuine
+version/MCP behavior. Before any native smoke, preserve original build
+stdout/stderr/exit and the two asset+manifest digests outside the short-lived
+guest and ensure the test binary cannot read runner registration/session
+credentials. For `-rc.` channel set `KC_BUILD_CHANNEL=rc`; never
+substitute stable or operational.
+
+This product build is **not** a Release upload, publishing authority or
+service install. It must run under existing standard-vm #16/#527 owner
+admission, not automatically from a public PR or a persistent rooted phone.
+
 ## Host entry / bounded preconditions
 
 Only an *already admitted* one-shot, credential-free Ubuntu/Linux aarch64 host using [standard-vm #16](https://github.com/camem2442/standard-vm/pull/16) owner/Golden and a **fresh writable overlay** is eligible. Owner supplies original exact reviewed source HEAD/TREE, runner/request/run/attempt, offline toolchain and verified producer signature/manifest. Do not use a public-repo resident runner, rooted Flip3/PRoot or `qemu-aarch64` as independent native ARM64.
