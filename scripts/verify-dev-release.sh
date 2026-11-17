@@ -64,7 +64,7 @@ note() {
   printf '%-34s %s\n' "$1" "$2"
   case "$1" in
     checksums|host_asset|installed_bytes|installed_version|mcp_smoke|provider_lock|existing_install_unchanged)
-      printf '%s\\t%s\\n' "$1" "$2" >> "$REQUIRED_LOG" ;;
+      printf '%s\t%s\n' "$1" "$2" >> "$REQUIRED_LOG" ;;
   esac
 }
 check() {
