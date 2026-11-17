@@ -71,8 +71,12 @@ class NoQueueContractTests(unittest.TestCase):
             'base': {'ref': 'main', 'sha': base,
                      'repo': {'full_name': 'camem2442/keycli'}},
         }
-        def get_pr(_request, timeout):
+        remote = {'ref': 'refs/heads/main', 'object': {'sha': base}}
+        def get_pr(request, timeout):
             self.assertEqual(timeout, 15)
+            if request.full_url.endswith('/git/ref/heads/main'):
+                return io.BytesIO(json.dumps(remote).encode())
+            self.assertTrue(request.full_url.endswith('/pulls/73'))
             return io.BytesIO(json.dumps(payload).encode())
         env = {'n': '73', 'sha': sha, 'base': base, 'json': json,
                'Request': Request, 'urlopen': get_pr}
@@ -89,7 +93,13 @@ class NoQueueContractTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, 'HOLD: PR review identity changed'):
                 check()
             payload['base'] = previous
+        remote['object']['sha'] = 'c'*40
+        with self.assertRaisesRegex(SystemExit, 'HOLD: remote main moved'):
+            check()
+        remote['object']['sha'] = base
+        check()
         self.assertEqual(self.text.count('          check()'), 2)
+        self.assertIn('/git/ref/heads/main', self.text)
 
     def test_queue_coalescing_and_checkout_safety(self):
         self.assertIn('github.event.pull_request.number || inputs.pr_number', self.text)
