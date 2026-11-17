@@ -21,6 +21,25 @@ The updated scripts/verify-release-contract.py source test asserts no push trigg
 
 ## Next implementation sequence and actual gates
 
+The free producer uses the existing private `workspace-infra` owner workflow
+and its one-shot VM lifecycle. For the first producer receipt, retain the
+exact bundle already checked by `g4-free-release-gate.sh` as a separate
+private workflow artifact. The current gate uses the synthetic
+`v0.10.0-rc.999` version for verification.
+
+Bind the retained bundle to the reviewed public HEAD/base, private workflow
+SHA, original run and attempt, and manifest SHA-256. Before accepting the
+producer, download the artifact by ID, compare its file set and checksums,
+and join the original gate result with the independent Runner-removal,
+VM-shutdown, and Golden-integrity receipts. The existing ARM64 and AMD64 QEMU
+verification runs retained logs and manifest digests. The producer acceptance
+requires downloadable artifact bytes from an original run.
+
+Keep the public workflow disabled while proving the private producer. Review
+the producer with the #73/#75 stack before Ready and integrate #73 before
+retargeting #75 to main. Publication uses a separate release intent and
+approval under the release workflow contract.
+
 1. **G2 first:** accept [#73](https://github.com/camem2442/keycli/pull/73) only after its original exact-head source evidence, actual independent ephemeral VM admission, and no-paid-hosted G2 source contract. Its current test.yml is still source-hold, not an accepted builder.
 2. **G4-A source admission:** choose a trusted ephemeral isolated builder that accepts reviewed public source without persistent self-hosted token or provider secrets. Prove teardown and runner registration lifecycle, per-run capability and cost, separate from rooted Flip3. Required matrix: Darwin native smoke separately, Linux ARM64 actual execution and independent AMD64 or explicit emulation label with limited claim.
 3. **G4-B release control:** remove classify if:false **only in a separately reviewed PR** after a real eligible builder is present; replace obsolete RUNNER_MODE and public tagged-source restriction with a narrowly scoped manual + reviewed SHA + immutable tag contract. Keep producer/privileged GitHub publication credentials separated where feasible. Inspect each workflow runner before checkout; no hosted fallback. Rework build-once artifact identity, original SHA and manifest, fresh private/public attestation availability and release API protection.
