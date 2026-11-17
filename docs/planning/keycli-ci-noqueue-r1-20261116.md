@@ -11,7 +11,7 @@ This source change supersedes the old automatic-run approaches in historical Key
 
 PR and main push events have only one job; its explicit event predicate is workflow_dispatch, so automatic events SKIP with zero runner allocation and zero paid hosted minutes. Skipped is not a product PASS. Per-PR concurrency with cancel-in-progress false retains running jobs and replaces obsolete pending requests when manually dispatched.
 
-The manual owner-only input requires a reviewed PR number and exact SHA, independent positive admission of a one-shot nonroot Linux ARM64 VM labeled keycli-ephemeral-vm, and an offline module cache. The workflow compares PR owner/head/base before and after the scoped docs, policy and unit Go suite. This does not run on the persistent Android Flip3, register runners, issue a token, invoke a provider, or change installed KeyCLI.
+The manual owner-only input requires a reviewed PR number, exact HEAD SHA and exact main base SHA, independent positive admission of a one-shot nonroot Linux ARM64 VM labeled keycli-ephemeral-vm, and an offline module cache. The workflow compares PR owner, HEAD SHA, base ref, base SHA and base repository before and after the scoped docs, policy and unit Go suite. If main advances and the PR base changes, the original scoped result becomes HOLD and must not be reused as a new-base integration receipt. This does not run on the persistent Android Flip3, register runners, issue a token, invoke a provider, or change installed KeyCLI.
 
 **DRAFT/HOLD:** The KeyCLI-scoped ephemeral VM is NOT VERIFIED or registered. This proposal also removes the previous automatic dual-architecture Linux release jobs; that release verification must be replaced by independently validated free-host G4 before Ready/merge. No source Go or actual VM run was executed here, and no Mac native, Keychain or real provider success is claimed. Workflow YAML and policy must be independently tested on the exact HEAD, with original suite receipts and effective branch checks. Automatic paid fallback remains forbidden.
 
@@ -19,7 +19,7 @@ Ownership stays split: KeyCLI product source gate; workspace-infra host/Goal/CI 
 
 ## Static regression gate (candidate)
 
-The docs owning suite now invokes six Python stdlib source-contract tests for the
+The docs owning suite now invokes eight Python stdlib source-contract tests for the
 manual-only event, isolated runner, exact PR identity, GitHub concurrency,
 checkout credentials and offline no-duplicate suite. **These tests have not
 been executed on the changed PR HEAD**; their source presence is not PASS.
@@ -29,7 +29,7 @@ been executed on the changed PR HEAD**; their source presence is not PASS.
 
 [KeyCLI PR #74](https://github.com/camem2442/keycli/pull/74) implements a **separate**, offline native Linux ARM64/AMD64 release-contract acceptance script using existing `verify.sh --suite all`, checksums, native binary smoke and a temporary development installation. Its seven source tests have run locally on exact Git blobs. It does **not** register an ephemeral runner, publish a release, validate both architectures in original hosts or replace the still-hosted `release.yml`.
 
-Consequently, **#73 remains DRAFT/HOLD**. Before merging its removal of the old automatic release Jobs, the owner must separately accept the real arm64 + native x64 host receipts, protected no-paid workflow topology, and exact current reviewed source. Source tests for #73 6/6 and #74 7/7 do not satisfy these operating gates. Never switch the public KeyCLI repository onto the persistent Flip3 runner or treat a user-set admission checkbox as host proof.
+Consequently, **#73 remains DRAFT/HOLD**. Before merging its removal of the old automatic release Jobs, the owner must separately accept the real arm64 + native x64 host receipts, protected no-paid workflow topology, and exact current reviewed source. Historical source tests for #73 6/6 and #74 7/7 do not satisfy these operating gates. Never switch the public KeyCLI repository onto the persistent Flip3 runner or treat a user-set admission checkbox as host proof.
 
 ## G2+G4 exact-source joint candidate (2026-11-17)
 
@@ -42,3 +42,7 @@ Consequently, **#73 remains DRAFT/HOLD**. Before merging its removal of the old 
 ## 2026-11-17 public repo self-hosted execution fence
 
 The optional `workflow_dispatch` job on this PUBLIC repository now contains an explicit constant `false` in its job-level condition, so it cannot reserve a self-hosted runner even if an operator sets the user-supplied admission checkbox. It remains a historical/structural no-queue job and **does not execute Go tests or produce PASS**. The real opt-in owner runner belongs exclusively to the PRIVATE workspace-infra [#529](https://github.com/camem2442/workspace-infra/pull/529) under [Goal #527](https://github.com/camem2442/workspace-infra/issues/527). Before any merge, independently verify this condition and actual required check interpretation. This source safeguard is not deployment of the private workflow.
+
+## 2026-11-17 reviewed base SHA drift repair (source only)
+
+Owner review identified an actual missing base-SHA comparison in the disabled public manual workflow. New `reviewed_base` is a required 40-lowercase-hex dispatch input; inline `check()` validates exact `base.sha`, `base.ref` and base repository both before and after the scope. The eighth Python source test executes that extracted inline guard against mock GitHub PR metadata: matching base passes; changed base SHA, base ref or base repository must HOLD. The job remains hard-disabled (`&& false`), and no private VM, original Go/native test, billable CI, or release was executed by these commits. Parent #73 must be rejoined into stacked child #75 at its exact new HEAD before producer admission.
