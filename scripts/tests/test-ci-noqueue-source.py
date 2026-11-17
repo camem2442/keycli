@@ -1,7 +1,12 @@
 """Source-only G2 workflow guard; cannot confer runner or Go acceptance."""
 from pathlib import Path
+import ast
+import io
+import json
 import re
+import textwrap
 import unittest
+from urllib.request import Request
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -46,6 +51,45 @@ class NoQueueContractTests(unittest.TestCase):
                          "p.get('draft') is not False",
                          "p.get('base',{}).get('ref')!='main'"):
             self.assertIn(required, self.text)
+
+    def test_reviewed_base_sha_is_required_and_checked_twice(self):
+        # Execute the actual inline owner guard in a fake-network sandbox.
+        # This does not execute the public workflow or attest native CI.
+        self.assertIn('      reviewed_base:', self.text)
+        self.assertIn('          BASE: ${{ inputs.reviewed_base }}', self.text)
+        self.assertIn("('PR', 'HEAD', 'BASE')", self.text)
+        script = self.text.split("          python3 -I -B - <<'PY'\\n", 1)[1]
+        script = script.split("\\n          PY", 1)[0]
+        tree = ast.parse(textwrap.dedent(script))
+        guard = next(n for n in tree.body
+                     if isinstance(n, ast.FunctionDef) and n.name == 'check')
+        sha, base = 'a'*40, 'b'*40
+        payload = {
+            'number': 73, 'state': 'open', 'draft': False,
+            'user': {'login': 'camem2442'},
+            'head': {'sha': sha, 'repo': {'full_name': 'camem2442/keycli'}},
+            'base': {'ref': 'main', 'sha': base,
+                     'repo': {'full_name': 'camem2442/keycli'}},
+        }
+        def get_pr(_request, timeout):
+            self.assertEqual(timeout, 15)
+            return io.BytesIO(json.dumps(payload).encode())
+        env = {'n': '73', 'sha': sha, 'base': base, 'json': json,
+               'Request': Request, 'urlopen': get_pr}
+        exec(compile(ast.Module(body=[guard], type_ignores=[]),
+                     '<inline-owner-guard>', 'exec'), env)
+        check = env['check']
+        check()
+        for changed in (
+            {'sha': 'c'*40}, {'ref': 'other'},
+            {'repo': {'full_name': 'attacker/keycli'}},
+        ):
+            previous = payload['base'].copy()
+            payload['base'].update(changed)
+            with self.assertRaisesRegex(SystemExit, 'HOLD: PR review identity changed'):
+                check()
+            payload['base'] = previous
+        self.assertEqual(self.text.count('          check()'), 2)
 
     def test_queue_coalescing_and_checkout_safety(self):
         self.assertIn('github.event.pull_request.number || inputs.pr_number', self.text)
