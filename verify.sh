@@ -58,6 +58,7 @@ run_docs() {
   bash "$ROOT/scripts/check-rules.sh"
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
   bash "$ROOT/scripts/tests/test-device-debt.sh"
+  python3 -B "$ROOT/scripts/tests/test-dev-disposable-cas.py"
 }
 
 run_policy() {
