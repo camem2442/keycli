@@ -60,6 +60,7 @@ run_docs() {
   bash "$ROOT/scripts/tests/test-device-debt.sh"
   python3 -B "$ROOT/scripts/tests/test-dev-cas-pilot.py"
   python3 -B "$ROOT/scripts/tests/test-dev-release-strict.py"
+  python3 -B "$ROOT/scripts/tests/test-dev-cas-native-e2e.py"
   bash -n "$ROOT/scripts/verify-dev-release.sh"
 }
 
