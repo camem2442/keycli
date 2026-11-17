@@ -74,7 +74,8 @@ def preflight(args):
             "CREDENTIAL_ENVIRONMENT_PRESENT")
     for value in (args.old_head, args.new_head):
         require(SHA40.fullmatch(value) is not None, "SOURCE_HEAD_INVALID")
-    for value in (args.old_sha, args.new_sha, args.old_sums_sha, args.new_sums_sha):
+    for value in (args.old_sha, args.new_sha, args.old_sums_sha, args.new_sums_sha,
+                  args.new_gateway_sha):
         require(SHA64.fullmatch(value) is not None, "PINNED_SHA_INVALID")
     for value in (args.old_tag, args.new_tag):
         require(DEV.fullmatch(value) is not None, "NOT_DEV_OR_RC_VERSION")
@@ -170,7 +171,6 @@ def execute(args):
     installed = home / ".local/bin/kc"
     installed.write_bytes(old_data)
     installed.chmod(0o500)
-    native_run([str(installed), "--version"], home=home, timeout=10)
     assert_version(native_run([str(installed), "--version"],
                               home=home, timeout=10), args.old_tag)
     native_run(["bash", str(ROOT / "scripts/verify-mcp-binary.sh"),
@@ -245,7 +245,7 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         result = execute(args)
-    except (Hold, OSError, subprocess.TimeoutExpired, Exception) as e:
+    except Exception as e:
         # This endpoint is a local host tool; failure never warrants an
         # automatic execution retry. Do not leak private file paths.
         result = {"schema": "keycli.native-dev-cas-local.v1",
