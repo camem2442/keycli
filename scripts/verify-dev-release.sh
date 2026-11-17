@@ -20,6 +20,7 @@ REPO="camem2442/keycli"
 ASSETS_DIR=""
 USE_INSTALLER=false
 ALLOW_ARCH_SKIP=false
+REQUIRE_ALL_CHECKS=false
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/kc-dev-release.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -30,11 +31,16 @@ while [[ $# -gt 0 ]]; do
     --assets-dir) ASSETS_DIR="${2:?}"; shift 2 ;;
     --use-installer) USE_INSTALLER=true; shift ;;
     --allow-arch-skip) ALLOW_ARCH_SKIP=true; shift ;;
+    --require-all-checks) REQUIRE_ALL_CHECKS=true; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
 
+if $REQUIRE_ALL_CHECKS && $ALLOW_ARCH_SKIP; then
+  echo 'strict native acceptance cannot allow architecture skip' >&2
+  exit 64
+fi
 [[ -n "$TAG" ]] || { echo "--tag is required" >&2; exit 64; }
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9]+)?$ ]] || { echo "not a release tag: $TAG" >&2; exit 64; }
 [[ "$TAG" == *-dev.* || "$TAG" == *-rc.* ]] || { echo "this acceptance script is for pre-releases only: $TAG" >&2; exit 64; }
@@ -52,7 +58,15 @@ HOST_ASSET="kc-${os}-${arch}"
 GATEWAY_ASSET="kc-gateway-${os}-${arch}"
 
 fail=0
-note() { printf '%-34s %s\n' "$1" "$2"; }
+REQUIRED_LOG="$WORK/required-checks.tsv"
+: > "$REQUIRED_LOG"
+note() {
+  printf '%-34s %s\n' "$1" "$2"
+  case "$1" in
+    checksums|host_asset|installed_bytes|installed_version|mcp_smoke|provider_lock|existing_install_unchanged)
+      printf '%s\\t%s\\n' "$1" "$2" >> "$REQUIRED_LOG" ;;
+  esac
+}
 check() {
   case "$2" in
     PASS*) note "$1" "$2" ;;
@@ -191,6 +205,15 @@ if [[ -n "$PREEXISTING_SHA" ]]; then
     || check existing_install_unchanged "FAIL (changed: $PREEXISTING_SHA -> $after)"
 else
   note existing_install_unchanged "SKIP (no $PREEXISTING)"
+fi
+
+# The historic coarse PASS may contain provider_lock or previous kc SKIP.
+# Strict mode demands individual real checks without changing legacy callers.
+# The parser verdict is source feedback, NOT a native host/producer attestation.
+if $REQUIRE_ALL_CHECKS; then
+  if ! python3 "$ROOT/scripts/dev_release_strict.py" "$REQUIRED_LOG"; then
+    fail=1
+  fi
 fi
 
 if [[ $fail -eq 0 ]]; then
