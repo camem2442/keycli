@@ -58,8 +58,8 @@ class NoQueueContractTests(unittest.TestCase):
         self.assertIn('      reviewed_base:', self.text)
         self.assertIn('          BASE: ${{ inputs.reviewed_base }}', self.text)
         self.assertIn("('PR', 'HEAD', 'BASE')", self.text)
-        script = self.text.split("          python3 -I -B - <<'PY'\\n", 1)[1]
-        script = script.split("\\n          PY", 1)[0]
+        script = self.text.split("          python3 -I -B - <<'PY'\n", 1)[1]
+        script = script.split("\n          PY", 1)[0]
         tree = ast.parse(textwrap.dedent(script))
         guard = next(n for n in tree.body
                      if isinstance(n, ast.FunctionDef) and n.name == 'check')
