@@ -124,6 +124,20 @@ class NativeSourceBoundaryTests(unittest.TestCase):
             with self.assertRaises(e2e.Hold):
                 e2e.owner_file(link, sha, name="alias")
 
+    def test_original_git_head_and_worktree_are_required_before_binary_exec(self):
+        e2e.check_original_checkout("b" * 40, "", "b" * 40)
+        with self.assertRaisesRegex(e2e.Hold, "CHECKOUT_NEW_SOURCE_DRIFT"):
+            e2e.check_original_checkout("c" * 40, "", "b" * 40)
+        with self.assertRaisesRegex(e2e.Hold, "CHECKOUT_WORKTREE_DIRTY"):
+            e2e.check_original_checkout("b" * 40, " M scripts/dev_cas_native_e2e.py", "b" * 40)
+
+    def test_unavailable_git_source_never_becomes_native_pass(self):
+        from unittest.mock import Mock
+        with patch.object(e2e.subprocess, "run", return_value=Mock(
+                returncode=1, stdout="", stderr="no checkout")):
+            with self.assertRaisesRegex(e2e.Hold, "SOURCE_GIT_INSPECTION_UNAVAILABLE"):
+                e2e.observe_checkout()
+
     def test_no_network_or_live_install_in_wrapper_source(self):
         code = (ROOT / "scripts/dev_cas_native_e2e.py").read_text()
         self.assertNotIn("gh release download", code)
