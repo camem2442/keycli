@@ -15,6 +15,10 @@ on:
         description: "Reviewed exact PR HEAD SHA"
         required: true
         type: string
+      reviewed_base:
+        description: "Reviewed exact PR main base SHA (reject drift)"
+        required: true
+        type: string
       admitted_isolated_vm:
         description: "Independent ephemeral VM and runner admission"
         required: true
@@ -66,13 +70,15 @@ jobs:
         env:
           PR: ${{ inputs.pr_number }}
           HEAD: ${{ inputs.reviewed_head }}
+          BASE: ${{ inputs.reviewed_base }}
         run: |
           set -euo pipefail
           python3 -I -B - <<'PY'
           import json, os, re, subprocess
           from urllib.request import Request, urlopen
-          n, sha = os.environ['PR'], os.environ['HEAD']
-          if not re.fullmatch(r'[1-9][0-9]{0,5}', n) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+          n, sha, base = (os.environ[k] for k in ('PR', 'HEAD', 'BASE'))
+          if (not re.fullmatch(r'[1-9][0-9]{0,5}', n) or
+              any(not re.fullmatch(r'[0-9a-f]{40}', v) for v in (sha, base))):
               raise SystemExit('HOLD: invalid source identity')
           def check():
               req = Request('https://api.github.com/repos/camem2442/keycli/pulls/'+n,
@@ -87,7 +93,9 @@ jobs:
                   or p.get('user',{}).get('login')!='camem2442'
                   or p.get('head',{}).get('sha')!=sha
                   or p.get('head',{}).get('repo',{}).get('full_name')!='camem2442/keycli'
-                  or p.get('base',{}).get('ref')!='main'):
+                  or p.get('base',{}).get('ref')!='main'
+                  or p.get('base',{}).get('sha')!=base
+                  or p.get('base',{}).get('repo',{}).get('full_name')!='camem2442/keycli'):
                   raise SystemExit('HOLD: PR review identity changed')
           check()
           if subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip()!=sha:
