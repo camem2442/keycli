@@ -97,6 +97,18 @@ jobs:
                   or p.get('base',{}).get('sha')!=base
                   or p.get('base',{}).get('repo',{}).get('full_name')!='camem2442/keycli'):
                   raise SystemExit('HOLD: PR review identity changed')
+              # PR base metadata alone can lag behind a moving main branch.
+              # Verify the remote main ref independently on BOTH observations.
+              main_req = Request('https://api.github.com/repos/camem2442/keycli/git/ref/heads/main',
+                                 headers={'User-Agent':'keycli-owner-g2'})
+              with urlopen(main_req, timeout=15) as r:
+                  raw_main = r.read(1024*1024+1)
+              if len(raw_main)>1024*1024:
+                  raise SystemExit('HOLD: oversized main response')
+              remote_main = json.loads(raw_main)
+              if (remote_main.get('ref')!='refs/heads/main'
+                  or remote_main.get('object',{}).get('sha')!=base):
+                  raise SystemExit('HOLD: remote main moved')
           check()
           if subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip()!=sha:
               raise SystemExit('HOLD: checkout mismatch')
