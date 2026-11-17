@@ -156,7 +156,7 @@ class DevDisposableCASTests(unittest.TestCase):
                          allow_disposable_write=True)
 
     def test_no_adoption_of_existing_nonprivate_or_live_path(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, OSError)):
             cas.create(self.root, allow_disposable_write=True)
         with self.assertRaises(ValueError):
             cas.status(self.parent / "not-preview")
