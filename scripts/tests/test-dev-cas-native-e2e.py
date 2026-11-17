@@ -138,6 +138,41 @@ class NativeSourceBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(e2e.Hold, "SOURCE_GIT_INSPECTION_UNAVAILABLE"):
                 e2e.observe_checkout()
 
+    def test_sealed_rootless_boundary_is_required_not_runner_name_alone(self):
+        probe = {"uid": 1001, "gid": 1001, "root_uid": 0,
+                 "no_new_privileges": True, "capabilities_zero": True,
+                 "credential_paths_absent": True, "interfaces": ["lo"],
+                 "mounts": {"/": ["ro"], "/work": ["rw"],
+                            "/opt/keycli-go-modcache": ["ro"]},
+                 "uid_maps": [[0, 100000, 1001], [1001, 1001, 1]]}
+        self.assertIsNone(e2e.check_sealed_runtime(probe))
+        for updated in ({"interfaces": ["eth0", "lo"]},
+                        {"credential_paths_absent": False},
+                        {"capabilities_zero": False},
+                        {"no_new_privileges": False},
+                        {"root_uid": 1001},
+                        {"mounts": {"/": ["rw"], "/work": ["rw"],
+                                    "/opt/keycli-go-modcache": ["ro"]}},
+                        {"uid_maps": [[0, 0, 4294967295]]}):
+            with self.subTest(updated=updated):
+                with self.assertRaises(e2e.Hold):
+                    e2e.check_sealed_runtime({**probe, **updated})
+
+    def test_sealed_runtime_missing_proof_never_accepts_host(self):
+        for observation in (None, {}, {"uid": 1001},
+                            {"uid": True, "gid": 1001}):
+            with self.subTest(observation=observation):
+                with self.assertRaises(e2e.Hold):
+                    e2e.check_sealed_runtime(observation)
+
+    def test_real_source_checks_use_kernel_not_caller_receipt(self):
+        text = (ROOT / "scripts/dev_cas_native_e2e.py").read_text()
+        for piece in ("/proc/self/status", "/proc/self/mountinfo",
+                      "/proc/self/uid_map", "socket.if_nameindex",
+                      "check_sealed_runtime(observe_sealed_runtime())"):
+            self.assertIn(piece, text)
+        self.assertNotIn("trust_host_admission=True", text)
+
     def test_no_network_or_live_install_in_wrapper_source(self):
         code = (ROOT / "scripts/dev_cas_native_e2e.py").read_text()
         self.assertNotIn("gh release download", code)
