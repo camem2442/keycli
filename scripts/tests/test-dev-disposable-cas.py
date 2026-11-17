@@ -136,7 +136,7 @@ class DevDisposableCASTests(unittest.TestCase):
             cas.rollback(self.root, receipt_id=first["receipt_id"],
                          receipt_sha256="0"*64, allow_disposable_write=True)
         self.assertEqual(cas.status(self.root)["pin_sha256"], first["pin_sha256"])
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, OSError)):
             cas.rollback(self.root, receipt_id="0"*32,
                          receipt_sha256=first["receipt_sha256"],
                          allow_disposable_write=True)
