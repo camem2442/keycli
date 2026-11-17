@@ -155,7 +155,6 @@ def preflight(args):
             "ONE_SHOT_PRIVATE_RUNNER_REQUIRED")
     require(not any(os.environ.get(key) for key in CREDENTIALS),
             "CREDENTIAL_ENVIRONMENT_PRESENT")
-    check_sealed_runtime(observe_sealed_runtime())
     for value in (args.old_head, args.new_head):
         require(SHA40.fullmatch(value) is not None, "SOURCE_HEAD_INVALID")
     for value in (args.old_sha, args.new_sha, args.old_sums_sha, args.new_sums_sha,
@@ -174,6 +173,7 @@ def preflight(args):
                 and not directory.lstat().st_mode & 0o077,
                 "ASSET_DIRECTORY_NOT_PRIVATE")
 
+    check_sealed_runtime(observe_sealed_runtime())
     current_head, dirty = observe_checkout()
     check_original_checkout(current_head, dirty, args.new_head)
 
