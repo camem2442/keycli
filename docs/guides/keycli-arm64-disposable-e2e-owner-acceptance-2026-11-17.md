@@ -13,6 +13,39 @@ Use **existing** product-owned `scripts/dev_cas_pilot.py` on [KeyCLI PR #76](htt
 
 Owner tracking: [infra #545](https://github.com/camem2442/workspace-infra/issues/545) CD/KeyCLI handoff; [infra #527](https://github.com/camem2442/workspace-infra/issues/527) genuinely native isolated VM and producer; [infra #551](https://github.com/camem2442/workspace-infra/issues/551) retained 2 previous native ARM64 source runs but **no real previous-version/restore proof**. [#76 tests](../../scripts/tests/test-dev-cas-pilot.py) are disposable synthetic source fixtures, not original host receipts. [Full parent plan](https://github.com/camem2442/workspace-infra/blob/main/docs/planning/release-cd-keycli-arm64-dev-e2e-solo-loop-2026-11-17.md) defines E0–E6.
 
+## Existing Golden evidence, and why it is not yet this experiment
+
+The original native ARM64 source jobs [44039046216](https://github.com/camem2442/workspace-infra/actions/runs/44039046216)
+and [44039759883](https://github.com/camem2442/workspace-infra/actions/runs/44039759883)
+are **SUCCESS** for the previously reviewed KeyCLI #73 source and original
+sealed Golden host. As of this review the retained GitHub ZIP artifacts
+`keycli-g2g4-arm64-44039046216-1` and
+`keycli-g2g4-arm64-44039759883-1` are only ~3.6 KB each;
+Goal #551 explicitly states they retain logs, **not installable candidate
+binaries or an old-version restoration receipt**.
+
+The canonical [standard-vm ARM64 one-shot runner](https://github.com/camem2442/standard-vm/blob/main/docs/keycli-g2g4-runner-20261117.md)
+reuses the verified sealed Golden with a *fresh writable overlay and a new
+ephemeral runner/request per execution*. Its existing
+`--purpose keycli-g2g4-arm64` route invokes the **private**
+`keycli-g2g4-free-host-owner.yml` workflow for an exact reviewed public
+KeyCLI PR, native G2/G4 source verification and teardown. That existing
+source workflow has not been shown to execute the **#76 development CAS E2E**,
+and cannot be relabeled as #76 acceptance merely because the same Golden
+VM or arm64 CPU is used. The original host owner (#527) must separately
+admit and run the **actual #76 product-only procedure** under an independently
+reviewed credential-free sandbox and then bind the original run/job/runner and
+teardown proof to Goal #545.
+
+Exact native host requirements: the preserved Golden base digest from
+Goal #551 is
+`724b7cee5b509c56da1eae156941d53374b91fd77f4d66dd5ca2e2107c85c669`,
+subject to independent host re-verification before use. Do not copy the
+expired historical runner, reusable writable overlay, or native job receipt
+into a new run. Freshly produce **two distinct real dev/rc binaries** and
+matching SHA256SUMS from reviewed source in the admitted guest; the original
+jobs did not preserve those files for reuse.
+
 ## Host entry / bounded preconditions
 
 Only an *already admitted* one-shot, credential-free Ubuntu/Linux aarch64 host using [standard-vm #16](https://github.com/camem2442/standard-vm/pull/16) owner/Golden and a **fresh writable overlay** is eligible. Owner supplies original exact reviewed source HEAD/TREE, runner/request/run/attempt, offline toolchain and verified producer signature/manifest. Do not use a public-repo resident runner, rooted Flip3/PRoot or `qemu-aarch64` as independent native ARM64.
