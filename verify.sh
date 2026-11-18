@@ -58,6 +58,10 @@ run_docs() {
   bash "$ROOT/scripts/check-rules.sh"
   bash -n "$ROOT/scripts/verify-mcp-binary.sh"
   bash "$ROOT/scripts/tests/test-device-debt.sh"
+  python3 -B "$ROOT/scripts/tests/test-dev-cas-pilot.py"
+  python3 -B "$ROOT/scripts/tests/test-dev-release-strict.py"
+  python3 -B "$ROOT/scripts/tests/test-dev-cas-native-e2e.py"
+  bash -n "$ROOT/scripts/verify-dev-release.sh"
   python3 -B "$ROOT/scripts/tests/test-ci-noqueue-source.py"
   python3 -B "$ROOT/scripts/tests/test-g4-free-release-contract.py"
 }
