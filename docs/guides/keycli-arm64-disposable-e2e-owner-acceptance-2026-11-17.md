@@ -300,3 +300,24 @@ Strict mode rejects missing or skipped checks, but its JSON result still states 
 Completion requires original E0–E6 passed under #545/#527 **and** an independent check that no real owner `~/.local/bin/kc` was touched. Record missing evidence as `NOT_VERIFIED`; do not invent timing, signatures or an actual published Release from this procedure.
 
 This runbook changes no code, product default CI, release workflow, runtime configuration, operating files or host admission. Existing public-repo `[skip ci]` paid-CI fence remains until #73/#75 safely replace it. Merge of #76 source remains HOLD until its original free native/source required checks pass.
+
+## Personal development prerelease path
+
+For a separately approved manual dev/rc prerelease, the solo maintainer can use
+the same standard-vm Golden and rootless no-network sandbox without registering
+a GitHub Runner. Pass both `--allow-native-disposable-exec` and
+`--personal-local` inside the sandbox with a clean environment. The script
+checks the same Linux ARM64, nonroot, mount, capability and credential
+boundaries. The host keeps the exact Git commits, independently checked
+manifest and binary hashes, raw stderr audit stream and stdout receipt,
+then records shutdown, overlay removal and Golden integrity.
+
+A local candidate needs maintainer-verified source and artifact custody.
+Cryptographic producer/host grants remain an operating requirement. For a
+change confined to the installer, report when the two builds contain the same
+Go application code. Separate dev/rc labels and exact source commits exercise
+installer rollback under that scope. An existing stable asset cannot be
+renamed for this purpose. A missing mandatory smoke check still stops the
+prerelease acceptance. The resulting receipt can support a manual prerelease
+decision. It does not enable the public publisher, authorize R4 or grant
+operating access.

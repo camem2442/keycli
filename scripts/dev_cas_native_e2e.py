@@ -147,12 +147,18 @@ def preflight(args):
     require(args.allow_native_disposable_exec is True, "EXPLICIT_NATIVE_OPT_IN_REQUIRED")
     require(platform.system() == "Linux" and platform.machine() == "aarch64"
             and os.geteuid() != 0, "NATIVE_NONROOT_ARM64_REQUIRED")
-    require(os.environ.get("RUNNER_OS") == "Linux"
-            and os.environ.get("RUNNER_ARCH") == "ARM64"
-            and re.fullmatch(r"keycli-ephemeral-vm-arm64-[A-Za-z0-9-]{1,37}",
-                             os.environ.get("RUNNER_NAME", ""))
-            and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
-            "ONE_SHOT_PRIVATE_RUNNER_REQUIRED")
+    if args.personal_local:
+        require(not any(os.environ.get(key) for key in (
+            "RUNNER_NAME", "RUNNER_OS", "RUNNER_ARCH", "GITHUB_ACTIONS",
+            "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT")),
+            "PERSONAL_LOCAL_REQUIRES_NO_RUNNER_SESSION")
+    else:
+        require(os.environ.get("RUNNER_OS") == "Linux"
+                and os.environ.get("RUNNER_ARCH") == "ARM64"
+                and re.fullmatch(r"keycli-ephemeral-vm-arm64-[A-Za-z0-9-]{1,37}",
+                                 os.environ.get("RUNNER_NAME", ""))
+                and os.environ.get("GITHUB_RUN_ATTEMPT") == "1",
+                "ONE_SHOT_PRIVATE_RUNNER_REQUIRED")
     require(not any(os.environ.get(key) for key in CREDENTIALS),
             "CREDENTIAL_ENVIRONMENT_PRESENT")
     for value in (args.old_head, args.new_head):
@@ -186,7 +192,7 @@ def load_cas():
     return module
 
 
-def native_run(cmd, *, home, timeout):
+def native_run(cmd, *, phase, home, timeout):
     env = {"PATH": "/usr/bin:/bin", "HOME": str(home),
            "XDG_CONFIG_HOME": str(home / ".config"),
            "LANG": "C", "LC_ALL": "C", "TMPDIR": tempfile.gettempdir()}
@@ -195,6 +201,9 @@ def native_run(cmd, *, home, timeout):
                             timeout=timeout, check=False)
     require(len(result.stdout) + len(result.stderr) <= 32768,
             "NATIVE_OUTPUT_TOO_LARGE")
+    print(json.dumps({"phase": phase, "exit_code": result.returncode,
+                      "stdout": result.stdout, "stderr": result.stderr}),
+          file=sys.stderr, flush=True)
     require(result.returncode == 0, "NATIVE_COMMAND_FAILED")
     return result.stdout
 
@@ -259,17 +268,9 @@ def execute(args):
     installed.write_bytes(old_data)
     installed.chmod(0o500)
     assert_version(native_run([str(installed), "--version"],
-                              home=home, timeout=10), args.old_tag)
+                              phase="old-version-before", home=home, timeout=10), args.old_tag)
     native_run(["bash", str(ROOT / "scripts/verify-mcp-binary.sh"),
-                str(installed), args.old_tag], home=home, timeout=30)
-
-    report = native_run(
-        ["bash", str(ROOT / "scripts/verify-dev-release.sh"),
-         "--tag", args.new_tag, "--assets-dir", args.new_dir,
-         "--require-all-checks"], home=home, timeout=120)
-    strict_receipt(report, args.new_tag)
-    require(digest(installed.read_bytes()) == args.old_sha,
-            "PREVIOUS_INSTALLATION_BYTES_CHANGED")
+                str(installed), args.old_tag], phase="old-mcp-before", home=home, timeout=30)
 
     root = cas.init(base=temp)["root"]
     previous = stage_and_select(
@@ -277,6 +278,8 @@ def execute(args):
         head=args.old_head, sha=args.old_sha,
         sums_sha=args.old_sums_sha, previous=None)
     first_pin = previous["pin_sha256"]
+    print(json.dumps({"phase": "old-selection", "receipt": previous,
+                      "status": cas.status(root)}), file=sys.stderr, flush=True)
     changed = None
     restored = False
     try:
@@ -284,32 +287,46 @@ def execute(args):
             cas, root, args.new_dir, tag=args.new_tag,
             head=args.new_head, sha=args.new_sha,
             sums_sha=args.new_sums_sha, previous=first_pin)
-        require(cas.status(root)["selected"]["artifact_sha256"] == args.new_sha,
+        selected = cas.status(root)
+        print(json.dumps({"phase": "new-selection", "receipt": changed,
+                          "status": selected}), file=sys.stderr, flush=True)
+        require(selected["selected"]["artifact_sha256"] == args.new_sha,
                 "NEW_CAS_SELECTION_FAILED")
+        report = native_run(
+            ["bash", str(ROOT / "scripts/verify-dev-release.sh"),
+             "--tag", args.new_tag, "--assets-dir", args.new_dir,
+             "--require-all-checks"], phase="new-strict-smoke", home=home, timeout=120)
+        strict_receipt(report, args.new_tag)
+        require(digest(installed.read_bytes()) == args.old_sha,
+                "PREVIOUS_INSTALLATION_BYTES_CHANGED")
     finally:
         if changed is not None:
             back = cas.rollback(root, receipt_id=changed["receipt_id"],
                                 receipt_sha256=changed["receipt_sha256"],
                                 allow_disposable=True)
+            print(json.dumps({"phase": "rollback", "receipt": back,
+                              "status": cas.status(root)}), file=sys.stderr, flush=True)
             restored = (back["pin_sha256"] == first_pin
                         and cas.status(root)["selected"]["artifact_sha256"] == args.old_sha)
     require(restored, "PREVIOUS_CAS_RESTORE_FAILED")
     try:
         cas.rollback(root, receipt_id=changed["receipt_id"],
                      receipt_sha256=changed["receipt_sha256"], allow_disposable=True)
-    except (cas.Hold, FileNotFoundError):
-        pass
+    except (cas.Hold, FileNotFoundError) as exc:
+        print(json.dumps({"phase": "rollback-replay", "refusal": str(exc)}),
+              file=sys.stderr, flush=True)
     else:
         raise Hold("ROLLBACK_REPLAY_ACCEPTED")
 
     assert_version(native_run([str(installed), "--version"],
-                              home=home, timeout=10), args.old_tag)
+                              phase="old-version-after", home=home, timeout=10), args.old_tag)
     native_run(["bash", str(ROOT / "scripts/verify-mcp-binary.sh"),
-                str(installed), args.old_tag], home=home, timeout=30)
+                str(installed), args.old_tag], phase="old-mcp-after", home=home, timeout=30)
     require(digest(installed.read_bytes()) == args.old_sha,
             "PREVIOUS_VERSION_DRIFT_AFTER_ROLLBACK")
     return {"schema": "keycli.native-dev-cas-local.v1",
             "status": "LOCAL_DEV_NATIVE_CAS_RESTORED_NOT_ATTESTED",
+            "execution_mode": "personal-local" if args.personal_local else "private-runner",
             "old_source": args.old_head, "new_source": args.new_head,
             "old_sha256": args.old_sha, "new_sha256": args.new_sha,
             "old_pin_sha256": first_pin, "restored": restored,
@@ -325,6 +342,8 @@ def parser():
                  "old-sums-sha", "new-sums-sha", "new-gateway-sha"):
         p.add_argument("--" + name, required=True)
     p.add_argument("--allow-native-disposable-exec", action="store_true")
+    p.add_argument("--personal-local", action="store_true",
+                   help="Use a sealed local disposable guest without GitHub Runner metadata")
     return p
 
 
@@ -338,6 +357,7 @@ def main(argv=None):
         result = {"schema": "keycli.native-dev-cas-local.v1",
                   "status": "HOLD_NO_AUTOMATIC_RETRY",
                   "error_type": type(e).__name__,
+                  "reason": str(e) if isinstance(e, Hold) else None,
                   "original_host_verified": False,
                   "producer_verified": False,
                   "authorizes_operating": False, "authorizes_merge": False}

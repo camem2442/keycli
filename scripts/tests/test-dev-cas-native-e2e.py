@@ -55,6 +55,28 @@ class NativeSourceBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(e2e.Hold, "ONE_SHOT_PRIVATE_RUNNER_REQUIRED"):
                 e2e.preflight(value)
 
+    def test_personal_local_requires_sealed_host_and_no_runner_session(self):
+        value = sample()
+        value.allow_native_disposable_exec = True
+        value.personal_local = True
+        with patch.object(e2e.platform, "system", return_value="Linux"), \
+                patch.object(e2e.platform, "machine", return_value="aarch64"), \
+                patch.object(e2e.os, "geteuid", return_value=1001):
+            with patch.dict(e2e.os.environ, admitted(), clear=True):
+                with self.assertRaisesRegex(e2e.Hold, "PERSONAL_LOCAL_REQUIRES_NO_RUNNER_SESSION"):
+                    e2e.preflight(value)
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                value.old_dir = str(root / "old")
+                value.new_dir = str(root / "new")
+                for directory in (value.old_dir, value.new_dir):
+                    Path(directory).mkdir(mode=0o700)
+                with patch.dict(e2e.os.environ, {}, clear=True), \
+                        patch.object(e2e.os, "geteuid", return_value=root.stat().st_uid), \
+                        patch.object(e2e, "observe_sealed_runtime", return_value={}):
+                    with self.assertRaisesRegex(e2e.Hold, "SEALED_RUNTIME_IDENTITY_MISSING"):
+                        e2e.preflight(value)
+
     def test_credential_presence_rejected(self):
         value = sample()
         value.allow_native_disposable_exec = True
@@ -110,7 +132,7 @@ class NativeSourceBoundaryTests(unittest.TestCase):
 
     def test_private_source_refuses_symlink_and_unpinned_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             item = root / "kc-linux-arm64"
             item.write_bytes(b"demo-untrusted-bytes")
             item.chmod(0o600)
