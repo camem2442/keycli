@@ -191,7 +191,9 @@ therefore neither successful #73 G2/G4 source jobs nor passing source
 fixtures constitute E2E acceptance. The original host/standard-vm owner
 must integrate this lane with the current private workflow and genuine
 old/new source manifests, then capture the credential isolation/teardown
-evidence before any Ready/merge. No new resident Runner or hosted fallback.
+evidence when using the private owner path for operating acceptance. No new
+resident Runner or hosted fallback. Personal development source integration
+uses the criteria below.
 
 ## Host entry / bounded preconditions
 
@@ -287,6 +289,8 @@ Strict mode rejects missing or skipped checks, but its JSON result still states 
 
 ## Required original evidence / stop conditions
 
+These E0–E6 gates apply to the private owner path for operating acceptance.
+
 | Gate | Necessary original evidence | Refuse when |
 | --- | --- | --- |
 | E0 | Exact product #76 HEAD/base/TREE, original source checks and standalone approved host request | Draft-only local fixtures or changed source |
@@ -299,11 +303,38 @@ Strict mode rejects missing or skipped checks, but its JSON result still states 
 
 Completion requires original E0–E6 passed under #545/#527 **and** an independent check that no real owner `~/.local/bin/kc` was touched. Record missing evidence as `NOT_VERIFIED`; do not invent timing, signatures or an actual published Release from this procedure.
 
-This runbook changes no code, product default CI, release workflow, runtime configuration, operating files or host admission. Existing public-repo `[skip ci]` paid-CI fence remains until #73/#75 safely replace it. Merge of #76 source remains HOLD until its original free native/source required checks pass.
+Stable publication, replacement of an operating `kc`, and R4 automatic
+installation each require the applicable original producer, host, and approval
+evidence. A source merge supplies no operating grant. Repository rules and
+the release workflow continue to apply.
 
-## Personal development prerelease path
+## Personal development source integration
 
-For a separately approved manual dev/rc prerelease, the solo maintainer can use
+For changes to the development-only CAS or its verifier, the solo maintainer
+can accept a source PR using the existing disposable Golden VM without a
+GitHub Runner or signed operating producer. Before Ready and merge:
+
+- Bind the reviewed PR HEAD and current `main` to the changed source, passing
+  owning source checks, and any checks GitHub or repository policy requires.
+- For changes to executable code, verification, or the isolation boundary,
+  run the changed candidate on actual Linux ARM64 in a fresh Golden overlay
+  with the sealed rootless sandbox. Use genuine old and new binaries, pin
+  both manifests and the executed asset bytes, and record all seven strict
+  checks, restoration of the old bytes, version and selection, duplicate
+  rollback refusal, VM stop, temporary overlay cleanup and unchanged Golden
+  hash. Retain the original logs and receipt outside the guest.
+- For a documentation-only update after such a run, retain the receipt's
+  tested commit and record its relation to the final PR HEAD. Reuse the
+  receipt only after confirming the same `main` base and that executable
+  code, test and workflow inputs, and the actual VM procedure are unchanged.
+  Re-run the relevant documentation and policy checks on the final HEAD.
+- Resolve blocking review findings and confirm the current merge rules.
+  Record the source decision and the evidence scope on the PR.
+
+## Personal development execution and prerelease path
+
+For personal development source integration or a separately approved manual
+dev/rc prerelease, the solo maintainer can use
 the same standard-vm Golden and rootless no-network sandbox without registering
 a GitHub Runner. Pass both `--allow-native-disposable-exec` and
 `--personal-local` inside the sandbox with a clean environment. The script
@@ -322,6 +353,6 @@ change confined to the installer, report when the two builds contain the same
 Go application code. Separate dev/rc labels and exact source commits exercise
 installer rollback under that scope. An existing stable asset cannot be
 renamed for this purpose. A missing mandatory smoke check still stops the
-prerelease acceptance. The resulting receipt can support a manual prerelease
-decision. It does not enable the public publisher, authorize R4 or grant
-operating access.
+prerelease acceptance or source integration. The resulting receipt supports
+only the recorded decision and validation scope. Public publishing, R4
+activation, and operating access require separate approval.
