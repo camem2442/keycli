@@ -21,6 +21,9 @@ ASSETS_DIR=""
 USE_INSTALLER=false
 ALLOW_ARCH_SKIP=false
 REQUIRE_ALL_CHECKS=false
+EXPECTED_HOST_SHA=""
+EXPECTED_GATEWAY_SHA=""
+EXPECTED_MANIFEST_SHA=""
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/kc-dev-release.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -32,6 +35,9 @@ while [[ $# -gt 0 ]]; do
     --use-installer) USE_INSTALLER=true; shift ;;
     --allow-arch-skip) ALLOW_ARCH_SKIP=true; shift ;;
     --require-all-checks) REQUIRE_ALL_CHECKS=true; shift ;;
+    --expected-host-sha256) EXPECTED_HOST_SHA="${2:?}"; shift 2 ;;
+    --expected-gateway-sha256) EXPECTED_GATEWAY_SHA="${2:?}"; shift 2 ;;
+    --expected-manifest-sha256) EXPECTED_MANIFEST_SHA="${2:?}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
@@ -57,6 +63,16 @@ case "$os" in darwin|linux) ;; *) os=unknown ;; esac
 HOST_ASSET="kc-${os}-${arch}"
 GATEWAY_ASSET="kc-gateway-${os}-${arch}"
 
+if [[ -n "$EXPECTED_HOST_SHA$EXPECTED_GATEWAY_SHA$EXPECTED_MANIFEST_SHA" ]]; then
+  if ! $REQUIRE_ALL_CHECKS || $USE_INSTALLER || [[ -z "$ASSETS_DIR" ]] ||
+     [[ ! "$EXPECTED_HOST_SHA" =~ ^[a-f0-9]{64}$ ||
+        ! "$EXPECTED_GATEWAY_SHA" =~ ^[a-f0-9]{64}$ ||
+        ! "$EXPECTED_MANIFEST_SHA" =~ ^[a-f0-9]{64}$ ]]; then
+    echo 'pinned verification requires a local asset directory, strict mode and all three SHA-256 digests' >&2
+    exit 64
+  fi
+fi
+
 fail=0
 REQUIRED_LOG="$WORK/required-checks.tsv"
 : > "$REQUIRED_LOG"
@@ -81,7 +97,19 @@ if [[ -f "$PREEXISTING" ]]; then PREEXISTING_SHA="$(sha_of "$PREEXISTING")"; fi
 
 mkdir -p "$WORK/assets"
 if [[ -n "$ASSETS_DIR" ]]; then
-  cp "$ASSETS_DIR"/* "$WORK/assets/" 2>/dev/null
+  if [[ -n "$EXPECTED_HOST_SHA" ]]; then
+    for asset in "$HOST_ASSET" "$GATEWAY_ASSET" SHA256SUMS; do
+      cp "$ASSETS_DIR/$asset" "$WORK/assets/$asset" || exit 3
+    done
+    if [[ "$(sha_of "$WORK/assets/$HOST_ASSET")" != "$EXPECTED_HOST_SHA" ||
+          "$(sha_of "$WORK/assets/$GATEWAY_ASSET")" != "$EXPECTED_GATEWAY_SHA" ||
+          "$(sha_of "$WORK/assets/SHA256SUMS")" != "$EXPECTED_MANIFEST_SHA" ]]; then
+      echo '{"status":"BLOCK","reason":"pinned-asset-drift"}'
+      exit 3
+    fi
+  else
+    cp "$ASSETS_DIR"/* "$WORK/assets/" 2>/dev/null
+  fi
   note assets "local: $ASSETS_DIR"
 else
   if ! gh release download "$TAG" -R "$REPO" --pattern '*' --dir "$WORK/assets" >/dev/null 2>&1; then
@@ -145,10 +173,28 @@ if [[ -f "$WORK/assets/$HOST_ASSET" ]]; then
     cp "$WORK/assets/$HOST_ASSET" "$PREFIX/kc"
   fi
   chmod 755 "$PREFIX/kc"
-  cmp -s "$WORK/assets/$HOST_ASSET" "$PREFIX/kc" && check installed_bytes PASS || check installed_bytes FAIL
+  if cmp -s "$WORK/assets/$HOST_ASSET" "$PREFIX/kc" &&
+     [[ -z "$EXPECTED_HOST_SHA" || "$(sha_of "$PREFIX/kc")" == "$EXPECTED_HOST_SHA" ]]; then
+    check installed_bytes PASS
+  else
+    check installed_bytes FAIL
+    if $REQUIRE_ALL_CHECKS; then exit 3; fi
+  fi
 
-  version_out="$("$PREFIX/kc" --version 2>&1 || true)"
-  if [[ "$version_out" == *"$TAG"* ]]; then check installed_version PASS; else check installed_version "FAIL ($version_out)"; fi
+  version_out="$("$PREFIX/kc" --version 2>&1)"
+  version_status=$?
+  if $REQUIRE_ALL_CHECKS; then
+    version_pattern='^kc version ([^[:space:]]+) \([^[:space:]()]+\)$'
+    if [[ "$version_status" -eq 0 && "$version_out" =~ $version_pattern && "${BASH_REMATCH[1]}" == "$TAG" ]]; then
+      check installed_version PASS
+    else
+      check installed_version "FAIL ($version_out)"
+    fi
+  elif [[ "$version_out" == *"$TAG"* ]]; then
+    check installed_version PASS
+  else
+    check installed_version "FAIL ($version_out)"
+  fi
 
   if bash "$ROOT/scripts/verify-mcp-binary.sh" "$PREFIX/kc" "$TAG" >"$WORK/mcp.log" 2>&1; then
     check mcp_smoke PASS
@@ -160,7 +206,8 @@ fi
 # 4. downloaded assets may lack executable permissions; test a private copy.
 if [[ -f "$WORK/assets/$GATEWAY_ASSET" ]]; then
   gateway="$WORK/gateway"
-  if cp "$WORK/assets/$GATEWAY_ASSET" "$gateway" && chmod 700 "$gateway"; then
+  if cp "$WORK/assets/$GATEWAY_ASSET" "$gateway" && chmod 700 "$gateway" &&
+     [[ -z "$EXPECTED_GATEWAY_SHA" || "$(sha_of "$gateway")" == "$EXPECTED_GATEWAY_SHA" ]]; then
     report="$(env -u KC_PROVIDER_EFFECTS "$gateway" -lock-report 2>&1)"
     locked_status=$?
     enabled_report="$(KC_PROVIDER_EFFECTS=enabled "$gateway" -lock-report 2>&1)"

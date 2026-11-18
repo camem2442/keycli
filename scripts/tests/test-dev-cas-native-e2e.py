@@ -2,7 +2,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import platform
 import stat
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -119,6 +121,38 @@ class NativeSourceBoundaryTests(unittest.TestCase):
                                json.dumps({"status": "PASS", "tag": "v0.10.0-dev.2"}),
                                "v0.10.0-dev.2")
 
+    def test_version_requires_exact_release_tag(self):
+        output = "kc version v0.10.0-rc.1000 (abc123)\n"
+        e2e.assert_version(output, "v0.10.0-rc.1000")
+        for observed in (output, "", "v0.10.0-rc.100\n"):
+            with self.subTest(observed=observed):
+                with self.assertRaisesRegex(e2e.Hold, "WRONG_NATIVE_VERSION"):
+                    e2e.assert_version(observed, "v0.10.0-rc.100")
+
+    def test_strict_shell_stops_when_copied_assets_do_not_match_pins(self):
+        arch = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64",
+                "amd64": "amd64"}.get(platform.machine())
+        system = platform.system().lower()
+        if arch is None or system not in ("linux", "darwin"):
+            self.skipTest("verifier does not support this host")
+        host, gateway = f"kc-{system}-{arch}", f"kc-gateway-{system}-{arch}"
+        fixtures = {host: b"host fixture", gateway: b"gateway fixture",
+                    "SHA256SUMS": b"manifest fixture"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, data in fixtures.items():
+                (root / name).write_bytes(data)
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts/verify-dev-release.sh"),
+                 "--tag", "v0.10.0-rc.1000", "--require-all-checks",
+                 "--assets-dir", str(root), "--expected-host-sha256", "0" * 64,
+                 "--expected-gateway-sha256", e2e.digest(fixtures[gateway]),
+                 "--expected-manifest-sha256", e2e.digest(fixtures["SHA256SUMS"])],
+                env={"PATH": "/usr/bin:/bin", "HOME": str(root)},
+                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn('"reason":"pinned-asset-drift"', result.stdout)
+
     def test_duplicate_strict_receipt_is_not_a_pass(self):
         doc = {"schema": "keycli.dev-release-strict.v1",
                "status": "PASS_ALL_REQUIRED_CHECKS_NOT_ATTESTED",
@@ -187,11 +221,31 @@ class NativeSourceBoundaryTests(unittest.TestCase):
                 with self.assertRaises(e2e.Hold):
                     e2e.check_sealed_runtime(observation)
 
+    def test_checkout_and_mount_sources_are_confined(self):
+        source = Path("/work/source")
+        mounts = {"/": ["ro"], "/work": ["rw"], str(source): ["ro"],
+                  "/tmp": ["rw"], "/etc/passwd": ["ro"], "/proc/kcore": ["ro"]}
+        e2e.check_readonly_checkout(mounts, source)
+        for changed in ({"/work/source": ["rw"]},
+                        {"/work/source/scripts": ["rw"]}):
+            with self.assertRaisesRegex(e2e.Hold, "SOURCE_CHECKOUT_MUST_BE_READ_ONLY"):
+                e2e.check_readonly_checkout({**mounts, **changed}, source)
+        types = {"/": "overlay", "/work": "ext4", str(source): "ext4",
+                 "/tmp": "tmpfs", "/proc": "proc", "/dev/pts": "devpts",
+                 "/etc/passwd": "ext4", "/proc/kcore": "devtmpfs"}
+        e2e.check_mount_profile(mounts, types, source)
+        with self.assertRaisesRegex(e2e.Hold, "RUNTIME_FILE_MUST_BE_READ_ONLY"):
+            e2e.check_mount_profile({**mounts, "/etc/passwd": ["rw"]}, types, source)
+        with self.assertRaisesRegex(e2e.Hold, "UNEXPECTED_RUNTIME_MOUNT"):
+            e2e.check_mount_profile(mounts, {**types, "/work/extra": "ext4"}, source)
+        with self.assertRaisesRegex(e2e.Hold, "DISPOSABLE_SCRATCH_MOUNT_REQUIRED"):
+            e2e.check_mount_profile(mounts, {**types, "/tmp": "ext4"}, source)
+
     def test_real_source_checks_use_kernel_not_caller_receipt(self):
         text = (ROOT / "scripts/dev_cas_native_e2e.py").read_text()
         for piece in ("/proc/self/status", "/proc/self/mountinfo",
                       "/proc/self/uid_map", "socket.if_nameindex",
-                      "check_sealed_runtime(observe_sealed_runtime())"):
+                      "check_sealed_runtime(probe)"):
             self.assertIn(piece, text)
         self.assertNotIn("trust_host_admission=True", text)
 

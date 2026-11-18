@@ -15,7 +15,6 @@ from pathlib import Path
 import platform
 import re
 import socket
-import shutil
 import stat
 import subprocess
 import sys
@@ -73,7 +72,7 @@ def observe_checkout():
            "HOME": tempfile.gettempdir(),
            "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1",
            "GIT_CONFIG_GLOBAL": "/dev/null",
-           "GIT_LFS_SKIP_SMUDGE": "1"}
+           "GIT_LFS_SKIP_SMUDGE": "1", "GIT_OPTIONAL_LOCKS": "0"}
     def git(*cmd):
         done = subprocess.run(["git", "-C", str(ROOT), *cmd],
                               stdin=subprocess.DEVNULL, capture_output=True,
@@ -121,10 +120,14 @@ def observe_sealed_runtime():
     require(all(k in fields for k in caps + ["NoNewPrivs"]),
             "SEALED_RUNTIME_PROC_STATUS_INCOMPLETE")
     mounts = {}
+    mount_types = {}
     for line in Path("/proc/self/mountinfo").read_text(encoding="ascii").splitlines():
-        columns = line.split()
-        if len(columns) > 5:
-            mounts[columns[4]] = columns[5].split(",")
+        info, filesystem = line.split(" - ", 1)
+        columns = info.split()
+        target = re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), columns[4])
+        require(target not in mounts, "AMBIGUOUS_RUNTIME_MOUNT")
+        mounts[target] = columns[5].split(",")
+        mount_types[target] = filesystem.split()[0]
     uid_map = []
     for line in Path("/proc/self/uid_map").read_text(encoding="ascii").splitlines():
         fields3 = [int(z) for z in line.split()]
@@ -139,8 +142,43 @@ def observe_sealed_runtime():
         "capabilities_zero": all(int(fields[k].strip(), 16) == 0 for k in caps),
         "credential_paths_absent": absent,
         "interfaces": sorted(name for _, name in socket.if_nameindex()),
-        "mounts": mounts, "uid_maps": uid_map,
+        "mounts": mounts, "mount_types": mount_types, "uid_maps": uid_map,
     }
+
+
+def check_readonly_checkout(mounts, root):
+    parents = (root, *root.parents)
+    enclosing = next((mounts[str(path)] for path in parents if str(path) in mounts), ())
+    require("ro" in enclosing and all(
+        "ro" in options for path, options in mounts.items()
+        if root in Path(path).parents
+    ), "SOURCE_CHECKOUT_MUST_BE_READ_ONLY")
+
+
+def check_mount_profile(mounts, types, root):
+    require(types.get("/tmp") == "tmpfs" and "rw" in mounts.get("/tmp", ()),
+            "DISPOSABLE_SCRATCH_MOUNT_REQUIRED")
+    scratch = {"/": None, "/work": None, str(root): None,
+               "/opt/keycli-go-modcache": None, "/tmp": {"tmpfs"}}
+    virtual = {
+        "/proc": {"proc", "tmpfs"},
+        "/sys": {"sysfs", "cgroup", "cgroup2", "tmpfs"},
+        "/dev": {"tmpfs", "devtmpfs", "devpts", "mqueue", "proc"},
+        "/run": {"tmpfs"},
+    }
+    runtime_files = {"/etc/group", "/etc/hostname", "/etc/passwd",
+                     "/etc/resolv.conf", "/run/.containerenv"}
+    masked_proc_files = {"/proc/kcore", "/proc/keys", "/proc/latency_stats",
+                         "/proc/timer_list"}
+    for target, kind in types.items():
+        if target in scratch:
+            permitted = scratch[target]
+            require(permitted is None or kind in permitted, "UNEXPECTED_RUNTIME_MOUNT")
+        elif target in runtime_files or (target in masked_proc_files and kind == "devtmpfs"):
+            require("ro" in mounts[target], "RUNTIME_FILE_MUST_BE_READ_ONLY")
+        else:
+            require(any((target == prefix or target.startswith(prefix + "/")) and kind in kinds
+                        for prefix, kinds in virtual.items()), "UNEXPECTED_RUNTIME_MOUNT")
 
 
 def preflight(args):
@@ -179,7 +217,10 @@ def preflight(args):
                 and not directory.lstat().st_mode & 0o077,
                 "ASSET_DIRECTORY_NOT_PRIVATE")
 
-    check_sealed_runtime(observe_sealed_runtime())
+    probe = observe_sealed_runtime()
+    check_sealed_runtime(probe)
+    check_readonly_checkout(probe["mounts"], ROOT)
+    check_mount_profile(probe["mounts"], probe["mount_types"], ROOT)
     current_head, dirty = observe_checkout()
     check_original_checkout(current_head, dirty, args.new_head)
 
@@ -195,7 +236,7 @@ def load_cas():
 def native_run(cmd, *, phase, home, timeout):
     env = {"PATH": "/usr/bin:/bin", "HOME": str(home),
            "XDG_CONFIG_HOME": str(home / ".config"),
-           "LANG": "C", "LC_ALL": "C", "TMPDIR": tempfile.gettempdir()}
+           "LANG": "C", "LC_ALL": "C", "TMPDIR": "/tmp"}
     result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True,
                             stdin=subprocess.DEVNULL, text=True,
                             timeout=timeout, check=False)
@@ -209,7 +250,8 @@ def native_run(cmd, *, phase, home, timeout):
 
 
 def assert_version(output, expected):
-    require(expected in output.strip().splitlines()[0], "WRONG_NATIVE_VERSION")
+    match = re.fullmatch(r"kc version (\S+) \([^\s()]+\)", output.rstrip("\n"))
+    require(match is not None and match[1] == expected, "WRONG_NATIVE_VERSION")
 
 
 def strict_receipt(output, tag):
@@ -251,19 +293,37 @@ def execute(args):
     preflight(args)
     old_data = owner_file(Path(args.old_dir) / "kc-linux-arm64",
                           args.old_sha, name="kc-linux-arm64")
-    owner_file(Path(args.old_dir) / "SHA256SUMS",
-               args.old_sums_sha, name="SHA256SUMS")
-    owner_file(Path(args.new_dir) / "kc-linux-arm64",
-               args.new_sha, name="kc-linux-arm64")
-    owner_file(Path(args.new_dir) / "kc-gateway-linux-arm64",
-               args.new_gateway_sha, name="kc-gateway-linux-arm64")
-    owner_file(Path(args.new_dir) / "SHA256SUMS",
-               args.new_sums_sha, name="SHA256SUMS")
+    old_sums = owner_file(Path(args.old_dir) / "SHA256SUMS",
+                          args.old_sums_sha, name="SHA256SUMS")
+    new_pins = {"kc-linux-arm64": args.new_sha,
+                "kc-gateway-linux-arm64": args.new_gateway_sha,
+                "SHA256SUMS": args.new_sums_sha}
+    new_assets = {
+        name: owner_file(Path(args.new_dir) / name, sha, name=name)
+        for name, sha in new_pins.items()
+    }
     cas = load_cas()
-    temp = Path(tempfile.mkdtemp(prefix="kc-native-e2e-", dir=tempfile.gettempdir()))
+    temp = Path(tempfile.mkdtemp(prefix="kc-native-e2e-", dir="/tmp"))
     temp.chmod(0o700)
+    old_snapshot = temp / "old"
+    new_snapshot = temp / "new"
+    for directory, files in (
+        (old_snapshot, {"kc-linux-arm64": old_data, "SHA256SUMS": old_sums}),
+        (new_snapshot, new_assets),
+    ):
+        directory.mkdir(mode=0o700)
+        for name, data in files.items():
+            fd = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
     home = temp / "home"
     (home / ".local/bin").mkdir(parents=True, mode=0o700)
+    root = cas.init(base=temp)["root"]
+    previous = stage_and_select(
+        cas, root, old_snapshot, tag=args.old_tag,
+        head=args.old_head, sha=args.old_sha,
+        sums_sha=args.old_sums_sha, previous=None)
+    first_pin = previous["pin_sha256"]
     installed = home / ".local/bin/kc"
     installed.write_bytes(old_data)
     installed.chmod(0o500)
@@ -272,19 +332,13 @@ def execute(args):
     native_run(["bash", str(ROOT / "scripts/verify-mcp-binary.sh"),
                 str(installed), args.old_tag], phase="old-mcp-before", home=home, timeout=30)
 
-    root = cas.init(base=temp)["root"]
-    previous = stage_and_select(
-        cas, root, args.old_dir, tag=args.old_tag,
-        head=args.old_head, sha=args.old_sha,
-        sums_sha=args.old_sums_sha, previous=None)
-    first_pin = previous["pin_sha256"]
     print(json.dumps({"phase": "old-selection", "receipt": previous,
                       "status": cas.status(root)}), file=sys.stderr, flush=True)
     changed = None
     restored = False
     try:
         changed = stage_and_select(
-            cas, root, args.new_dir, tag=args.new_tag,
+            cas, root, new_snapshot, tag=args.new_tag,
             head=args.new_head, sha=args.new_sha,
             sums_sha=args.new_sums_sha, previous=first_pin)
         selected = cas.status(root)
@@ -294,7 +348,10 @@ def execute(args):
                 "NEW_CAS_SELECTION_FAILED")
         report = native_run(
             ["bash", str(ROOT / "scripts/verify-dev-release.sh"),
-             "--tag", args.new_tag, "--assets-dir", args.new_dir,
+             "--tag", args.new_tag, "--assets-dir", str(new_snapshot),
+             "--expected-host-sha256", args.new_sha,
+             "--expected-gateway-sha256", args.new_gateway_sha,
+             "--expected-manifest-sha256", args.new_sums_sha,
              "--require-all-checks"], phase="new-strict-smoke", home=home, timeout=120)
         strict_receipt(report, args.new_tag)
         require(digest(installed.read_bytes()) == args.old_sha,

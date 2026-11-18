@@ -308,7 +308,11 @@ the same standard-vm Golden and rootless no-network sandbox without registering
 a GitHub Runner. Pass both `--allow-native-disposable-exec` and
 `--personal-local` inside the sandbox with a clean environment. The script
 checks the same Linux ARM64, nonroot, mount, capability and credential
-boundaries. The host keeps the exact Git commits, independently checked
+boundaries. Mount the exact source checkout read-only beneath `/work`,
+use a container-local `/tmp` tmpfs for scratch, and avoid extra host mounts.
+The adapter snapshots the pinned assets and manifest before use and the
+strict verifier checks the copied digests before running the binaries.
+The host keeps the exact Git commits, independently checked
 manifest and binary hashes, raw stderr audit stream and stdout receipt,
 then records shutdown, overlay removal and Golden integrity.
 
