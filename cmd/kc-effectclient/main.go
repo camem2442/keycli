@@ -43,7 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&req.Provider, "provider", "cloudflare", "provider name")
 	providerOperation := flags.String("provider-operation", "",
 		"provider operation that selects the admission action (required for operational submit; unused for status and reconcile)")
-	flags.StringVar(&req.Action, "action", "issue", "provider action")
+	flags.StringVar(&req.Action, "action", "",
+		"provider action; derived from -provider-operation unless set (a mismatching value is refused)")
 	flags.StringVar(&req.TargetDigest, "target", "", "target digest")
 	flags.StringVar(&req.PlanDigest, "plan", "", "plan digest")
 	flags.StringVar(&req.GrantDigest, "grant", "", "grant digest")
