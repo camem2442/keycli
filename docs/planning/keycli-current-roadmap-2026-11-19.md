@@ -38,6 +38,30 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 - **열린 PR 12건, 전부 Draft** — #71 #70 #63 #62 #61 #59 #46 #45 #42 #40 #29 #25. 11-16 표의 13건과 다르다(#52 종료, #72 병합). 이 수치는 자동 갱신되지 않는다.
 - **Mac 1회 설치** — 아래.
 
+## PR 재감사 (2026-11-19)
+
+`origin/main` `352e12d` 기준으로 12개 열린 PR의 파일 blob을 비교하고, 각 PR에 감사 댓글을 남겼다.
+판정은 11-16 규칙(정확 중복만 종료, 나머지는 Draft/HOLD)을 그대로 따른다. 증거:
+`_management/evidence/keycli-pr-cleanup-20261119.339978/`.
+
+| PR | 동일/상이/main에 없음 | 판정 |
+|---|---|---|
+| #71 | 0/1/0 | 종료 후보 — noqueue·동시성이 main `test.yml`에 이미 있음 |
+| #70 | 0/2/2 | 종료 후보 — #73 대체, G4가 상시 Flip3 러너 금지 |
+| #63 | 1/2/0 | HOLD — Cloudflare expiry 의미 비교 필요 |
+| #62 | 0/1/0 | HOLD — Journal 계약 의미 비교 필요 |
+| #61 | 3/12/0 | HOLD — 검증 전용, DO NOT MERGE |
+| #59 | 0/3/0 | HOLD — 최신 main에서 재구성·재검증 필요 |
+| #46 | 0/1/16 | HOLD — 역사 계획, 선택적 이전 |
+| #45 | 0/1/4 | DEFERRED — infra classifier와 소유 중복 |
+| #42 | 0/2/0 | HOLD — infra pin/digest 재자격화 |
+| #40 | 0/1/1 | HOLD — 역사 문서 보존 |
+| #29 | 0/5/8 | HOLD — 고유 attestation 경로 |
+| #25 | 8/4/0 | HOLD — 검증 전용, DO NOT MERGE |
+
+종료 후보 2건(#70·#71)은 파일 차이가 있어 11-16 규칙상 자동 종료하지 않았다. 브랜치는 보존되며,
+명시 승인 후에만 닫는다.
+
 ## Mac 1회 설치 (2026-11-19)
 
 증거: `/Users/k/Developer/_management/evidence/keycli-mac-install-v010-20261119.OxeNKC/`
