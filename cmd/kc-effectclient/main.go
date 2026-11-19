@@ -41,7 +41,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&req.GoalID, "goal", "", "goal id")
 	flags.StringVar(&req.MutationID, "mutation", "", "mutation id")
 	flags.StringVar(&req.Provider, "provider", "cloudflare", "provider name")
-	flags.StringVar(&req.Operation, "provider-operation", "", "concrete operation for a synthetic submission")
+	providerOperation := flags.String("provider-operation", "", "provider operation that selects the admission action")
 	flags.StringVar(&req.Action, "action", "issue", "provider action")
 	flags.StringVar(&req.TargetDigest, "target", "", "target digest")
 	flags.StringVar(&req.PlanDigest, "plan", "", "plan digest")
@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	req.ExpiresAt = time.Now().Add(*ttl).UTC()
 	switch *mode {
 	case "operational":
-		if req.Operation != "" || *submitURL != "" || *resolve != "" || *dryRun || *config == "" || *keyFile == "" {
+		if *submitURL != "" || *resolve != "" || *dryRun || *config == "" || *keyFile == "" {
 			fmt.Fprintln(stderr, "operational mode requires config and key-file and rejects url, resolve and dry-run")
 			return 64
 		}
@@ -91,6 +91,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "operational mode requires a positive timeout and a TTL of up to ten minutes")
 			return 64
 		}
+		// The admission class of provider-operation is fixed by the gateway, and
+		// the operational gateway refuses a request that carries the operation
+		// field. Classify it here so a fixed action is signed and a mislabelled
+		// one is refused before the key is read or anything leaves the process.
+		if *providerOperation == "" {
+			fmt.Fprintln(stderr, "operational mode requires -provider-operation")
+			return 64
+		}
+		action, err := resolveAction(req.Provider, *providerOperation, req.Action, actionSet)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 64
+		}
+		req.Action = action
 		origin, err := effectclient.LoadOrigin(*config)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -108,33 +122,40 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "synthetic mode requires url and supports only submit using KC_EFFECT_KEY")
 			return 64
 		}
-		// The admission class of provider-operation is fixed by the gateway.
-		// Sending the flag default ("issue") to an operation that needs another
-		// action is refused as ADMISSION_REJECTED after the trusted host has
-		// already been consulted, which hides the cause. Resolve it here, or
-		// name the mismatch before anything leaves the process.
-		if req.Operation == "" {
+		if *providerOperation == "" {
 			fmt.Fprintln(stderr, "synthetic submit requires -provider-operation")
 			return 64
 		}
-		expected, _, err := hostbridge.ClassifyOperation(req.Provider, req.Operation)
+		req.Operation = *providerOperation
+		action, err := resolveAction(req.Provider, req.Operation, req.Action, actionSet)
 		if err != nil {
-			fmt.Fprintf(stderr, "provider-operation %q is not admitted for provider %q\n",
-				req.Operation, req.Provider)
+			fmt.Fprintln(stderr, err)
 			return 64
 		}
-		if !actionSet {
-			req.Action = expected
-		} else if req.Action != expected {
-			fmt.Fprintf(stderr, "-action %q does not match %s/%s, which is %q; omit -action or send %q\n",
-				req.Action, req.Provider, req.Operation, expected, expected)
-			return 64
-		}
+		req.Action = action
 		return runSynthetic(*submitURL, *resolve, *dryRun, *timeout, req, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, "mode must be operational or synthetic")
 		return 64
 	}
+}
+
+// resolveAction returns the admission action implied by provider/operation.
+// The gateway fixes that class, and sending a differently labelled -action is
+// refused there as ADMISSION_REJECTED only after the trusted host has already
+// been consulted, which hides the cause. Deriving or checking it here keeps
+// the client from signing a request it knows is mislabelled. A missing
+// -provider-operation is left to the caller so each mode can name its own flag.
+func resolveAction(provider, operation, action string, actionSet bool) (string, error) {
+	expected, _, err := hostbridge.ClassifyOperation(provider, operation)
+	if err != nil {
+		return "", fmt.Errorf("provider-operation %q is not admitted for provider %q", operation, provider)
+	}
+	if actionSet && action != expected {
+		return "", fmt.Errorf("-action %q does not match %s/%s, which is %q; omit -action or send %q",
+			action, provider, operation, expected, expected)
+	}
+	return expected, nil
 }
 
 func runOperational(client *http.Client, origin url.URL, operation string, req effectgateway.Request, key []byte, ttl time.Duration, stdout, stderr io.Writer) int {
