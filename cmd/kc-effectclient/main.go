@@ -74,7 +74,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "goal, mutation, owner, session and positive generation are required")
 		return 64
 	}
-	if *operation == "submit" && (req.TargetDigest == "" || req.PlanDigest == "" || req.GrantDigest == "") {
+	if *operation == effectclient.Submit && (req.TargetDigest == "" || req.PlanDigest == "" || req.GrantDigest == "") {
 		fmt.Fprintln(stderr, "target, plan and grant are required for submit")
 		return 64
 	}
