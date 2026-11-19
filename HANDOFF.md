@@ -1,5 +1,27 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-19 — Mac v0.10.0 일회 설치·정본 로드맵 갱신
+
+이 Mac의 운영 `kc`를 비공개 dev 후보 `v0.10.0 (352e12d)`로 **일회성** 교체했다.
+승인은 후보 SHA `036e0840…7372`, 이 호스트, 운영 경로 `/Users/k/.local/bin/kc`(진입점
+`/Users/k/bin/kc`), 이전 `v0.8.0 (ad30607)` `fd84b597…`에 묶였고 한 번 소비됐다.
+적용 후 `doctor`·`ls --json` 정상, store 메타데이터 33개 동일, 보호 파일 불변.
+이전 바이너리는 `kc-v0.8.0.rollback`으로 보관했다. 증거:
+`_management/evidence/keycli-mac-install-v010-20261119.OxeNKC/`의
+`install-authorization.json`·`preflight.json`·`apply-receipt.json`·`readback.json`.
+
+이 기록이 증명하지 **않는** 것:
+
+- **R6 pin 갱신이 아니다.** `scripts/install.sh` 기본 pin은 v0.8.0 그대로다.
+- **R4 자동 적용 연결이 아니다.** 임시 `mac-install.py`로 수행된 수동 경로다.
+- **1회성 강제는 이 실행으로 증명되지 않았다.** 재실행 거부는 `safe_target()`의 대상 바이트 드리프트 가드가 발동한 것이며, 소비 기록은 쓰기만 하고 읽는 검사가 없었다.
+- **복원 바이트 해시가 영수증에 없다.** `preflight.json`에 스크래치 복원본 `restored_sha256`이 없어 복원 주장은 stdout 서술과 `duplicate_restore_refused` 플래그에 의존한다.
+- **Keychain 실경로는 검증되지 않았다.** 교체 전후 모두 `keychain: unavailable`이다.
+
+현재 위치·남은 작업 순서·금지 규칙의 정본은
+[2026-11-19 로드맵](docs/planning/keycli-current-roadmap-2026-11-19.md)이다.
+위 2026-11-16 이하 원본 기록은 변경 없이 보존한다. 운영 효과·릴리스·pin 권한은 없다.
+
 ## 2026-11-16 — 현재 계획 정본·PR 감사
 
 현재 main `2897465f`는 #69로 v0.10 **소스만** 통합, [post-merge CI](https://github.com/camem2442/keycli/actions/runs/43695782808) 두 Job 성공. 정식 릴리스·Mac 설치 pin은 v0.8.0 유지. 열린 PR 13개와 main 531경로의 blob을 비교해 중복·역사적 검증·독립 변경을 분리했다. 현재 구현 격차와 G1~G6 의존성은 [2026-11-16 정본](docs/planning/keycli-current-roadmap-2026-11-16.md) 참조. 아래 2026-11-15 이하 원본 기록은 변경 없이 보존한다. 운영 효과/설치/CI dispatch 없음.

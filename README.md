@@ -3,6 +3,8 @@
 **Product Goal:** AI 코딩 에이전트와 사람이 토큰·API 키·키체인 암호를 승인 창이나 복사·붙여넣기 없이 필요할 때 바로 꺼내 쓰게 하는, macOS와 헤드리스 Linux 공용 터미널 도구.
 
 > **개발 소스(2026-11-16):** [main 2897465f](https://github.com/camem2442/keycli/commit/2897465f7abd9ca205d774c42c26cd95d5b9899a)에 v0.9/v0.10 소스를 #69로 통합하고 Linux post-merge CI를 통과했다. 정식 v0.10 릴리스나 공급자 운영 인수는 아님. [현행 로드맵·PR 13건·G1~G6](docs/planning/keycli-current-roadmap-2026-11-16.md) 참고.
+>
+> **2026-11-19 현재:** `origin/main` `352e12d`(#76), 공개 prerelease는 `v0.10.0-rc.1000/1001`(Linux ARM64), 릴리스 자동화는 의도적으로 차단 상태다. 이 Mac에는 v0.10.0 dev 후보가 일회성으로 설치돼 있으나 **공식 pin은 v0.8.0**이다. [2026-11-19 정본](docs/planning/keycli-current-roadmap-2026-11-19.md).
 
 > 상태: **v0.8.0** [출시](https://github.com/camem2442/keycli/releases/tag/v0.8.0) — 공통 인증 CLI 안정화(정책 deny·alias 충돌 거부·`policy_digest`·`exec --require`·import 덮어쓰기 거부), 로컬 기본 설치 pin([증거](docs/planning/v080-release-evidence.md)). Cloud Agent 기본 pin은 v0.7.2 유지. v0.7.0 운영 종결: [release gate](docs/planning/v07-release-gate.md). v0.8.0은 공통 인증 CLI 안정화 릴리스이며 출시 조건은 [release gate](docs/planning/v080-release-gate.md)에 있습니다. 에이전트별 운영 도입은 [로드맵](docs/planning/v08-multi-agent-auth-infrastructure.md)의 별도 소비자 조건이며 아직 끝나지 않았습니다.
 

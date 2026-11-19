@@ -163,4 +163,4 @@ TTL 캐시, rate limit, 출력 가림, 1Password 백엔드, 외부 `kc-target-*`
 | D | Cursor alias 실제 PUT, Cloudflare test Worker push/cleanup 및 시크릿 수명 | NOT VERIFIED |
 | E | workspace-infra 공통 검증·Delivery 증거 소비, 제한된 파일럿 채택 | NOT VERIFIED |
 
-**현행 정정:** v0.8.0 태그와 Mac 기본 설치 pin은 COMPLETE, 에이전트별/실 Keychain/provider 운영 인수는 PARTIAL/NOT VERIFIED. [현재 로드맵](keycli-current-roadmap-2026-11-16.md) 참조.
+**현행 정정:** v0.8.0 태그와 Mac 기본 설치 pin은 COMPLETE, 에이전트별/실 Keychain/provider 운영 인수는 PARTIAL/NOT VERIFIED. **2026-11-19:** 이 Mac에는 v0.10.0 dev 후보가 일회성 승인으로 설치됐다(공식 pin 아님, R4/R6 미완). 현재 상태·남은 작업은 [2026-11-19 정본](keycli-current-roadmap-2026-11-19.md)을 따른다.
