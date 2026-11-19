@@ -16,7 +16,7 @@
 - **R4 자동 적용 연결이 아니다.** 임시 `mac-install.py`로 수행된 수동 경로다.
 - **1회성 강제는 이 실행으로 증명되지 않았다.** 재실행 거부는 `safe_target()`의 대상 바이트 드리프트 가드가 발동한 것이며, 소비 기록은 쓰기만 하고 읽는 검사가 없었다.
 - **복원 바이트 해시가 영수증에 없다.** `preflight.json`에 스크래치 복원본 `restored_sha256`이 없어 복원 주장은 stdout 서술과 `duplicate_restore_refused` 플래그에 의존한다.
-- **Keychain 실경로는 검증되지 않았다.** 교체 전후 모두 `keychain: unavailable`이다.
+- **Keychain 실경로는 교체 시점에 검증되지 않았다.** 교체 전후 모두 `keychain: unavailable`이었다. 2026-11-19 후속으로 `[backend.keychain]`을 활성화하고 throwaway `kc.test.*`로 `ls`/`get`/`exec`/삭제를 확인했다(증거: `_management/evidence/keycli-b4-keychain-20261119.3609ff/`). ai-core 실값 읽기와 provider 경로는 **NOT VERIFIED**다.
 
 현재 위치·남은 작업 순서·금지 규칙의 정본은
 [2026-11-19 로드맵](docs/planning/keycli-current-roadmap-2026-11-19.md)이다.
