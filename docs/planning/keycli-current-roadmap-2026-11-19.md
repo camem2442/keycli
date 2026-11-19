@@ -104,8 +104,10 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 | ID | 작업 | 선행 조건 |
 |---|---|---|
 | E1 | G5 disposable provider 1개, 예산 한도, before/after GET, `UNKNOWN_EFFECT` reconcile, issuer/revoker 분리 | D3 + C4 |
-| F1 | G6-S synthetic 소비자 1턴 (allow/deny/missing/audit) | 없음 — 지금 가능 |
+| F1 | G6-S synthetic 소비자 1턴 (allow/deny/missing/audit) | **COMPLETE_SYNTHETIC (2026-11-19)** — 격리 store·audit·정책으로 `claude -p` 1턴 실행. allow exit 0·주입값 SHA 일치, deny exit 5·자식 미실행, missing exit 2·자식 미실행, 자식 env에 `KC_KEY`/`KC_AGENT` 없음, 값 누출 0. 증거: `_management/evidence/keycli-g6s-synthetic-20261119.759f94/`. 실 provider·실 소비자(G6-L)·다른 CLI는 NOT VERIFIED |
 | F2 | G6-L 실제 소비자 1턴 | E1 |
+
+F1 관찰: `exec --require --only N`은 한 번의 실행에서 N에 대해 `ok` audit 행을 2개 남긴다(필수 확인·주입 각 1회). 값 누출은 아니며 중복 기록 정리 후보다. 시크릿 이름은 소문자로 정규화되고 env에는 대문자로 주입된다.
 
 ### G. 제품 기능 격차
 
