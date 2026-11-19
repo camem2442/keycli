@@ -139,7 +139,7 @@ status: PARTIAL
 | 항목 | 비고 |
 |---|---|
 | `kc push` 나머지 범위 | M4.5; gh `--user`·`codespaces`·`agents`, Cursor 팀 엔드포인트, `cursor_api_key` alias 경유 실 PUT(KC-59는 dry-run만) |
-| `export --format dotenv` clip 자동삭제 실측 | integration만; mac-smoke 미포함 |
+| `export --format dotenv` clip 자동삭제 실측 | **COMPLETE (2026-11-19, Mac)** — 비TTY 복사·5초 후 0B·변경된 클립보드 보존. 증거: `_management/evidence/keycli-g4-export-clip-20261119.8fd8e4/`. mac-smoke에는 여전히 미포함 |
 | 에이전트 실사용 + 정책 운영 | Cursor/Claude Code/Codex 각 1회 |
 | OpenCode `kc exec` 경로 | `PROXY_API_KEY`를 kc store·`kc exec`로 주입 후 `opencode run`(non-standalone) |
 | 서드파티 `kc-backend-*` 실연동 | demo 외 |
