@@ -23,6 +23,7 @@ import (
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
+	"github.com/camem2442/keycli/internal/hostbridge"
 )
 
 func TestInstalledEffectClientModes(t *testing.T) {
@@ -368,4 +369,59 @@ func TestOperationalSubmitIntermediaryFailureReadsStatusOnce(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSyntheticActionFollowsOperationClass(t *testing.T) {
+	t.Setenv("KC_EFFECT_KEY", strings.Repeat("f", 64))
+	base := []string{"-mode", "synthetic", "-url", "http://127.0.0.1:1/submit", "-dry-run",
+		"-goal", "goal", "-mutation", "mutation", "-owner", "owner", "-session", "session",
+		"-generation", "1", "-target", strings.Repeat("a", 64), "-plan", strings.Repeat("b", 64),
+		"-grant", strings.Repeat("c", 64), "-provider", "synthetic",
+		"-provider-operation", "record-local-test"}
+
+	t.Run("default action follows the admitted class", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		if code := run(base, &out, &errOut); code != 0 {
+			t.Fatalf("exit %d, stderr %q", code, errOut.String())
+		}
+		var env effectgateway.Envelope
+		if err := json.Unmarshal(out.Bytes(), &env); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		expected, _, err := hostbridge.ClassifyOperation("synthetic", "record-local-test")
+		if err != nil || env.Request.Action != expected {
+			t.Fatalf("action %q, want %q (%v)", env.Request.Action, expected, err)
+		}
+	})
+
+	t.Run("explicit mismatch is refused before sending", func(t *testing.T) {
+		args := append(append([]string{}, base...), "-action", "issue")
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 64 {
+			t.Fatalf("exit %d, want 64; stderr %q", code, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "does not match") || out.Len() != 0 {
+			t.Fatalf("stdout %q, stderr %q", out.String(), errOut.String())
+		}
+	})
+
+	t.Run("explicit match is unchanged", func(t *testing.T) {
+		args := append(append([]string{}, base...), "-action", "stage")
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 0 {
+			t.Fatalf("exit %d, stderr %q", code, errOut.String())
+		}
+		var env effectgateway.Envelope
+		if err := json.Unmarshal(out.Bytes(), &env); err != nil || env.Request.Action != "stage" {
+			t.Fatalf("action %q (%v)", env.Request.Action, err)
+		}
+	})
+
+	t.Run("unknown operation is refused", func(t *testing.T) {
+		args := append(append([]string{}, base...), "-provider-operation", "not-admitted")
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 64 || !strings.Contains(errOut.String(), "not admitted") {
+			t.Fatalf("exit %d, stderr %q", code, errOut.String())
+		}
+	})
 }

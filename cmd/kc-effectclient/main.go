@@ -18,6 +18,7 @@ import (
 
 	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
+	"github.com/camem2442/keycli/internal/hostbridge"
 	"github.com/camem2442/keycli/internal/version"
 )
 
@@ -56,6 +57,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 64
 	}
+	actionSet := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "action" {
+			actionSet = true
+		}
+	})
 	if *showVersion && len(args) == 1 {
 		fmt.Fprintln(stdout, version.String())
 		return 0
@@ -100,6 +107,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if *submitURL == "" || *config != "" || *keyFile != "" || *operation != "submit" {
 			fmt.Fprintln(stderr, "synthetic mode requires url and supports only submit using KC_EFFECT_KEY")
 			return 64
+		}
+		// The admission class of provider-operation is fixed by the gateway.
+		// Sending the flag default ("issue") to an operation that needs another
+		// action is refused as ADMISSION_REJECTED after the trusted host has
+		// already been consulted, which hides the cause. Resolve it here, or
+		// name the mismatch before anything leaves the process.
+		if req.Operation != "" {
+			expected, _, err := hostbridge.ClassifyOperation(req.Provider, req.Operation)
+			if err != nil {
+				fmt.Fprintf(stderr, "provider-operation %q is not admitted for provider %q\n",
+					req.Operation, req.Provider)
+				return 64
+			}
+			if !actionSet {
+				req.Action = expected
+			} else if req.Action != expected {
+				fmt.Fprintf(stderr, "-action %q does not match %s/%s, which is %q; omit -action or send %q\n",
+					req.Action, req.Provider, req.Operation, expected, expected)
+				return 64
+			}
 		}
 		return runSynthetic(*submitURL, *resolve, *dryRun, *timeout, req, stdout, stderr)
 	default:
