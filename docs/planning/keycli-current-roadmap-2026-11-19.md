@@ -111,7 +111,7 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 
 | ID | 격차 | 상태 |
 |---|---|---|
-| G1 | **K10 rotation CLI 배선** — `internal/rotation`은 라이브러리만, CLI 미연결 | v0.10의 실사용 표면 미완 |
+| G1 | **K10 rotation CLI 배선** — `internal/rotation`은 라이브러리만, CLI 미연결 | **정정: COMPLETE(소스)** — `kc rotation plan/status/submit/reconcile`가 #69(`2897465`, 2026-11-15)에 등록됐다. 11-10 계획 문서의 "CLI 미연결" 서술은 그 이전 후보 기준이다. 실제 키 폐기·provider 인수는 E1 범위 |
 | G2 | K09 live (WIF provider, Cloudflare inactive stage) | Source COMPLETE / live NOT VERIFIED |
 | G3 | M4.5 잔여 (gh `--user`·`--app`, Cursor 팀 엔드포인트, alias 실 PUT) | NOT VERIFIED |
 | G4 | `export --format dotenv` clip 실측, 서드파티 플러그인 | integration/데모 수준 |
