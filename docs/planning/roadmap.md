@@ -142,7 +142,7 @@ status: PARTIAL
 | `export --format dotenv` clip 자동삭제 실측 | **COMPLETE (2026-11-19, Mac)** — 비TTY 복사·5초 후 0B·변경된 클립보드 보존. 증거: `_management/evidence/keycli-g4-export-clip-20261119.8fd8e4/`. mac-smoke에는 여전히 미포함 |
 | 에이전트 실사용 + 정책 운영 | Cursor/Claude Code/Codex 각 1회 |
 | OpenCode `kc exec` 경로 | `PROXY_API_KEY`를 kc store·`kc exec`로 주입 후 `opencode run`(non-standalone) |
-| 서드파티 `kc-backend-*` 실연동 | demo 외 |
+| 서드파티 `kc-backend-*` 실연동 | **COMPLETE (2026-11-19, 합성)** — demo를 재사용하지 않고 계약만 보고 구현한 플러그인으로 handshake/list/get/set, 크래시·타임아웃·`needs_network` skip, PATH 전용 미실행 확인. 실 공급자(1Password·Vault)는 NOT VERIFIED. 증거: `_management/evidence/keycli-plugin-e2e-20261119.cb80e3/` |
 
 ## DEFERRED
 

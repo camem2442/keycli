@@ -116,7 +116,7 @@ F1 관찰: `exec --require --only N`은 한 번의 실행에서 N에 대해 `ok`
 | G1 | **K10 rotation CLI 배선** — `internal/rotation`은 라이브러리만, CLI 미연결 | **정정: COMPLETE(소스)** — `kc rotation plan/status/submit/reconcile`가 #69(`2897465`, 2026-11-15)에 등록됐다. 11-10 계획 문서의 "CLI 미연결" 서술은 그 이전 후보 기준이다. 실제 키 폐기·provider 인수는 E1 범위 |
 | G2 | K09 live (WIF provider, Cloudflare inactive stage) | Source COMPLETE / live NOT VERIFIED |
 | G3 | M4.5 잔여 (gh `--user`·`--app`, Cursor 팀 엔드포인트, alias 실 PUT) | NOT VERIFIED |
-| G4 | `export --format dotenv` clip 실측, 서드파티 플러그인 | `export` clip 자동삭제 **COMPLETE (2026-11-19)** — 비TTY에서 클립보드 복사(exit 0, stdout 0B), 5초 후 0B로 자동 삭제, 그 사이 사용자가 바꾼 클립보드는 보존. 증거: `_management/evidence/keycli-g4-export-clip-20261119.8fd8e4/`. 서드파티 플러그인은 NOT VERIFIED |
+| G4 | `export --format dotenv` clip 실측, 서드파티 플러그인 | 둘 다 **COMPLETE (2026-11-19)** — export clip: 비TTY 복사·5초 후 자동 삭제·변경된 클립보드 보존(`_management/evidence/keycli-g4-export-clip-20261119.8fd8e4/`). 합성 서드파티 플러그인: handshake/list/get/set, 크래시·타임아웃·`needs_network` skip, PATH 전용 미실행(`_management/evidence/keycli-plugin-e2e-20261119.cb80e3/`) |
 
 ### H. PR·정책 정리
 
