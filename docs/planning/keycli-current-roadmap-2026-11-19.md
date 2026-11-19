@@ -23,7 +23,7 @@ scope: roadmap status reconciliation; no operating grant, no release authorizati
 | 개발 소스 | `origin/main` `352e12d` (#76) | COMPLETE(소스) |
 | 릴리스 자동화 | `.github/workflows/release.yml:50` classify `if: false` | BLOCKED — 의도적 차단, 해제 PR 없음 |
 | Mac 운영 경로 | `~/.local/bin/kc` = `v0.10.0 (352e12d)`, `036e0840…7372` | COMPLETE — **일회성**, 공식 pin 아님 |
-| Mac Keychain 경로 | `kc doctor --json` → `keychain: unavailable` (교체 전후 동일) | NOT VERIFIED |
+| Mac Keychain 경로 | `kc doctor --json` → `keychain: unavailable`; `backends = link/env/store` | NOT VERIFIED — keychain 백엔드가 config에 없다. Aqua 세션·로그인 키체인 자체는 정상 |
 
 **공식 pin과 실기기 상태가 다르다.** 문서·스크립트의 기본 pin은 v0.8.0이고, 이 Mac에는
 v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 [HANDOFF](../../HANDOFF.md)의
@@ -79,7 +79,7 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 | B1 | 1회성 소비를 대상 변조 **전에** 명시 검사 | COMPLETE — `scripts/install_candidate.py`의 `_consume()`. 대상 해시를 `OLD_SHA`로 되돌린 재실행이 "already consumed"로 거부되는 회귀 테스트 포함 |
 | B2 | 임시 `mac-install.py` → 저장소 소유 도구 | COMPLETE(도구) — 후보·호스트·이전 해시 바인딩, 준비/적용/롤백 영수증, `restored_sha256`·바이트 복원 증명, 실패 시 자동 복원. 실제 운영 경로 사용은 별도 승인 필요 |
 | B3 | R4 자동 적용 연결 | COMPLETE(도구) — `prepare(artifact_dir=...)`가 `SHA256SUMS` + `ssh-keygen -Y verify`로 producer receipt를 검증하고, 허용 키 다이제스트·artifact/run/source SHA를 승인서와 대조한 뒤에만 preflight를 만든다. 실제 운영 실행은 별도 승인 필요 |
-| B4 | 이 Mac Keychain 실경로 | GUI 세션·throwaway `kc.test.*`로 `ls`/`exec` 확인 |
+| B4 | 이 Mac Keychain 실경로 | BLOCKED — 진단 완료: 세션은 Aqua이고 로그인 키체인은 존재하지만 `~/.config/kc/config.toml`에 `[backend.keychain]`이 없어 백엔드가 로드되지 않는다. config 변경과 일회용 `kc.test.*` 쓰기는 승인 필요 |
 
 ### C. 릴리스 자동화 — G4
 
