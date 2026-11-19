@@ -69,6 +69,12 @@ func TestInstalledEffectClientModes(t *testing.T) {
 				signed.Signature != effectgateway.Sign(signed.Request, keyBytes).Signature {
 				t.Error("installed client must sign with the operational file key")
 			}
+			// The operational gateway refuses a request that carries the
+			// operation field, and the signature check above cannot catch a
+			// re-introduced one because it would be signed too.
+			if signed.Request.Operation != "" {
+				t.Errorf("operational envelope carries operation %q", signed.Request.Operation)
+			}
 			_ = json.NewEncoder(w).Encode(effectgateway.Receipt{
 				MutationID: "mutation", Status: effectgateway.StatusApplied,
 				OperationState: string(journal.Acknowledged), ProviderCalls: 1, ProofDigest: strings.Repeat("a", 64),
@@ -537,7 +543,7 @@ func TestOperationalRefusesBeforeReadingKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("missing provider-operation", func(t *testing.T) {
+	t.Run("missing provider-operation on submit", func(t *testing.T) {
 		args := append(operationalArgs(), "-config", filepath.Join(dir, "absent.json"),
 			"-key-file", filepath.Join(dir, "absent.key"))
 		var out, errOut bytes.Buffer
@@ -554,6 +560,27 @@ func TestOperationalRefusesBeforeReadingKey(t *testing.T) {
 		// the observable proof that anything was read.
 		if strings.Contains(errOut.String(), "origin configuration") {
 			t.Fatalf("validated after reading the config: %q", errOut.String())
+		}
+	})
+
+	t.Run("status and reconcile need no provider-operation", func(t *testing.T) {
+		// A read envelope signs Action=operation and never sends req.Action, so
+		// demanding a provider operation here would break the documented
+		// recovery after an ambiguous submit without gaining an admission check.
+		for _, operation := range []string{"status", "reconcile"} {
+			args := append(operationalArgs(), "-operation", operation,
+				"-config", filepath.Join(dir, "absent.json"),
+				"-key-file", filepath.Join(dir, "absent.key"))
+			var out, errOut bytes.Buffer
+			if code := run(args, &out, &errOut); code != 64 {
+				t.Fatalf("%s: exit %d, want 64; stderr %q", operation, code, errOut.String())
+			}
+			if strings.Contains(errOut.String(), "requires -provider-operation") {
+				t.Fatalf("%s: read path demanded a provider operation: %q", operation, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "origin configuration") {
+				t.Fatalf("%s: did not reach LoadOrigin: %q", operation, errOut.String())
+			}
 		}
 	})
 

@@ -41,7 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&req.GoalID, "goal", "", "goal id")
 	flags.StringVar(&req.MutationID, "mutation", "", "mutation id")
 	flags.StringVar(&req.Provider, "provider", "cloudflare", "provider name")
-	providerOperation := flags.String("provider-operation", "", "provider operation that selects the admission action")
+	providerOperation := flags.String("provider-operation", "",
+		"provider operation that selects the admission action (required for operational submit; unused for status and reconcile)")
 	flags.StringVar(&req.Action, "action", "issue", "provider action")
 	flags.StringVar(&req.TargetDigest, "target", "", "target digest")
 	flags.StringVar(&req.PlanDigest, "plan", "", "plan digest")
@@ -91,20 +92,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "operational mode requires a positive timeout and a TTL of up to ten minutes")
 			return 64
 		}
-		// The admission class of provider-operation is fixed by the gateway, and
-		// the operational gateway refuses a request that carries the operation
-		// field. Classify it here so a fixed action is signed and a mislabelled
+		// Only submit signs a provider action. status and reconcile sign a read
+		// envelope whose action is the operation itself, so a provider
+		// operation is neither required nor meaningful on those paths, and
+		// demanding one would break the documented recovery after an ambiguous
+		// submit. On submit the admission class is fixed by the gateway and the
+		// operational gateway refuses a request that carries the operation
+		// field, so classify here: a fixed action is signed and a mislabelled
 		// one is refused before the key is read or anything leaves the process.
-		if *providerOperation == "" {
-			fmt.Fprintln(stderr, "operational mode requires -provider-operation")
-			return 64
+		if *operation == effectclient.Submit {
+			if *providerOperation == "" {
+				fmt.Fprintln(stderr, "operational submit requires -provider-operation")
+				return 64
+			}
+			action, err := resolveAction(req.Provider, *providerOperation, req.Action, actionSet)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 64
+			}
+			req.Action = action
 		}
-		action, err := resolveAction(req.Provider, *providerOperation, req.Action, actionSet)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 64
-		}
-		req.Action = action
 		origin, err := effectclient.LoadOrigin(*config)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
