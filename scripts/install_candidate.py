@@ -28,12 +28,17 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import stat
+import subprocess
 import sys
+import tempfile
 
 SCHEMA = "keycli.operating-install.v1"
 AUTH_SCHEMA = "keycli-operating-install-authorization-v1"
 EFFECT = "replace_operating_kc_once"
+PRODUCER_NAMESPACE = "keycli-private-candidate-v1"
+PRODUCER_PRINCIPAL = "keycli-producer"
 MAX_BINARY = 64 * 1024 * 1024
 MAX_JSON = 32 * 1024
 PREFLIGHT = "preflight.json"
@@ -203,7 +208,107 @@ def _load_authorization(raw, *, target, entry):
     return auth
 
 
-def prepare(receipts, *, target, entry, candidate, authorization, pre_health):
+def _sums_digest(raw, asset_name):
+    _require(0 < len(raw) <= MAX_JSON and raw.endswith(b"\n") and b"\r" not in raw,
+             "invalid SHA256SUMS envelope")
+    try:
+        lines = raw.decode("ascii", "strict").splitlines()
+    except UnicodeError as error:
+        raise Hold("invalid SHA256SUMS encoding") from error
+    found = None
+    for line in lines:
+        _require(len(line) > 67 and line[64:66] in ("  ", " *"),
+                 "invalid SHA256SUMS row")
+        digest, name = line[:64], line[66:]
+        _require(all(c in "0123456789abcdef" for c in digest), "invalid SHA256SUMS digest")
+        if name == asset_name:
+            _require(found is None, "duplicate SHA256SUMS row")
+            found = digest
+    _require(found is not None, "asset missing from SHA256SUMS")
+    return found
+
+
+def _producer_namespace(key_raw):
+    try:
+        tokens = key_raw.decode("ascii", "strict").split()
+    except UnicodeError as error:
+        raise Hold("invalid allowed-signers encoding") from error
+    _require(len(tokens) >= 4 and tokens[0] == PRODUCER_PRINCIPAL,
+             "allowed signers principal differs")
+    _require(tokens[1] == f'namespaces="{PRODUCER_NAMESPACE}"',
+             "allowed signers namespace differs")
+    _require(tokens[2] == "ssh-ed25519", "producer key type differs")
+
+
+def _ssh_verify(*, key_raw, signature_raw, payload):
+    tool = shutil.which("ssh-keygen")
+    _require(tool is not None, "ssh-keygen is required to verify the producer receipt")
+    with tempfile.TemporaryDirectory(prefix="kc-verify-") as tmp:
+        signers = Path(tmp) / "allowed_signers"
+        sig = Path(tmp) / "receipt.sig"
+        _fresh(signers, key_raw, 0o600)
+        _fresh(sig, signature_raw, 0o600)
+        proc = subprocess.run(
+            [tool, "-Y", "verify", "-f", str(signers), "-I", PRODUCER_PRINCIPAL,
+             "-n", PRODUCER_NAMESPACE, "-s", str(sig)],
+            input=payload, capture_output=True, timeout=60)
+    _require(proc.returncode == 0, "producer receipt signature did not verify")
+
+
+def verify_artifact(directory, *, asset_name, candidate_sha256, authorization):
+    """Bind the candidate to a signed producer receipt without executing it."""
+    directory = Path(directory)
+    _require(directory.is_absolute() and directory.resolve(strict=True) == directory,
+             "artifact dir must be absolute and real")
+    _require(_stat_ok(directory.lstat(), regular=False), "artifact dir is not a safe owner directory")
+    sums = _read(directory / "SHA256SUMS", limit=MAX_JSON)
+    _require(_sums_digest(sums, asset_name) == candidate_sha256,
+             "artifact digest differs from SHA256SUMS")
+    receipt_raw = _read(directory / "producer-receipt.json", limit=MAX_JSON)
+    signature_raw = _read(directory / "producer-receipt.json.sig", limit=MAX_JSON)
+    key_raw = _read(directory / "producer.pub", limit=MAX_JSON)
+    _producer_namespace(key_raw)
+    candidate = authorization["candidate"]
+    _require(isinstance(candidate.get("producer_key_sha256"), str)
+             and _sha(key_raw) == candidate["producer_key_sha256"],
+             "producer key differs from the authorized key digest")
+    _ssh_verify(key_raw=key_raw, signature_raw=signature_raw, payload=receipt_raw)
+    try:
+        receipt = json.loads(receipt_raw)
+    except json.JSONDecodeError as error:
+        raise Hold("producer receipt is not JSON") from error
+    _require(isinstance(receipt, dict), "producer receipt must be an object")
+    _require(receipt.get("sha256") == candidate_sha256,
+             "producer receipt candidate digest differs")
+    for field in ("artifact_id", "run_id", "source_sha"):
+        _require(field in candidate and receipt.get(field) == candidate[field],
+                 f"authorization {field} differs from the producer receipt")
+    _require(isinstance(receipt.get("source_sha"), str) and len(receipt["source_sha"]) == 40,
+             "producer receipt source SHA is invalid")
+    _require(isinstance(receipt.get("version"), str) and receipt["version"].strip(),
+             "producer receipt version is missing")
+    return {
+        "asset_name": asset_name,
+        "asset_sha256": candidate_sha256,
+        "receipt_sha256": _sha(receipt_raw),
+        "signature_sha256": _sha(signature_raw),
+        "producer_key_sha256": _sha(key_raw),
+        "artifact_id": receipt["artifact_id"],
+        "run_id": receipt["run_id"],
+        "source_sha": receipt["source_sha"],
+        "version": receipt["version"],
+        "signature_verified": True,
+        "authorizes_operating": False,
+    }
+
+
+def _default_asset_name():
+    machine = os.uname().machine
+    return f"kc-{sys.platform}-{'arm64' if machine == 'arm64' else machine}"
+
+
+def prepare(receipts, *, target, entry, candidate, authorization, pre_health,
+            artifact_dir=None):
     """Verify byte facts and stage the one-shot preflight record."""
     rdir = _receipts(receipts)
     target, entry, candidate = Path(target), Path(entry), Path(candidate)
@@ -222,6 +327,17 @@ def prepare(receipts, *, target, entry, candidate, authorization, pre_health):
              "candidate bytes differ from the authorized candidate digest")
     _require(new_sha != old_sha, "candidate is identical to the installed bytes")
     _require(isinstance(pre_health, dict) and pre_health, "pre-install health snapshot required")
+
+    candidate_meta = auth["candidate"]
+    signed = any(name in candidate_meta for name in
+                 ("artifact_id", "run_id", "source_sha", "producer_key_sha256"))
+    _require(artifact_dir is not None or not signed,
+             "authorization requires a verified artifact directory")
+    artifact = None
+    if artifact_dir is not None:
+        asset_name = candidate_meta.get("asset_name") or _default_asset_name()
+        artifact = verify_artifact(artifact_dir, asset_name=asset_name,
+                                   candidate_sha256=new_sha, authorization=auth)
 
     backup = rdir / ("kc-backup-" + old_sha)
     old_raw = _read(target, limit=MAX_BINARY)
@@ -261,6 +377,7 @@ def prepare(receipts, *, target, entry, candidate, authorization, pre_health):
         "backup": str(backup),
         "restored_sha256": restored_sha,
         "pre_health": pre_health,
+        "artifact": artifact,
         "prepared_at": _now().isoformat(),
         "expires_at": auth["expires_at"],
         "authorizes_operating": False,
@@ -423,6 +540,7 @@ def main(argv=None):
     parser.add_argument("--candidate")
     parser.add_argument("--authorization")
     parser.add_argument("--health-json", help="pre/post health snapshot as JSON")
+    parser.add_argument("--artifact-dir", help="verified artifact directory with a signed producer receipt")
     args = parser.parse_args(argv)
     health = json.loads(Path(args.health_json).read_bytes()) if args.health_json else None
     try:
@@ -433,7 +551,7 @@ def main(argv=None):
             _require(health is not None, "prepare requires health-json")
             result = prepare(args.receipts, target=args.target, entry=args.entry,
                              candidate=args.candidate, authorization=args.authorization,
-                             pre_health=health)
+                             pre_health=health, artifact_dir=args.artifact_dir)
         elif args.phase == "apply":
             _require(health is not None, "apply requires health-json")
             result = apply(args.receipts, post_health=health)

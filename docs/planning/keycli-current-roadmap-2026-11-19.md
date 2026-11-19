@@ -78,7 +78,7 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 |---|---|---|
 | B1 | 1회성 소비를 대상 변조 **전에** 명시 검사 | COMPLETE — `scripts/install_candidate.py`의 `_consume()`. 대상 해시를 `OLD_SHA`로 되돌린 재실행이 "already consumed"로 거부되는 회귀 테스트 포함 |
 | B2 | 임시 `mac-install.py` → 저장소 소유 도구 | COMPLETE(도구) — 후보·호스트·이전 해시 바인딩, 준비/적용/롤백 영수증, `restored_sha256`·바이트 복원 증명, 실패 시 자동 복원. 실제 운영 경로 사용은 별도 승인 필요 |
-| B3 | R4 자동 적용 연결 | 검증 artifact → 운영 경로 파이프라인이 승인 영수증에 묶여 1회 실행 |
+| B3 | R4 자동 적용 연결 | COMPLETE(도구) — `prepare(artifact_dir=...)`가 `SHA256SUMS` + `ssh-keygen -Y verify`로 producer receipt를 검증하고, 허용 키 다이제스트·artifact/run/source SHA를 승인서와 대조한 뒤에만 preflight를 만든다. 실제 운영 실행은 별도 승인 필요 |
 | B4 | 이 Mac Keychain 실경로 | GUI 세션·throwaway `kc.test.*`로 `ls`/`exec` 확인 |
 
 ### C. 릴리스 자동화 — G4
