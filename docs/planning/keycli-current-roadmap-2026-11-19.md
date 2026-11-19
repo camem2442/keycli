@@ -70,14 +70,14 @@ v0.10.0 dev 후보가 일회성 승인으로 올라가 있다. 설치 기록은 
 | A1 | `origin/main` 기준 작업 트리·`dist/kc` 재빌드 | 이 문서의 브랜치 |
 | A2 | HANDOFF·roadmap에 Mac 1회 설치 기록, R6 pin과 분리 | COMPLETE |
 | A3 | 11-16 감사 갱신(PR 12건, #73/#75/#76, rc) | COMPLETE — 이 문서 |
-| A4 | preflight `restored_sha256` 필드 | NOT VERIFIED — 기존 영수증 소급 불가. 신규 도구에서만 가능 |
+| A4 | preflight `restored_sha256` 필드 | 기존 영수증 소급 불가 — 2026-11-19 설치 영수증에는 없다. 신규 경로는 B2 도구가 기록한다 |
 
 ### B. 설치 경로 제품화 — R4
 
 | ID | 작업 | 완료 조건 |
 |---|---|---|
-| B1 | 1회성 소비를 대상 변조 **전에** 명시 검사 | 대상 해시를 `OLD_SHA`로 되돌린 재실행이 승인 소비로 거부되는 테스트 |
-| B2 | 임시 `mac-install.py` → 저장소 소유 도구 | 후보·호스트·이전 해시 바인딩, 준비/적용/롤백 영수증, `restored_sha256` 기록 |
+| B1 | 1회성 소비를 대상 변조 **전에** 명시 검사 | COMPLETE — `scripts/install_candidate.py`의 `_consume()`. 대상 해시를 `OLD_SHA`로 되돌린 재실행이 "already consumed"로 거부되는 회귀 테스트 포함 |
+| B2 | 임시 `mac-install.py` → 저장소 소유 도구 | COMPLETE(도구) — 후보·호스트·이전 해시 바인딩, 준비/적용/롤백 영수증, `restored_sha256`·바이트 복원 증명, 실패 시 자동 복원. 실제 운영 경로 사용은 별도 승인 필요 |
 | B3 | R4 자동 적용 연결 | 검증 artifact → 운영 경로 파이프라인이 승인 영수증에 묶여 1회 실행 |
 | B4 | 이 Mac Keychain 실경로 | GUI 세션·throwaway `kc.test.*`로 `ls`/`exec` 확인 |
 
