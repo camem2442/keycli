@@ -120,8 +120,13 @@ configuration, separate read grants, and an exact current claim. The listen
 address must be a literal loopback IP. The host delivers the selected
 owner-only session key through its authenticated transfer path. The key file
 must have a new name after restart. Use a registered HTTPS origin with
-`kc-effectclient -config` and a private `-key-file`. After an ambiguous submit
-response the client queries the original mutation on `/status`.
+`kc-effectclient -config` and a private `-key-file`. An operational submit
+also requires `-provider-operation`: the client derives the signed action from
+it and refuses a conflicting `-action` before reading the key.
+`-operation status` and `-operation reconcile` sign a read envelope whose
+action is the operation itself, so they take no provider operation. After an
+ambiguous submit response the client queries the original mutation on
+`/status`.
 
 The operational profile takes these additional protected inputs.
 
