@@ -17,13 +17,13 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/effectclient"
 	"github.com/camem2442/keycli/internal/effectgateway"
-	"github.com/camem2442/keycli/internal/hostbridge"
 )
 
 func TestInstalledEffectClientModes(t *testing.T) {
@@ -54,7 +54,8 @@ func TestInstalledEffectClientModes(t *testing.T) {
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 64 || bytes.Contains(out, []byte("signature")) {
 		t.Fatalf("operational overrides: %v\n%s", err, out)
 	}
-	out, err = execute(nil, "-mode", "synthetic", "-url", "http://127.0.0.1:1/submit", "-dry-run")
+	out, err = execute(nil, "-mode", "synthetic", "-url", "http://127.0.0.1:1/submit", "-dry-run",
+		"-provider", "synthetic", "-provider-operation", "record-local-test")
 	var env effectgateway.Envelope
 	if err != nil || json.Unmarshal(out, &env) != nil || env.Request.MutationID != "mutation" || env.Signature == "" || bytes.Contains(out, []byte(key)) {
 		t.Fatalf("synthetic dry-run: %v", err)
@@ -388,9 +389,10 @@ func TestSyntheticActionFollowsOperationClass(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		expected, _, err := hostbridge.ClassifyOperation("synthetic", "record-local-test")
-		if err != nil || env.Request.Action != expected {
-			t.Fatalf("action %q, want %q (%v)", env.Request.Action, expected, err)
+		// Pinned literally: comparing with ClassifyOperation itself would pass
+		// even if the table stopped mapping this operation to "stage".
+		if env.Request.Action != "stage" {
+			t.Fatalf("action %q, want %q", env.Request.Action, "stage")
 		}
 	})
 
@@ -417,6 +419,14 @@ func TestSyntheticActionFollowsOperationClass(t *testing.T) {
 		}
 	})
 
+	t.Run("missing provider-operation is refused", func(t *testing.T) {
+		args := append(append([]string{}, base...), "-provider-operation", "")
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 64 || !strings.Contains(errOut.String(), "requires -provider-operation") {
+			t.Fatalf("exit %d, stderr %q", code, errOut.String())
+		}
+	})
+
 	t.Run("unknown operation is refused", func(t *testing.T) {
 		args := append(append([]string{}, base...), "-provider-operation", "not-admitted")
 		var out, errOut bytes.Buffer
@@ -424,4 +434,31 @@ func TestSyntheticActionFollowsOperationClass(t *testing.T) {
 			t.Fatalf("exit %d, stderr %q", code, errOut.String())
 		}
 	})
+}
+
+// TestSyntheticMismatchNeverReachesTheGateway proves the refusal happens before
+// any request is built or sent, not merely before the response is printed.
+func TestSyntheticMismatchNeverReachesTheGateway(t *testing.T) {
+	t.Setenv("KC_EFFECT_KEY", strings.Repeat("f", 64))
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	args := []string{"-mode", "synthetic", "-url", server.URL + "/submit",
+		"-goal", "goal", "-mutation", "mutation", "-owner", "owner", "-session", "session",
+		"-generation", "1", "-target", strings.Repeat("a", 64), "-plan", strings.Repeat("b", 64),
+		"-grant", strings.Repeat("c", 64), "-provider", "synthetic",
+		"-provider-operation", "record-local-test", "-action", "issue"}
+	var out, errOut bytes.Buffer
+	if code := run(args, &out, &errOut); code != 64 {
+		t.Fatalf("exit %d, want 64; stderr %q", code, errOut.String())
+	}
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Fatalf("gateway received %d request(s) for a mislabelled action", got)
+	}
+	if !strings.Contains(errOut.String(), "does not match") {
+		t.Fatalf("stderr %q", errOut.String())
+	}
 }

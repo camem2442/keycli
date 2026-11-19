@@ -113,20 +113,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// action is refused as ADMISSION_REJECTED after the trusted host has
 		// already been consulted, which hides the cause. Resolve it here, or
 		// name the mismatch before anything leaves the process.
-		if req.Operation != "" {
-			expected, _, err := hostbridge.ClassifyOperation(req.Provider, req.Operation)
-			if err != nil {
-				fmt.Fprintf(stderr, "provider-operation %q is not admitted for provider %q\n",
-					req.Operation, req.Provider)
-				return 64
-			}
-			if !actionSet {
-				req.Action = expected
-			} else if req.Action != expected {
-				fmt.Fprintf(stderr, "-action %q does not match %s/%s, which is %q; omit -action or send %q\n",
-					req.Action, req.Provider, req.Operation, expected, expected)
-				return 64
-			}
+		if req.Operation == "" {
+			fmt.Fprintln(stderr, "synthetic submit requires -provider-operation")
+			return 64
+		}
+		expected, _, err := hostbridge.ClassifyOperation(req.Provider, req.Operation)
+		if err != nil {
+			fmt.Fprintf(stderr, "provider-operation %q is not admitted for provider %q\n",
+				req.Operation, req.Provider)
+			return 64
+		}
+		if !actionSet {
+			req.Action = expected
+		} else if req.Action != expected {
+			fmt.Fprintf(stderr, "-action %q does not match %s/%s, which is %q; omit -action or send %q\n",
+				req.Action, req.Provider, req.Operation, expected, expected)
+			return 64
 		}
 		return runSynthetic(*submitURL, *resolve, *dryRun, *timeout, req, stdout, stderr)
 	default:
