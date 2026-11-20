@@ -53,6 +53,5 @@ class PeerBoundaryTests(unittest.TestCase):
         with patch("chrome_owner_os_boundary.sys.platform", "darwin"), patch("chrome_owner_os_boundary.macos_peer_ids", side_effect=BoundaryDenied("DENIED")):
             self.assertEqual(inspect_owner_socket(a, expected_agent_uid=502, owner_console_uid=501, owner_is_gui=True).reason, "PEER_ID_UNAVAILABLE")
 
-
 if __name__ == "__main__":
     unittest.main()
