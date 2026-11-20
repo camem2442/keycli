@@ -93,6 +93,9 @@ class PlaywrightChromeLauncher:
             return p.chromium.launch_persistent_context(
                 str(profile), channel="chrome", headless=False,
                 accept_downloads=False, ignore_https_errors=False,
+                # Page service-worker fetches bypass Playwright route().
+                # Block this path until owner Mac extension compatibility passes.
+                service_workers="block",
                 timeout=15000,
             )
         except Exception:
@@ -218,6 +221,9 @@ def run_owner_flow(
     try:
         context = launcher.launch(profile)
         _limit_requests(context, request.site)
+        # Abort restored nonblank tabs from an earlier persistent session.
+        if any(getattr(tab, "url", None) != "about:blank" for tab in context.pages):
+            raise Denied("RESTORED_PAGE_REJECTED")
         page = context.new_page()  # Never act on an existing personal browser tab.
         target_path = request.path if request.action == "session_status" else policy.login_path
         page.goto("https://" + policy.site + target_path, wait_until="domcontentloaded", timeout=10000)
