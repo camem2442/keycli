@@ -50,8 +50,10 @@ func TestDefaultEnvironmentCannotStageWithConfigOrEnvironmentDrift(t *testing.T)
   req, argv, _ := defaultStageFixture(t)
   if item.config!="" {
    value := strings.ReplaceAll(item.config,"%s",req.Worker)
-   if item.name=="wrong-worker-name"||item.name=="unexpected-env-table"{
+   if item.name=="wrong-worker-name"{
      value=strings.Replace(item.config,"%s",req.AccountID,1)
+   }else if item.name=="unexpected-env-table"{
+     value=fmt.Sprintf(item.config,req.Worker,req.AccountID)
    }else if item.name=="wrong-account"{
      value=strings.Replace(item.config,"%s",req.Worker,1)
    }
