@@ -58,6 +58,10 @@ class OwnerFDTOTP:
                 if len(submit) > 256 or page.locator(submit).count() != 1:
                     raise OwnerOTPDenied("OTP_SUBMIT_NOT_ADMITTED")
                 page.locator(submit).click(timeout=2000)
+            # This ACK proves input action completion, NOT site authentication.
+            # Go must fail closed if ACK never arrives; uncertain effects are
+            # not retried automatically.
+            self._conn.sendall(b"\x01")
         except OwnerOTPDenied:
             raise
         except Exception:

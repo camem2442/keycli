@@ -24,12 +24,14 @@ class TestOwnerFDTOTP(unittest.TestCase):
         a,b=socket.socketpair()
         self.addCleanup(a.close);self.addCleanup(b.close)
         a.sendall(raw)
+        self._sender = a
         return b
     def test_synthetic_otp_fills_only_owner_browser(self):
         conn=self.pair(); p=Page();policy,req=data()
         OwnerFDTOTP(conn,"example.com").fill_after_owner_check(p,policy,req)
         self.assertEqual(p.otp.value,"123456")
         self.assertEqual(p.submit.clicks,1)
+        self.assertEqual(self._sender.recv(1), b"\x01")
     def test_no_replay(self):
         conn=self.pair();p=Page();policy,req=data();adapter=OwnerFDTOTP(conn,"example.com")
         adapter.fill_after_owner_check(p,policy,req)

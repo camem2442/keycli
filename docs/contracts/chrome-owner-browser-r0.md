@@ -29,3 +29,9 @@ This source-only Playwright Chrome library is a **restricted owner-host componen
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p test_chrome_owner_bridge.py -v`: 10 synthetic cases PASS in isolated Linux scratch with fake owner/browser. Local system Chromium launched, but navigation to localhost and data URLs was refused `ERR_BLOCKED_BY_ADMINISTRATOR`, so **no real-browser navigation/login E2E** completed. KeyCLI exact-head owning Go suite, Chrome macOS GUI, iCloud Passwords, passkey, live original authority and secure OTP fill remain NOT VERIFIED. **Draft/HOLD.** No installed changes or paid hosted CI.
 
 References: https://developer.chrome.com/docs/devtools/agents/get-started/configuration/ · https://chromewebstore.google.com/detail/icloud-passwords/pejdijmoenmkgeppbflobdenhhabjlaj · https://playwright.dev/docs/auth · https://playwright.dev/docs/chrome-extensions
+
+### Go ↔ Chrome ACK guarantee
+
+KeyCLI #83's `owner2fa.FDCodeFiller` sends six ASCII OTP digits through an inherited AF_UNIX socket pair only after independent MFA-child original authority verification. This `OwnerFDTOTP` receiver validates enrolled `owner_totp` mode, same HTTPS origin, one OTP field and the optional explicit submit selector, fills the field, and **only then** replies with a fixed `0x01` ACK. The sender denies incomplete/invalid ACK and never retries uncertain effects. ACK confirms input handling only, **not account authentication**, and cannot be promoted to session success without observing the current account marker on the correct origin.
+
+The two adapters are independently testable in synthetic Linux; they still need a trusted Mac owner supervisor that binds both inherited FDs and a distinct MFA child Grant/Claim/operation ID. Do not provide a socket descriptor, profile path, Apple TOTP or browser code to a remote agent.
