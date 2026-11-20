@@ -45,5 +45,15 @@ func (f *FDCodeFiller) FillVerifiedTOTP(ctx context.Context, site string, code [
 	if err != nil || n != len(code) {
 		return ErrFDNotAdmitted
 	}
+	// Writing bytes does not prove Chrome filled the code input.
+	// Require a fixed acknowledgement from the owner-only input sink.
+	if err := f.Conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		return ErrFDNotAdmitted
+	}
+	var ack [1]byte
+	n, err = f.Conn.Read(ack[:])
+	if err != nil || n != 1 || ack[0] != 1 {
+		return ErrFDNotAdmitted
+	}
 	return nil
 }

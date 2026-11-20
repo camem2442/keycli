@@ -35,9 +35,8 @@ func TestFDCodeFillerOneUseSocketpair(t *testing.T) {
 	defer send.Close()
 	defer recv.Close()
 	f := &FDCodeFiller{Site: "example.com", Conn: send}
-	if err := f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")); err != nil {
-		t.Fatal(err)
-	}
+	finished := make(chan error, 1)
+	go func() { finished <- f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")) }()
 	if err := recv.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +44,12 @@ func TestFDCodeFillerOneUseSocketpair(t *testing.T) {
 	n, err := recv.Read(b)
 	if err != nil || n != 6 || string(b) != "123456" {
 		t.Fatalf("invalid socket frame: n=%d err=%v", n, err)
+	}
+	if _, err := recv.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
 	}
 	if err := f.FillVerifiedTOTP(context.Background(), "example.com", []byte("999999")); !errors.Is(err, ErrFDNotAdmitted) {
 		t.Fatal("replay accepted")
@@ -88,6 +93,14 @@ func TestFDCodeFillerConcurrentOnlyOneTransfer(t *testing.T) {
 	ch := make(chan error, 2)
 	go func() { ch <- f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")) }()
 	go func() { ch <- f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")) }()
+	_ = recv.SetReadDeadline(time.Now().Add(time.Second))
+	b := make([]byte, 6)
+	if n, _ := recv.Read(b); n != 6 {
+		t.Fatal("socket transfer missing")
+	}
+	if _, err := recv.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
 	var ok, deny int
 	for i := 0; i < 2; i++ {
 		if err := <-ch; err == nil {
@@ -101,9 +114,27 @@ func TestFDCodeFillerConcurrentOnlyOneTransfer(t *testing.T) {
 	if ok != 1 || deny != 1 {
 		t.Fatalf("ok=%d deny=%d", ok, deny)
 	}
+}
+
+func TestFDCodeFillerRequiresBrowserAck(t *testing.T) {
+	send, recv := socketPair(t)
+	defer send.Close()
+	defer recv.Close()
+	f := &FDCodeFiller{Site: "example.com", Conn: send}
+	finished := make(chan error, 1)
+	go func() { finished <- f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")) }()
 	_ = recv.SetReadDeadline(time.Now().Add(time.Second))
 	b := make([]byte, 6)
 	if n, _ := recv.Read(b); n != 6 {
-		t.Fatal("socket transfer missing")
+		t.Fatal("missing code transfer")
+	}
+	if _, err := recv.Write([]byte{0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; !errors.Is(err, ErrFDNotAdmitted) {
+		t.Fatal("invalid ack was accepted")
+	}
+	if err := f.FillVerifiedTOTP(context.Background(), "example.com", []byte("123456")); !errors.Is(err, ErrFDNotAdmitted) {
+		t.Fatal("retry after failed ack")
 	}
 }
