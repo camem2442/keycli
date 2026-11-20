@@ -51,6 +51,7 @@ class SitePolicy:
     allowed_paths: frozenset[str]
     otp_selector: str | None = None
     otp_submit_selector: str | None = None
+    mfa_mode: str = "apple_extension"  # owner_totp requires explicit per-site enrolment
 
 
 class OwnerAuthority(Protocol):
@@ -126,6 +127,7 @@ def validate(request: Intent, policy: SitePolicy, now: int) -> None:
             or request.path not in policy.allowed_paths
             or not _valid_path(policy.login_path)
             or not policy.account_marker
+            or policy.mfa_mode not in {"apple_extension", "owner_totp", "passkey", "manual"}
             or request.action == "reauthenticate" and policy.login_path not in policy.allowed_paths):
         raise Denied("REQUEST_REJECTED")
 
@@ -197,7 +199,8 @@ def run_owner_flow(
     """
     stamp = int(time.time()) if now is None else now
     validate(request, policy, stamp)
-    if type(human_login_timeout_seconds) is not int or not 0 <= human_login_timeout_seconds <= 120:
+    if (type(human_login_timeout_seconds) is not int or not 0 <= human_login_timeout_seconds <= 120
+            or stamp + human_login_timeout_seconds > request.expires_unix):
         raise Denied("HUMAN_WAIT_REJECTED")
     if authority is None or launcher is None:
         raise Denied("AUTHORITY_MISSING")
@@ -219,7 +222,8 @@ def run_owner_flow(
             return "SESSION_PRESENT"
         if request.action == "session_status":
             return "NO_SESSION"
-        if policy.otp_selector and _has_marker(page, policy.otp_selector) and owner_otp is not None:
+        if (policy.mfa_mode == "owner_totp" and policy.otp_selector
+                and _has_marker(page, policy.otp_selector) and owner_otp is not None):
             if not is_same_origin(page.url, request.site):
                 raise Denied("CROSS_ORIGIN")
             try:

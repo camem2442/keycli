@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -127,6 +128,19 @@ class ChromeOwnerTests(unittest.TestCase):
                     launcher.close()
             self.assertTrue(p.stopped)
 
+    def test_per_site_mfa_policy_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.chmod(d, 0o700)
+            a, l = Authority(), Launcher({POLICY.otp_selector: 1})
+            bad = replace(POLICY, mfa_mode="unapproved_fallback")
+            with self.assertRaises(Denied):
+                run_owner_flow(intent(), bad, a, l, Path(d), now=NOW)
+            self.assertEqual((a.calls, l.called), (0, 0))
+            with self.assertRaises(Denied):
+                run_owner_flow(intent(action="reauthenticate", path="/login"), POLICY,
+                               Authority(), Launcher({}), Path(d), now=NOW,
+                               human_login_timeout_seconds=61)
+
     def test_origin_host_confusion(self):
         for bad in ("http://example.com", "https://example.com.evil.test",
                     "https://example.com:8443", "https://a@example.com",
@@ -192,7 +206,10 @@ class ChromeOwnerTests(unittest.TestCase):
             req = intent(action="reauthenticate", path="/login")
             self.assertEqual(run_owner_flow(req, POLICY, a, l, Path(d), now=NOW), "HUMAN_ACTION_REQUIRED")
             otp = OTP(markers)
-            self.assertEqual(run_owner_flow(req, POLICY, a, l, Path(d), now=NOW, owner_otp=otp), "SESSION_PRESENT")
+            self.assertEqual(run_owner_flow(req, POLICY, a, l, Path(d), now=NOW, owner_otp=otp), "HUMAN_ACTION_REQUIRED")
+            self.assertEqual(otp.calls, 0)  # Apple's MFA must never be fetched by an owner TOTP provider
+            enrolled_policy = replace(POLICY, mfa_mode="owner_totp")
+            self.assertEqual(run_owner_flow(req, enrolled_policy, a, l, Path(d), now=NOW, owner_otp=otp), "SESSION_PRESENT")
             self.assertEqual(otp.calls, 1)
             self.assertNotIn("123456", str(otp.calls))
 
