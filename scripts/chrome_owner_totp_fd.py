@@ -85,7 +85,7 @@ class OwnerFDTOTP:
                 if len(submit) > 256 or page.locator(submit).count() != 1:
                     raise OwnerOTPDenied("OTP_SUBMIT_NOT_ADMITTED")
                 page.locator(submit).click(timeout=2000)
-            if urlsplit(getattr(page, "url", "")).netloc != self._site:
+            if not _same_https_origin(page, self._site):
                 raise OwnerOTPDenied("CROSS_ORIGIN")
             # This ACK proves input action completion, NOT site authentication.
             # Go must fail closed if ACK never arrives; uncertain effects are
