@@ -15,6 +15,17 @@ class OwnerOTPDenied(ValueError):
     pass
 
 
+def _same_https_origin(page, site: str) -> bool:
+    # Re-check the full secure origin before acknowledging field input.
+    # A matching host after a redirect to HTTP is not the same origin.
+    try:
+        url = urlsplit(getattr(page, "url", ""))
+        return (url.scheme == "https" and url.netloc == site and
+                url.username is None and url.password is None)
+    except (TypeError, ValueError):
+        return False
+
+
 class OwnerFDTOTP:
     def __init__(self, conn: socket.socket, site: str,
                  parent_request_id: str, child_request_id: str,
@@ -47,8 +58,7 @@ class OwnerFDTOTP:
             getattr(policy, "site", None) != self._site or
             getattr(policy, "mfa_mode", None) != "owner_totp"):
             raise OwnerOTPDenied("CHALLENGE_NOT_ADMITTED")
-        url = urlsplit(getattr(page, "url", ""))
-        if url.scheme != "https" or url.netloc != self._site or url.username is not None:
+        if not _same_https_origin(page, self._site):
             raise OwnerOTPDenied("CROSS_ORIGIN")
         selector = getattr(policy, "otp_selector", None)
         if not selector or len(selector) > 256:
@@ -68,7 +78,7 @@ class OwnerFDTOTP:
                 raise OwnerOTPDenied("BAD_OWNER_OTP_FRAME")
             # The sensitive code never becomes a model/CLI/log response.
             field.fill(code.decode("ascii"), timeout=2000)
-            if urlsplit(getattr(page, "url", "")).netloc != self._site:
+            if not _same_https_origin(page, self._site):
                 raise OwnerOTPDenied("CROSS_ORIGIN")
             submit = getattr(policy, "otp_submit_selector", None)
             if submit:

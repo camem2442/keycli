@@ -79,6 +79,36 @@ class TestOwnerFDTOTP(unittest.TestCase):
         thread.join(1)
         self.assertEqual(p.otp.value,"123456")
         self.assertEqual(sender.recv(1),b"\x01")
+    def _assert_no_ack_after_downgrade(self, stage):
+        sender, conn = socket.socketpair()
+        self.addCleanup(sender.close)
+        self.addCleanup(conn.close)
+        sender.sendall(b"123456")
+        page = Page()
+        policy, request = data()
+        if stage == "fill":
+            original_fill = page.otp.fill
+            def downgrade_fill(value, **kwargs):
+                original_fill(value, **kwargs)
+                page.url = "http://example.com/mfa"
+            page.otp.fill = downgrade_fill
+        else:
+            original_click = page.submit.click
+            def downgrade_click(**kwargs):
+                original_click(**kwargs)
+                page.url = "http://example.com/mfa"
+            page.submit.click = downgrade_click
+        with self.assertRaisesRegex(OwnerOTPDenied, "CROSS_ORIGIN"):
+            OwnerFDTOTP(conn, "example.com", "parent-0001", "child-0001").fill_after_owner_check(page, policy, request)
+        if stage == "fill":
+            self.assertEqual(page.submit.clicks, 0)
+        sender.settimeout(0.1)
+        with self.assertRaises(socket.timeout):
+            sender.recv(1)
+    def test_https_downgrade_after_fill_denies_ack_and_submit(self):
+        self._assert_no_ack_after_downgrade("fill")
+    def test_https_downgrade_after_submit_denies_ack(self):
+        self._assert_no_ack_after_downgrade("submit")
     def test_no_real_network_or_credential_store(self):
         conn=self.pair();policy,req=data();p=Page()
         with self.assertRaises(OwnerOTPDenied):
