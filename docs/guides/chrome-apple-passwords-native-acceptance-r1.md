@@ -36,3 +36,7 @@ Official sources:
 ### Personal Chrome profile prevention
 
 `scripts/chrome_profile_guard.py` is the shared check for both the Chrome worker and read-only Mac preflight. It requires an already-created owner-only private root and forbids symlinked ancestor paths or known default Chrome/Chromium profile directory components. The built-in Mac `/var` → `/private/var` root-owned alias is allowed only when that exact canonical mapping is observed. The guard does **not** isolate another same-UID process or prove extension/passkey operation. Its Linux synthetic tests enforce default-profile refusals; real Mac GUI acceptance is still required.
+
+### Owner-local console admission (source-only, 2026-11-21)
+
+The real `PlaywrightChromeLauncher` checks `chrome_owner_gui_gate.require_local_gui_attempt()` before starting Chrome. It rejects Linux, root, another macOS console user, explicit SSH sessions and GitHub Actions runner contexts. The read-only native metadata preflight uses the same observation and **continues to return HOLD** even when the console identity matches: Touch ID, iCloud Passwords extension, GUI/TCC admission, parent and child original Grants and actual login success all require separate private owner evidence. This guard does NOT isolate a malicious same-UID process and cannot replace a signed Goal/Grant/Claim/Writer, physical Mac acceptance, or human passkey interaction.

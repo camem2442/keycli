@@ -20,6 +20,7 @@ import re
 import stat
 import time
 from chrome_profile_guard import ProfileRejected, verify_profile_root
+from chrome_owner_gui_gate import require_local_gui_attempt
 
 _ACTIONS = frozenset({"session_status", "reauthenticate"})
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -86,6 +87,8 @@ class PlaywrightChromeLauncher:
         self._playwright_cm = None
 
     def launch(self, profile: Path) -> ChromeContext:
+        # The registered headless mac-ci runner is not an Apple/Chrome GUI owner.
+        require_local_gui_attempt()
         from playwright.sync_api import sync_playwright
         p = sync_playwright().start()
         self._playwright_cm = p

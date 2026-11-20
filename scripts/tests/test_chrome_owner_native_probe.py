@@ -4,6 +4,7 @@ import plistlib
 import tempfile
 import unittest
 import sys
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chrome_owner_native_probe import probe
 
@@ -26,11 +27,17 @@ class NativeProbeTests(unittest.TestCase):
         self.assertEqual(probe(app,profile,platform="linux")["reason"],"OWNER_MAC_REQUIRED")
     def test_fixture_only_yields_hold_not_native_pass(self):
         app,profile=self.fixture()
-        r=probe(app,profile,platform="darwin")
+        with patch("chrome_owner_native_probe.local_gui_preflight", return_value={"reason":"GUI_OPERATOR_AND_TCC_UNVERIFIED"}):
+            r=probe(app,profile,platform="darwin")
         self.assertEqual(r["status"],"HOLD")
         self.assertTrue(r["metadata_ok"])
         self.assertFalse(r["native_acceptance"])
         self.assertFalse(r["extension_verified"])
+    def test_headless_worker_never_passes_preflight(self):
+        app,profile=self.fixture()
+        r=probe(app,profile,platform="darwin")
+        self.assertEqual(r["reason"],"OWNER_LOCAL_CONSOLE_REQUIRED")
+        self.assertFalse(r["native_acceptance"])
     def test_wrong_bundle_id_fails(self):
         app,profile=self.fixture()
         (app/"Contents"/"Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier":"com.evil.Chrome","CFBundleShortVersionString":"144.0"}))

@@ -119,7 +119,7 @@ class ChromeOwnerTests(unittest.TestCase):
         for fail in (False, True):
             p = FakePlaywright(fail)
             launcher = PlaywrightChromeLauncher()
-            with patch("playwright.sync_api.sync_playwright", return_value=FakeContextManager(p)):
+            with patch("chrome_owner_bridge.require_local_gui_attempt"), patch("playwright.sync_api.sync_playwright", return_value=FakeContextManager(p)):
                 if fail:
                     with self.assertRaises(RuntimeError):
                         launcher.launch(Path("/tmp/synthetic"))

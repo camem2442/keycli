@@ -12,6 +12,7 @@ import plistlib
 import stat
 import sys
 from chrome_profile_guard import ProfileRejected, verify_profile_root
+from chrome_owner_gui_gate import local_gui_preflight
 
 
 def probe(app: Path, profile_root: Path, *, platform: str | None = None) -> dict:
@@ -42,6 +43,8 @@ def probe(app: Path, profile_root: Path, *, platform: str | None = None) -> dict
         verify_profile_root(profile_root)
     except ProfileRejected:
         return reply("CHROME_PROFILE_NOT_VERIFIED")
+    if local_gui_preflight()["reason"] != "GUI_OPERATOR_AND_TCC_UNVERIFIED":
+        return reply("OWNER_LOCAL_CONSOLE_REQUIRED")
     return reply("GUI_EXTENSION_AND_2FA_NOT_VERIFIED", metadata_ok=True)
 
 
