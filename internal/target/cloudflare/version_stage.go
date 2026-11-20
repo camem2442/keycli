@@ -30,11 +30,12 @@ type VersionStageRequest struct {
 	Worker        string
 	Environment   string
 	// UseDefaultEnvironment is an explicit opt-in for Worker configs with no
-	// named [env.*]. It additionally verifies the named account/Worker config.
+	// named [env.*]. It verifies the named account and Worker, then keeps those
+	// validated bytes in a host-owned read-only config through process start.
 	UseDefaultEnvironment bool
-	SecretName    string
-	VersionTag    string // optional, host-bound operation correlation; visible metadata only
-	Env           []string
+	SecretName            string
+	VersionTag            string // optional, host-bound operation correlation; visible metadata only
+	Env                   []string
 }
 
 type VersionStageState string
@@ -92,6 +93,15 @@ func stageVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSH
 	if err := bounded.Err(); err != nil {
 		return notAttempted, err
 	}
+	var frozen frozenStageConfig
+	if req.UseDefaultEnvironment {
+		var freezeErr error
+		frozen, freezeErr = freezeDefaultStageConfig(req.ConfigPath, req.AccountID, req.Worker)
+		if freezeErr != nil {
+			return notAttempted, errors.New("invalid inactive-version target or environment")
+		}
+		defer frozen.remove()
+	}
 	if wranglerSHA256 != "" && !matchesStageExecutable(bounded, req.WranglerPath, wranglerSHA256) {
 		return notAttempted, errors.New("inactive-version executable does not match its pin")
 	}
@@ -106,11 +116,26 @@ func stageVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSH
 	if err := bounded.Err(); err != nil {
 		return notAttempted, err
 	}
+	if req.UseDefaultEnvironment && !frozen.unchanged() {
+		return notAttempted, errors.New("inactive-version config changed after validation")
+	}
+	if beforeStart != nil {
+		if !matchesStageExecutable(bounded, req.WranglerPath, wranglerSHA256) {
+			return notAttempted, errors.New("inactive-version executable does not match its pin")
+		}
+		if err := beforeStart(bounded); err != nil {
+			return notAttempted, errors.New("inactive-version command start was denied")
+		}
+	}
+	configPath := req.ConfigPath
+	if req.UseDefaultEnvironment {
+		configPath = frozen.path
+	}
 	args := []string{"versions", "secret", "put", req.SecretName, "--name", req.Worker}
 	if !req.UseDefaultEnvironment {
 		args = append(args, "--env", req.Environment)
 	}
-	args = append(args, "--config", req.ConfigPath)
+	args = append(args, "--config", configPath)
 	if req.VersionTag != "" {
 		args = append(args, "--tag", req.VersionTag)
 	}
@@ -121,13 +146,8 @@ func stageVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSH
 	cmd.Stdout = io.Discard // Never expose Wrangler output; it may echo a value.
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = time.Second
-	if beforeStart != nil {
-		if !matchesStageExecutable(bounded, req.WranglerPath, wranglerSHA256) {
-			return notAttempted, errors.New("inactive-version executable does not match its pin")
-		}
-		if err := beforeStart(bounded); err != nil {
-			return notAttempted, errors.New("inactive-version command start was denied")
-		}
+	if req.UseDefaultEnvironment && !frozen.unchanged() {
+		return notAttempted, errors.New("inactive-version config changed after validation")
 	}
 	if err := cmd.Start(); err != nil {
 		return notAttempted, errors.New("could not start inactive-version command")
@@ -181,7 +201,7 @@ func validVersionStageRequest(r VersionStageRequest) bool {
 		return false
 	}
 	if r.UseDefaultEnvironment {
-		if r.Environment != "" || !matchesStageDefaultConfig(r.ConfigPath, r.AccountID, r.Worker) {
+		if r.Environment != "" {
 			return false
 		}
 	} else if !stageEnv.MatchString(r.Environment) {
@@ -214,28 +234,119 @@ func validVersionStageRequest(r VersionStageRequest) bool {
 	return account == r.AccountID && token != ""
 }
 
+// frozenStageConfig is the default-environment config after its bytes have been
+// validated. path is a host-owned mode 0400 copy in the source directory, so
+// Wrangler does not read the caller path again. Relative config paths stay
+// anchored to that directory.
+type frozenStageConfig struct {
+	source string
+	path   string
+	bytes  []byte
+}
 
-// matchesStageDefaultConfig refuses a default-env operation unless the exact
-// named Worker + account are pinned by the (host-owned) config. Existing
+func (f frozenStageConfig) remove() {
+	if f.path != "" {
+		_ = os.Remove(f.path)
+	}
+}
+
+func (f frozenStageConfig) unchanged() bool {
+	if f.path == "" || len(f.bytes) == 0 {
+		return false
+	}
+	source, ok := readStableRegular(f.source, 16*1024)
+	if !ok || !bytes.Equal(source, f.bytes) {
+		return false
+	}
+	copyBytes, ok := readStableRegular(f.path, 16*1024)
+	if !ok || !bytes.Equal(copyBytes, f.bytes) {
+		return false
+	}
+	info, err := os.Lstat(f.path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0400
+}
+
+// freezeDefaultStageConfig accepts a default-env operation only when the exact
+// Worker and account are pinned by a bounded regular file with no named
+// [env.*]. The validated bytes are copied before secret lookup. Existing
 // environment-scoped stage requests are not reinterpreted.
-func matchesStageDefaultConfig(path, account, worker string) bool {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 16*1024 {
-		return false
+func freezeDefaultStageConfig(path, account, worker string) (frozenStageConfig, error) {
+	data, ok := readStableRegular(path, 16*1024)
+	if !ok || !defaultConfigBytesMatch(data, account, worker) {
+		return frozenStageConfig{}, errors.New("invalid default-environment config")
 	}
-	input, err := os.ReadFile(path)
-	if err != nil || len(input) != int(info.Size()) {
-		return false
+	pinned := bytes.Clone(data)
+	file, err := os.CreateTemp(filepath.Dir(path), "kc-stage-config-*.toml")
+	if err != nil {
+		return frozenStageConfig{}, err
 	}
+	frozen := frozenStageConfig{source: path, path: file.Name(), bytes: pinned}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = file.Close()
+			frozen.remove()
+		}
+	}()
+	if _, err := file.Write(pinned); err != nil {
+		return frozenStageConfig{}, err
+	}
+	if err := file.Sync(); err != nil {
+		return frozenStageConfig{}, err
+	}
+	if err := file.Chmod(0400); err != nil {
+		return frozenStageConfig{}, err
+	}
+	if err := file.Close(); err != nil {
+		return frozenStageConfig{}, err
+	}
+	if !frozen.unchanged() {
+		return frozenStageConfig{}, errors.New("invalid default-environment config")
+	}
+	cleanup = false
+	return frozen, nil
+}
+
+func defaultConfigBytesMatch(input []byte, account, worker string) bool {
 	var cfg struct {
-		Name string `toml:"name"`
-		AccountID string `toml:"account_id"`
-		Env map[string]interface{} `toml:"env"`
+		Name      string                 `toml:"name"`
+		AccountID string                 `toml:"account_id"`
+		Env       map[string]interface{} `toml:"env"`
 	}
 	if _, err := toml.Decode(string(input), &cfg); err != nil {
 		return false
 	}
 	return cfg.Name == worker && cfg.AccountID == account && len(cfg.Env) == 0
+}
+
+func readStableRegular(path string, max int64) ([]byte, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > max {
+		return nil, false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) || opened.Size() != info.Size() {
+		return nil, false
+	}
+	data := make([]byte, opened.Size())
+	n, err := io.ReadFull(file, data)
+	if err != nil || int64(n) != opened.Size() {
+		return nil, false
+	}
+	var extra [1]byte
+	if _, err := file.Read(extra[:]); err != io.EOF {
+		return nil, false
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !os.SameFile(opened, current) || current.Size() != int64(len(data)) {
+		return nil, false
+	}
+	return data, true
 }
 
 func clearVersionBytes(b []byte) {
