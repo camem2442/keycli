@@ -22,3 +22,9 @@ Use the same exact source program under the existing independently admitted Mac,
 4. Preserve a reversible previous deployed Worker version, provider-readback and `UNKNOWN_EFFECT` recovery procedure; never auto-release on TTL alone. Do not revert a live deployed version merely to make a Git branch look current.
 
 This source review contains no account IDs, token IDs, token bytes, email addresses or host user data and performs **zero permission changes**. Privileged Credential read/rotation/revocation must remain behind the original KeyCLI Authority/Effect Gateway; a source PR cannot supply the missing host attestations.
+
+## Provider authorization shape (official 2026-09 policy)
+
+Cloudflare now supports API tokens with **Individual Workers → Editor** for existing Worker deployments, instead of broad Workers product Editor. Prefer exactly the existing `mocktimer-members-production` Worker and no Worker creation/deletion permission. This differs from the legacy `Workers Scripts Write` permission and must be verified against the actual token policy before adoption. Deploying a bound Worker does not by itself need D1 database query/write permission; those effects are separate. Custom Domain operations may require broader/zone-scoped rights, and are not silently authorized.
+
+Official documentation: https://developers.cloudflare.com/workers/authorization/workers/ and https://developers.cloudflare.com/workers/authorization/ .
