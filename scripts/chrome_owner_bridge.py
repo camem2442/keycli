@@ -76,6 +76,12 @@ class BrowserLauncher(Protocol):
     def launch(self, profile: Path) -> ChromeContext: ...
 
 
+def _sync_playwright():
+    """Indirection so stdlib-only tests can substitute a fake launcher."""
+    from playwright.sync_api import sync_playwright
+    return sync_playwright()
+
+
 class PlaywrightChromeLauncher:
     """Branded Chrome, no raw CDP port; Playwright retained inside owner host.
 
@@ -86,8 +92,7 @@ class PlaywrightChromeLauncher:
         self._playwright_cm = None
 
     def launch(self, profile: Path) -> ChromeContext:
-        from playwright.sync_api import sync_playwright
-        p = sync_playwright().start()
+        p = _sync_playwright().start()
         self._playwright_cm = p
         try:
             return p.chromium.launch_persistent_context(
