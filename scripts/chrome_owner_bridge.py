@@ -101,6 +101,10 @@ class PlaywrightChromeLauncher:
             return p.chromium.launch_persistent_context(
                 str(profile), channel="chrome", headless=False,
                 accept_downloads=False, ignore_https_errors=False,
+                # Playwright's route() cannot intercept fetches owned by page
+                # service workers. Deny this unobservable network path.
+                # Chrome extension compatibility needs real Mac acceptance.
+                service_workers="block",
                 timeout=15000,
             )
         except Exception:
@@ -226,6 +230,11 @@ def run_owner_flow(
     try:
         context = launcher.launch(profile)
         _limit_requests(context, request.site)
+        # A persistent profile may reopen tabs from an earlier crashed run.
+        # Do not treat or navigate these tabs as the requested session.
+        if any(getattr(existing, "url", None) != "about:blank"
+               for existing in context.pages):
+            raise Denied("RESTORED_PAGE_REJECTED")
         page = context.new_page()  # Never act on an existing personal browser tab.
         target_path = request.path if request.action == "session_status" else policy.login_path
         page.goto("https://" + policy.site + target_path, wait_until="domcontentloaded", timeout=10000)

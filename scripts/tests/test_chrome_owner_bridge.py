@@ -10,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chrome_owner_bridge import (
     Denied, Intent, SitePolicy, is_same_origin, secure_profile, validate, run_owner_flow,
-    PlaywrightChromeLauncher,
+    PlaywrightChromeLauncher, _limit_requests,
 )
 
 NOW = 1795172400
@@ -232,6 +232,97 @@ class ChromeOwnerTests(unittest.TestCase):
             with self.assertRaises(Denied):
                 run_owner_flow(intent(), POLICY, None, l, Path(d), now=NOW)
             self.assertEqual(l.called, 0)
+
+
+    def test_browser_launch_blocks_unroutable_page_service_workers(self):
+        class FakePlaywright:
+            def __init__(self):
+                self.chromium = self
+                self.options = None
+                self.stopped = False
+            def launch_persistent_context(self, profile, **options):
+                self.options = options
+                return object()
+            def stop(self):
+                self.stopped = True
+        class FakeManager:
+            def __init__(self, player):
+                self.player = player
+            def start(self):
+                return self.player
+
+        player = FakePlaywright()
+        launcher = PlaywrightChromeLauncher()
+        with patch("playwright.sync_api.sync_playwright", return_value=FakeManager(player)):
+            launcher.launch(Path("/tmp/readonly-synthetic"))
+            launcher.close()
+        self.assertEqual(player.options["service_workers"], "block")
+        self.assertFalse(player.options["accept_downloads"])
+        self.assertFalse(player.options["ignore_https_errors"])
+        self.assertTrue(player.stopped)
+
+    def test_network_route_rejects_other_origin_and_subdomains(self):
+        class RecordingContext:
+            def route(self, pattern, handler):
+                self.pattern, self.handler = pattern, handler
+        class Route:
+            def __init__(self, url):
+                self.request = type("Request", (), {"url": url})()
+                self.calls = []
+            def continue_(self):
+                self.calls.append("continued")
+            def abort(self):
+                self.calls.append("aborted")
+        context = RecordingContext()
+        _limit_requests(context, "example.com")
+        self.assertEqual(context.pattern, "**/*")
+        for url, outcome in [
+            ("https://example.com/login", "continued"),
+            ("https://example.com.evil.test/login", "aborted"),
+            ("http://example.com/login", "aborted"),
+            ("https://example.com:443/login", "aborted"),
+            ("https://evil.test/", "aborted"),
+        ]:
+            route = Route(url)
+            context.handler(route)
+            self.assertEqual(route.calls, [outcome], url)
+
+    def test_one_shot_authority_prevents_replay_before_second_browser(self):
+        class OneShotAuthority(Authority):
+            def __init__(self):
+                super().__init__()
+                self.seen = set()
+            def verify_and_reserve(self, request):
+                super().verify_and_reserve(request)
+                if request.request_id in self.seen:
+                    raise ValueError("sensitive replay metadata")
+                self.seen.add(request.request_id)
+
+        with tempfile.TemporaryDirectory() as d:
+            os.chmod(d, 0o700)
+            auth, browser = OneShotAuthority(), Launcher({})
+            self.assertEqual(run_owner_flow(intent(), POLICY, auth, browser, Path(d), now=NOW), "NO_SESSION")
+            with self.assertRaisesRegex(Denied, "AUTHORITY_DENIED") as denied:
+                run_owner_flow(intent(), POLICY, auth, browser, Path(d), now=NOW)
+            self.assertNotIn("sensitive", str(denied.exception))
+            self.assertEqual(auth.calls, 2)
+            self.assertEqual(browser.called, 1)
+
+    def test_preexisting_restored_tab_refused_before_new_page(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.chmod(d, 0o700)
+            auth, browser = Authority(), Launcher({})
+            class RestoredLauncher(Launcher):
+                def launch(self, profile):
+                    context = super().launch(profile)
+                    context.pages[0].url = "https://evil.test/preloaded"
+                    return context
+            browser = RestoredLauncher({})
+            with self.assertRaisesRegex(Denied, "RESTORED_PAGE_REJECTED"):
+                run_owner_flow(intent(), POLICY, auth, browser, Path(d), now=NOW)
+            self.assertEqual(auth.calls, 1)
+            self.assertEqual(browser.context.new_calls, 0)
+            self.assertTrue(browser.context.closed)
 
 if __name__ == "__main__":
     unittest.main()
