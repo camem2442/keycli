@@ -29,3 +29,7 @@ Local synthetic Linux `go test` on exact FD source: 4 tests PASS, race PASS, Dar
 ### Filled-vs-delivered correction
 
 `FDCodeFiller` now requires a fixed 1-byte ACK `0x01` **after** Chrome's trusted input sink has filled the OTP field (and clicked its explicitly configured submit control, if present). Sending six OTP bytes alone is not a completed fill. Invalid ACK, deadline, partial I/O or canceled context fail without retry. ACK means only that the browser input action completed, **not** that the website accepted the login. Tests include missing/invalid ACK and concurrent one-use behavior. The receiving ACK is emitted by KeyCLI #84's `OwnerFDTOTP` and remains within the trusted owner socketpair.
+
+### 2026-11-20 MFA child-operation binding
+
+A broker-generated TOTP Challenge now carries both `ParentRequestID` (the original browser-login request) and a **different** `RequestID` (the child MFA operation). `Fulfill` rejects a missing, invalid, or reused parent ID before calling the authority or seed store. `BoundMFAChild` checks the exact original parent/child/site/factor binding and delegates to a separately supplied original trusted `Goal/Grant/Claim/Writer` authority; it does not sign a Grant or create a new approval system. A unit-test fake authority is not operating authorization. The privileged Mac supervisor must register, attest and reserve the *real* child operation via the existing source of truth before granting it an inherited Unix socket. No arbitrary Mac shell, Chrome CDP, model-visible codes, or real Apple password data are enabled.

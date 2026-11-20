@@ -60,7 +60,11 @@ func (f *fakeFiller) FillVerifiedTOTP(_ context.Context, _ string, code []byte) 
 	return nil
 }
 func challenge(f Factor) Challenge {
-	return Challenge{Site: "example.com", RequestID: "request-0001", Factor: f, ExpiresAt: testTime.Add(time.Minute)}
+	c := Challenge{Site: "example.com", RequestID: "request-0001", Factor: f, ExpiresAt: testTime.Add(time.Minute)}
+	if f == BrokerTOTP {
+		c.ParentRequestID = "parent-0001"
+	}
+	return c
 }
 
 func TestFulfillRejectionBeforeSeed(t *testing.T) {

@@ -43,10 +43,11 @@ const (
 )
 
 type Challenge struct {
-	Site      string
-	RequestID string
-	Factor    Factor
-	ExpiresAt time.Time
+	Site            string
+	RequestID       string // this MFA child's independent request ID
+	ParentRequestID string // original browser-login request, never equal to RequestID
+	Factor          Factor
+	ExpiresAt       time.Time
 }
 
 // Authority MUST query original Goal/Grant/Claim and atomic replay journal
@@ -82,7 +83,9 @@ func Fulfill(ctx context.Context, now time.Time, c Challenge, auth Authority, se
 		}
 		return HumanNeeded, nil
 	case BrokerTOTP:
-		if seeds == nil || fill == nil {
+		// Reusing the browser-login operation as an MFA grant is forbidden.
+		// The trusted owner must issue a distinct child operation and verify it.
+		if !validID(c.ParentRequestID) || c.ParentRequestID == c.RequestID || seeds == nil || fill == nil {
 			return "", ErrDenied
 		}
 	default:
