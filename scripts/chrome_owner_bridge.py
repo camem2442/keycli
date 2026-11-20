@@ -19,6 +19,7 @@ import os
 import re
 import stat
 import time
+from chrome_profile_guard import ProfileRejected, verify_profile_root
 
 _ACTIONS = frozenset({"session_status", "reauthenticate"})
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -92,9 +93,8 @@ class PlaywrightChromeLauncher:
             return p.chromium.launch_persistent_context(
                 str(profile), channel="chrome", headless=False,
                 accept_downloads=False, ignore_https_errors=False,
-                # Playwright's route() cannot intercept fetches owned by page
-                # service workers. Deny this unobservable network path.
-                # Chrome extension compatibility needs real Mac acceptance.
+                # Page service-worker fetches bypass Playwright route().
+                # Block this path until owner Mac extension compatibility passes.
                 service_workers="block",
                 timeout=15000,
             )
@@ -153,6 +153,10 @@ def secure_profile(root: Path, site: str) -> Path:
     """
     if not _valid_site(site) or not root.is_absolute():
         raise Denied("PROFILE_REJECTED")
+    try:
+        verify_profile_root(root)
+    except ProfileRejected:
+        raise Denied("PROFILE_REJECTED") from None
     current = root
     # Caller must create the root as a protected directory first. We never
     # create arbitrary user-supplied parents or silently chmod existing paths.
@@ -217,10 +221,8 @@ def run_owner_flow(
     try:
         context = launcher.launch(profile)
         _limit_requests(context, request.site)
-        # A persistent profile may reopen tabs from an earlier crashed run.
-        # Do not treat or navigate these tabs as the requested session.
-        if any(getattr(existing, "url", None) != "about:blank"
-               for existing in context.pages):
+        # Abort restored nonblank tabs from an earlier persistent session.
+        if any(getattr(tab, "url", None) != "about:blank" for tab in context.pages):
             raise Denied("RESTORED_PAGE_REJECTED")
         page = context.new_page()  # Never act on an existing personal browser tab.
         target_path = request.path if request.action == "session_status" else policy.login_path

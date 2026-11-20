@@ -32,3 +32,7 @@ Official sources:
 - https://playwright.dev/python/docs/chrome-extensions
 - https://playwright.dev/python/docs/network
 - https://developer.chrome.com/blog/remote-debugging-port
+
+### Personal Chrome profile prevention
+
+`scripts/chrome_profile_guard.py` is the shared check for both the Chrome worker and read-only Mac preflight. It requires an already-created owner-only private root and forbids symlinked ancestor paths or known default Chrome/Chromium profile directory components. The built-in Mac `/var` → `/private/var` root-owned alias is allowed only when that exact canonical mapping is observed. The guard does **not** isolate another same-UID process or prove extension/passkey operation. Its Linux synthetic tests enforce default-profile refusals; real Mac GUI acceptance is still required.
