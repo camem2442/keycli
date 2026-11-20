@@ -159,7 +159,7 @@ const (
 	NoSession      Outcome = "no_session"
 	NeedsHuman     Outcome = "human_auth_required"
 	// Historical generic ACK, retained for callers but never accepted by Gate.
-	Performed      Outcome = "performed"
+	Performed Outcome = "performed"
 )
 
 // OutcomeFromOwnerStatus translates only the fixed statuses emitted by the
