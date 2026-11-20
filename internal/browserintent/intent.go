@@ -160,10 +160,10 @@ const (
 // Gate requires both an independent authority and browser executor. There is
 // no offline bypass; nil components fail closed.
 func Gate(ctx context.Context, now time.Time, in Intent, authority Authority, browser Browser) (Outcome, error) {
-	if in.Validate(now) != nil || authority == nil || browser == nil {
+	if ctx.Err() != nil || in.Validate(now) != nil || authority == nil || browser == nil {
 		return "", ErrRejected
 	}
-	if authority.VerifyAndReserve(ctx, in) != nil {
+	if authority.VerifyAndReserve(ctx, in) != nil || ctx.Err() != nil {
 		return "", ErrRejected
 	}
 	result, err := browser.Perform(ctx, in)
