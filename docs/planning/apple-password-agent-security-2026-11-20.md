@@ -73,7 +73,7 @@ KeyCLI가 모방할 **속성**은 에이전트의 임의 비밀 조회 금지, �
 | **S0 — 출처 동결** | main v0.8 pin / Draft #81–#84 | Apple/1Password 공식 보안 조건·현재 기능 인벤토리 고정 | 원본 버전·정확 SHA, 소스와 설치본 구분 |
 | **S1 — 순수 계약** | #81 CSV, #82 intent, #83 OTP | malformed/unknown/TTL/OTP/지정 사이트 실패 우선 거부 | 동일 clean HEAD의 KeyCLI verify docs/policy/Go owning tests |
 | **S2 — 호스트 권한 격리** | workspace-infra 원본 Goal/Grant/Claim, keycli HostBridge/Gateway | 실 owner broker vs agent 분리, peer/replay/seatbelt/same UID 차단 | synthetic만으로 실제 Mac 권한 격리 PASS 주장 금지 |
-| **S3 — 읽기 전용 브라우저** | #84 dedicated Chrome owner profile | session_status/read_page 허용 범위만, CDP/cookie/HTML 모델 출력 금지 | 단일 사이트 Mac native headed 1회, site mismatch negative |
+| **S3 — 읽기 전용 브라우저** | #84 dedicated Chrome owner profile | `session_status`만 허용. `read_page`는 별도 출력 redactor 검토 전까지 명시적으로 거부하며, 부정 테스트로 확인한다. CDP/cookie/HTML 모델 출력 금지 | 단일 사이트 Mac native headed 1회, site mismatch negative, `read_page` 거부 확인 |
 | **S4 — 사용자 개입 로그인** | Apple Passwords extension/Touch ID, #83 native filler | 대화형 사람 승인 → 브라우저 정상 세션 → 정형 status | 실제 Mac 1 low-risk 계정, 비밀 비노출, 2FA 미수용 사이트는 human required |
 | **S5 — 제한된 무인 재사용** | 독립 Grant/Claim TTL·회수, original ledger | 사전 승인된 저위험 세션 재사용·종료/철회 | time bound, prior-grant revoke, second-agent deny, loss/reconcile, real login/logout |
  
