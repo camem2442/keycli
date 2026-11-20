@@ -253,7 +253,7 @@ class ChromeOwnerTests(unittest.TestCase):
 
         player = FakePlaywright()
         launcher = PlaywrightChromeLauncher()
-        with patch("playwright.sync_api.sync_playwright", return_value=FakeManager(player)):
+        with patch("chrome_owner_bridge._sync_playwright", return_value=FakeManager(player)):
             launcher.launch(Path("/tmp/readonly-synthetic"))
             launcher.close()
         self.assertEqual(player.options["service_workers"], "block")
