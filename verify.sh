@@ -63,6 +63,12 @@ run_docs() {
   python3 -B "$ROOT/scripts/tests/test-dev-cas-native-e2e.py"
   bash -n "$ROOT/scripts/verify-dev-release.sh"
   python3 -B "$ROOT/scripts/tests/test-ci-noqueue-source.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_bridge.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_totp_fd.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_native_probe.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_profile_guard.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_gui_gate.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_os_boundary.py"
   python3 -B "$ROOT/scripts/tests/test-g4-free-release-contract.py"
 }
 
