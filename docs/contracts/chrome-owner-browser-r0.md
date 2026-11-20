@@ -26,6 +26,6 @@ This source-only Playwright Chrome library is a **restricted owner-host componen
 
 ## Verification
 
-`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p test_chrome_owner_bridge.py -v`: 8 synthetic cases PASS in isolated Linux scratch with fake owner/browser. Local system Chromium launched, but navigation to localhost and data URLs was refused `ERR_BLOCKED_BY_ADMINISTRATOR`, so **no real-browser navigation/login E2E** completed. KeyCLI exact-head owning Go suite, Chrome macOS GUI, iCloud Passwords, passkey, live original authority and secure OTP fill remain NOT VERIFIED. **Draft/HOLD.** No installed changes or paid hosted CI.
+`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p test_chrome_owner_bridge.py -v`: 9 synthetic cases PASS in isolated Linux scratch with fake owner/browser. Local system Chromium launched, but navigation to localhost and data URLs was refused `ERR_BLOCKED_BY_ADMINISTRATOR`, so **no real-browser navigation/login E2E** completed. KeyCLI exact-head owning Go suite, Chrome macOS GUI, iCloud Passwords, passkey, live original authority and secure OTP fill remain NOT VERIFIED. **Draft/HOLD.** No installed changes or paid hosted CI.
 
 References: https://developer.chrome.com/docs/devtools/agents/get-started/configuration/ · https://chromewebstore.google.com/detail/icloud-passwords/pejdijmoenmkgeppbflobdenhhabjlaj · https://playwright.dev/docs/auth · https://playwright.dev/docs/chrome-extensions

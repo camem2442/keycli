@@ -4,10 +4,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chrome_owner_bridge import (
     Denied, Intent, SitePolicy, is_same_origin, secure_profile, validate, run_owner_flow,
+    PlaywrightChromeLauncher,
 )
 
 NOW = 1795172400
@@ -96,6 +98,35 @@ class OTP:
 
 
 class ChromeOwnerTests(unittest.TestCase):
+    def test_playwright_lifecycle_closes_correct_object(self):
+        class FakePlaywright:
+            def __init__(self, fails=False):
+                self.stopped = False
+                self.fails = fails
+                self.chromium = self
+            def launch_persistent_context(self, *args, **kwargs):
+                if self.fails:
+                    raise RuntimeError("synthetic launch fail")
+                return object()
+            def stop(self):
+                self.stopped = True
+        class FakeContextManager:
+            def __init__(self, playwright):
+                self.playwright = playwright
+            def start(self):
+                return self.playwright
+        for fail in (False, True):
+            p = FakePlaywright(fail)
+            launcher = PlaywrightChromeLauncher()
+            with patch("playwright.sync_api.sync_playwright", return_value=FakeContextManager(p)):
+                if fail:
+                    with self.assertRaises(RuntimeError):
+                        launcher.launch(Path("/tmp/synthetic"))
+                else:
+                    launcher.launch(Path("/tmp/synthetic"))
+                    launcher.close()
+            self.assertTrue(p.stopped)
+
     def test_origin_host_confusion(self):
         for bad in ("http://example.com", "https://example.com.evil.test",
                     "https://example.com:8443", "https://a@example.com",

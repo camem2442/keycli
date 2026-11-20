@@ -85,9 +85,8 @@ class PlaywrightChromeLauncher:
 
     def launch(self, profile: Path) -> ChromeContext:
         from playwright.sync_api import sync_playwright
-        cm = sync_playwright()
-        p = cm.start()
-        self._playwright_cm = cm
+        p = sync_playwright().start()
+        self._playwright_cm = p
         try:
             return p.chromium.launch_persistent_context(
                 str(profile), channel="chrome", headless=False,
@@ -95,7 +94,7 @@ class PlaywrightChromeLauncher:
                 timeout=15000,
             )
         except Exception:
-            cm.stop()
+            p.stop()
             self._playwright_cm = None
             raise
 
