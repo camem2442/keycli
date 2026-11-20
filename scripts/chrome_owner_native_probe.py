@@ -11,6 +11,7 @@ from pathlib import Path
 import plistlib
 import stat
 import sys
+from chrome_profile_guard import ProfileRejected, verify_profile_root
 
 
 def probe(app: Path, profile_root: Path, *, platform: str | None = None) -> dict:
@@ -38,12 +39,8 @@ def probe(app: Path, profile_root: Path, *, platform: str | None = None) -> dict
     except (OSError, ValueError, TypeError, plistlib.InvalidFileException):
         return reply("CHROME_APP_NOT_VERIFIED")
     try:
-        if not profile_root.is_absolute() or profile_root.is_symlink():
-            return reply("CHROME_PROFILE_NOT_VERIFIED")
-        st = profile_root.stat(follow_symlinks=False)
-        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) & 0o077:
-            return reply("CHROME_PROFILE_NOT_VERIFIED")
-    except OSError:
+        verify_profile_root(profile_root)
+    except ProfileRejected:
         return reply("CHROME_PROFILE_NOT_VERIFIED")
     return reply("GUI_EXTENSION_AND_2FA_NOT_VERIFIED", metadata_ok=True)
 

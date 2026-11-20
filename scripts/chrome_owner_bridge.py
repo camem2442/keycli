@@ -19,6 +19,7 @@ import os
 import re
 import stat
 import time
+from chrome_profile_guard import ProfileRejected, verify_profile_root
 
 _ACTIONS = frozenset({"session_status", "reauthenticate"})
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -149,6 +150,10 @@ def secure_profile(root: Path, site: str) -> Path:
     """
     if not _valid_site(site) or not root.is_absolute():
         raise Denied("PROFILE_REJECTED")
+    try:
+        verify_profile_root(root)
+    except ProfileRejected:
+        raise Denied("PROFILE_REJECTED") from None
     current = root
     # Caller must create the root as a protected directory first. We never
     # create arbitrary user-supplied parents or silently chmod existing paths.
