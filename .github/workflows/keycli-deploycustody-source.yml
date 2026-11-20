@@ -17,12 +17,17 @@ concurrency:
 
 jobs:
   source:
+    # Public self-hosted execution is disabled: this repository registers no
+    # runner, and admission is owned by the private lane
+    # (workspace-infra keycli-g2g4-free-host-owner.yml). Unfence only with a
+    # registered, admitted ephemeral VM; never map this to another repo's host.
     if: >-
       github.repository == 'camem2442/keycli' &&
       github.actor == 'camem2442' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.base.ref == 'main'
-    runs-on: [self-hosted, Linux, ARM64, android, wi]
+      github.event.pull_request.base.ref == 'main' &&
+      false
+    runs-on: [self-hosted, Linux, ARM64, keycli-ephemeral-vm]
     timeout-minutes: 10
     env:
       EXPECT_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -32,11 +37,10 @@ jobs:
       CF_API_TOKEN: ''
       CLOUDFLARE_API_TOKEN: ''
     steps:
-      - name: Require eligible owner Flip3
+      - name: Require eligible owner VM
         shell: bash
         run: |
           set -euo pipefail
-          test "$RUNNER_NAME" = flip3-a14-wi
           test "$RUNNER_OS" = Linux
           test "$RUNNER_ARCH" = ARM64
           test "$(id -u)" -ne 0
