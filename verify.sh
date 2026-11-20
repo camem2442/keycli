@@ -63,6 +63,7 @@ run_docs() {
   python3 -B "$ROOT/scripts/tests/test-dev-cas-native-e2e.py"
   bash -n "$ROOT/scripts/verify-dev-release.sh"
   python3 -B "$ROOT/scripts/tests/test-ci-noqueue-source.py"
+  python3 -B "$ROOT/scripts/tests/test_chrome_owner_bridge.py"
   python3 -B "$ROOT/scripts/tests/test-g4-free-release-contract.py"
 }
 
