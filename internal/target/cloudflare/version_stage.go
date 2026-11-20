@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // VersionStageRequest is a host-owned, exact-target request. This low-level
@@ -27,6 +29,9 @@ type VersionStageRequest struct {
 	AccountID     string
 	Worker        string
 	Environment   string
+	// UseDefaultEnvironment is an explicit opt-in for Worker configs with no
+	// named [env.*]. It additionally verifies the named account/Worker config.
+	UseDefaultEnvironment bool
 	SecretName    string
 	VersionTag    string // optional, host-bound operation correlation; visible metadata only
 	Env           []string
@@ -101,7 +106,11 @@ func stageVersionSecret(ctx context.Context, req VersionStageRequest, wranglerSH
 	if err := bounded.Err(); err != nil {
 		return notAttempted, err
 	}
-	args := []string{"versions", "secret", "put", req.SecretName, "--name", req.Worker, "--env", req.Environment, "--config", req.ConfigPath}
+	args := []string{"versions", "secret", "put", req.SecretName, "--name", req.Worker}
+	if !req.UseDefaultEnvironment {
+		args = append(args, "--env", req.Environment)
+	}
+	args = append(args, "--config", req.ConfigPath)
 	if req.VersionTag != "" {
 		args = append(args, "--tag", req.VersionTag)
 	}
@@ -164,11 +173,18 @@ func matchesStageExecutable(ctx context.Context, path, digest string) bool {
 
 func validVersionStageRequest(r VersionStageRequest) bool {
 	if !stageAccount.MatchString(r.AccountID) || !stageWorker.MatchString(r.Worker) ||
-		!stageEnv.MatchString(r.Environment) || !stageSecret.MatchString(r.SecretName) ||
+		!stageSecret.MatchString(r.SecretName) ||
 		(r.VersionTag != "" && !stageTag.MatchString(r.VersionTag)) ||
 		!filepath.IsAbs(r.WranglerPath) || !filepath.IsAbs(r.ConfigPath) || !filepath.IsAbs(r.WorkDirectory) ||
 		filepath.Clean(r.WranglerPath) != r.WranglerPath || filepath.Clean(r.ConfigPath) != r.ConfigPath ||
 		filepath.Clean(r.WorkDirectory) != r.WorkDirectory {
+		return false
+	}
+	if r.UseDefaultEnvironment {
+		if r.Environment != "" || !matchesStageDefaultConfig(r.ConfigPath, r.AccountID, r.Worker) {
+			return false
+		}
+	} else if !stageEnv.MatchString(r.Environment) {
 		return false
 	}
 	for _, p := range []string{r.WranglerPath, r.ConfigPath} {
@@ -196,6 +212,30 @@ func validVersionStageRequest(r VersionStageRequest) bool {
 		}
 	}
 	return account == r.AccountID && token != ""
+}
+
+
+// matchesStageDefaultConfig refuses a default-env operation unless the exact
+// named Worker + account are pinned by the (host-owned) config. Existing
+// environment-scoped stage requests are not reinterpreted.
+func matchesStageDefaultConfig(path, account, worker string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 16*1024 {
+		return false
+	}
+	input, err := os.ReadFile(path)
+	if err != nil || len(input) != int(info.Size()) {
+		return false
+	}
+	var cfg struct {
+		Name string `toml:"name"`
+		AccountID string `toml:"account_id"`
+		Env map[string]interface{} `toml:"env"`
+	}
+	if _, err := toml.Decode(string(input), &cfg); err != nil {
+		return false
+	}
+	return cfg.Name == worker && cfg.AccountID == account && len(cfg.Env) == 0
 }
 
 func clearVersionBytes(b []byte) {
