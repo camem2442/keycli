@@ -35,7 +35,10 @@ class NativeProbeTests(unittest.TestCase):
         self.assertFalse(r["extension_verified"])
     def test_headless_worker_never_passes_preflight(self):
         app,profile=self.fixture()
-        r=probe(app,profile,platform="darwin")
+        # Pin the ambient console check: on a GUI login session the real
+        # preflight returns a different reason and made this test host-dependent.
+        with patch("chrome_owner_native_probe.local_gui_preflight", return_value={"reason":"HEADLESS_OR_NO_CONSOLE"}):
+            r=probe(app,profile,platform="darwin")
         self.assertEqual(r["reason"],"OWNER_LOCAL_CONSOLE_REQUIRED")
         self.assertFalse(r["native_acceptance"])
     def test_wrong_bundle_id_fails(self):
