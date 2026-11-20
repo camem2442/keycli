@@ -99,20 +99,43 @@ PR #90은 `verify.sh`의 release smoke가 **호스트 아키텍처에 맞는 바
 4. C1c 이후 C2 착수 시점
 5. 인증 계열(#81–#88)을 v0.11.0으로 분리할지 — C1 일정과 별개 결정
 
-## 9a. C1a 후보 상태 (2026-11-21 읽기 전용 점검)
+## 9a. C1a 진행 결과 (2026-11-21)
 
-게이트를 실행하지 않고 호스트 준비 상태만 조회했다.
+전용 Lima VM을 실제로 생성·설치했다. 영수증:
+`_management/evidence/keycli-g4-c1-vm-20261121/README.md`.
 
-| 항목 | 결과 |
+판정: **C1a PARTIAL** — 호스트 선택·생성·도구 설치는 완료했고,
+비용 상한·teardown 책임자 기록(결정서)은 아직 비어 있다.
+
+| 항목 | 값 |
 |---|---|
-| Lima VM `mocktimer-release` | Running, `Linux aarch64`, uid 501(비root) |
-| 도구 | git 2.43.0 · jq · python3 3.12.3 · sha256sum 확인 / **go·gofmt·rg 없음** |
-| Mac 측 | `limactl`, `UTM.app`, `qemu-system-aarch64` 존재 |
+| VM | Lima `keycli-g4-c1`, Ubuntu 26.04, `aarch64`, vz, 4 CPU / 4GiB / 20GiB, 마운트 없음 |
+| 계정 | `k`(uid 501), 비root |
+| 도구 | Go **1.22.12**(sha256 대조), ripgrep 15.1.0, jq 1.8.1, python3 3.14.4, git 2.53.0, sqlite3 3.46.1 |
+| 모듈 캐시 | 221MiB 사전 다운로드 후 `GOPROXY=off` 빌드 PASS |
 
-판정: 이 VM은 native ARM64 비root 조건은 만족하지만 `g4-free-release-gate.sh`가 요구하는
-`go`, `gofmt`, `rg`가 없어 **그대로는 C1b를 실행할 수 없다**. 또한 이름·용도가 다른 프로젝트
-(`mocktimer`) 기준으로 실행 중이므로, C1b는 **별도 승인 + 전용 또는 정리된 VM**에서 수행해야
-한다. 도구 설치나 VM 재사용 여부는 owner 결정 사항이며 이 문서는 그 승인이 아니다.
+### 실행 결과
+
+| 대상 | 결과 |
+|---|---|
+| `origin/main` `5650d0a`, `--suite all` | **FAIL** — `release`가 `dist/kc-linux-amd64`를 실행하려다 실패 (#90이 고치는 지점) |
+| PR #90 `ea8e751`, `--suite all` | **PASS** (`suite=all ok`) — native ARM64 실기기 근거 |
+
+### 빌더 전제조건 (게이트 계약 보강 후보)
+
+1. **umask 0022 고정**: Lima 기본 `0002`에서는 권한 검사 테스트가 실패한다
+   (`invalid protected gateway origin configuration`, `unsafe delivery journal ancestor`).
+2. **sqlite3 CLI 필수**: `internal/cursor` 회귀 테스트가 요구하지만
+   `g4-free-release-gate.sh`의 도구 목록에 없다.
+3. **이미지 digest 고정**: `template:ubuntu`가 26.04를 선택했다. C1b/C1c는 digest를 고정해야 한다.
+
+### C1b의 구조적 제약
+
+`g4-free-release-gate.sh`는 `GITHUB_RUN_ID`·`GITHUB_RUN_ATTEMPT`·`GITHUB_WORKFLOW_SHA`를
+요구하고 불일치 시 exit 2다. 손으로 실행하면 게이트가 거부하므로 C1b는 다음이 필요하다.
+
+1. 이 VM을 일회성 self-hosted runner로 등록하고 private owner lane에서 dispatch
+2. 또는 owner-signed manual run 영수증을 허용하는 게이트 계약 PR
 
 ## 10. NOT VERIFIED
 
