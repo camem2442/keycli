@@ -26,7 +26,7 @@ func TestDefaultEnvironmentStageUsesExactPinnedWorkerWithoutEnvFlag(t *testing.T
 	req, argv, input := defaultStageFixture(t)
 	seen := filepath.Join(req.WorkDirectory, "seen-config")
 	modePath := filepath.Join(req.WorkDirectory, "seen-mode")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + argv + "'\ncat > '" + input + "'\nprev=\nfor arg in \"$@\"; do\n  if [ \"$prev\" = \"--config\" ]; then\n    cp \"$arg\" '" + seen + "'\n    ls -l \"$arg\" | awk '{print $1}' > '" + modePath + "'\n  fi\n  prev=$arg\ndone\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + argv + "'\ncat > '" + input + "'\nprev=\nfor arg in \"$@\"; do\n  if [ \"$prev\" = \"--config\" ]; then\n    cp \"$arg\" '" + seen + "'\n    if stat -f %Sp \"$arg\" >/dev/null 2>&1; then stat -f %Sp \"$arg\"; else stat -c %A \"$arg\"; fi > '" + modePath + "'\n  fi\n  prev=$arg\ndone\n"
 	if err := os.WriteFile(req.WranglerPath, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
