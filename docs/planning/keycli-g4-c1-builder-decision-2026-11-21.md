@@ -99,6 +99,21 @@ PR #90은 `verify.sh`의 release smoke가 **호스트 아키텍처에 맞는 바
 4. C1c 이후 C2 착수 시점
 5. 인증 계열(#81–#88)을 v0.11.0으로 분리할지 — C1 일정과 별개 결정
 
+## 9a. C1a 후보 상태 (2026-11-21 읽기 전용 점검)
+
+게이트를 실행하지 않고 호스트 준비 상태만 조회했다.
+
+| 항목 | 결과 |
+|---|---|
+| Lima VM `mocktimer-release` | Running, `Linux aarch64`, uid 501(비root) |
+| 도구 | git 2.43.0 · jq · python3 3.12.3 · sha256sum 확인 / **go·gofmt·rg 없음** |
+| Mac 측 | `limactl`, `UTM.app`, `qemu-system-aarch64` 존재 |
+
+판정: 이 VM은 native ARM64 비root 조건은 만족하지만 `g4-free-release-gate.sh`가 요구하는
+`go`, `gofmt`, `rg`가 없어 **그대로는 C1b를 실행할 수 없다**. 또한 이름·용도가 다른 프로젝트
+(`mocktimer`) 기준으로 실행 중이므로, C1b는 **별도 승인 + 전용 또는 정리된 VM**에서 수행해야
+한다. 도구 설치나 VM 재사용 여부는 owner 결정 사항이며 이 문서는 그 승인이 아니다.
+
 ## 10. NOT VERIFIED
 
 - 승인된 builder 없음 → C1a/C1b/C1c 미실행
