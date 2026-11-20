@@ -71,14 +71,14 @@ type Filler interface {
 // Fulfill never returns OTP or seed to its caller. The agent only receives a
 // fixed status. A browser worker MUST avoid printing/storing the code.
 func Fulfill(ctx context.Context, now time.Time, c Challenge, auth Authority, seeds SeedProvider, fill Filler) (Status, error) {
-	if !validSite(c.Site) || !validID(c.RequestID) || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(2*time.Minute)) || auth == nil {
+	if ctx == nil || ctx.Err() != nil || !validSite(c.Site) || !validID(c.RequestID) || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(2*time.Minute)) || auth == nil {
 		return "", ErrDenied
 	}
 	switch c.Factor {
 	case AppleTOTP, Passkey, SMS, Email, Push, RecoveryCode:
 		// Apple Passwords suggestions and platform assertions require owner
 		// interaction; never pretend an agent can programmatically select it.
-		if auth.VerifyAndReserve(ctx, c) != nil {
+		if auth.VerifyAndReserve(ctx, c) != nil || ctx.Err() != nil {
 			return "", ErrDenied
 		}
 		return HumanNeeded, nil
@@ -95,11 +95,11 @@ func Fulfill(ctx context.Context, now time.Time, c Challenge, auth Authority, se
 	if now.Unix()%30 >= 25 {
 		return "", ErrCodeWindow
 	}
-	if auth.VerifyAndReserve(ctx, c) != nil {
+	if auth.VerifyAndReserve(ctx, c) != nil || ctx.Err() != nil {
 		return "", ErrDenied
 	}
 	seed, err := seeds.SeedForSite(ctx, c.Site)
-	if err != nil || len(seed) < 16 || len(seed) > 128 {
+	if err != nil || ctx.Err() != nil || len(seed) < 16 || len(seed) > 128 {
 		// The returned buffer belongs exclusively to the owner broker.
 		wipe(seed)
 		return "", ErrDenied
@@ -107,7 +107,7 @@ func Fulfill(ctx context.Context, now time.Time, c Challenge, auth Authority, se
 	defer wipe(seed)
 	code := totpSHA1(seed, uint64(now.Unix()/30), 6)
 	defer wipe(code)
-	if fill.FillVerifiedTOTP(ctx, c.Site, code) != nil {
+	if fill.FillVerifiedTOTP(ctx, c.Site, code) != nil || ctx.Err() != nil {
 		// The browser may have partially acted. Never automatically retry.
 		return "", ErrDenied
 	}
