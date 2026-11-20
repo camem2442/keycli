@@ -1,0 +1,61 @@
+name: KeyCLI deploy custody — source-only Flip3
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'internal/deploycustody/**'
+      - '.github/workflows/keycli-deploycustody-source.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keycli-deploycustody-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    if: >-
+      github.repository == 'camem2442/keycli' &&
+      github.actor == 'camem2442' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: [self-hosted, Linux, ARM64, android, wi]
+    timeout-minutes: 10
+    env:
+      EXPECT_HEAD: ${{ github.event.pull_request.head.sha }}
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+      KC_PROVIDER_EFFECTS: ''
+      CF_API_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Require eligible owner Flip3
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_NAME" = flip3-a14-wi
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = ARM64
+          test "$(id -u)" -ne 0
+          test "$(uname -m)" = aarch64
+      - name: Checkout selected source SHA with no persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          ref: ${{ env.EXPECT_HEAD }}
+          path: source-${{ env.EXPECT_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+          clean: false
+      - name: Run bounded credential-free source contract
+        working-directory: source-${{ env.EXPECT_HEAD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECT_HEAD"
+          test -z "$(git status --porcelain)"
+          test -z "$(gofmt -l internal/deploycustody)"
+          go test -count=1 ./internal/deploycustody
+          test -z "$(git status --porcelain)"
+          echo "SOURCE_ONLY_PASS head=$EXPECT_HEAD, provider_calls=0"
