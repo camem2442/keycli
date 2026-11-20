@@ -37,16 +37,16 @@ func TestReadOneRejectsUnsafeAndLossyInput(t *testing.T) {
 		want             error
 	}{
 		{"wrong header", "bad\nvalue\n", "example.com", ErrInvalidCSV},
-		{"bulk", header+"A,https://example.com,u,p,,\nB,https://example.com,u2,p2,,\n", "example.com", ErrInvalidCSV},
-		{"otp", header+"A,https://example.com,u,p,,otpauth://totp/example?secret=ABCDEFG\n", "example.com", ErrUnsupported},
-		{"notes", header+"A,https://example.com,u,p,personal note,\n", "example.com", ErrUnsupported},
-		{"lookalike", header+"A,https://example.com.evil.test,u,p,,\n", "example.com", ErrWrongSite},
-		{"http", header+"A,http://example.com,u,p,,\n", "example.com", ErrWrongSite},
-		{"userinfo", header+"A,https://example.com@evil.test,u,p,,\n", "example.com", ErrWrongSite},
-		{"url query", header+"A,https://example.com/login?ticket=abc,u,p,,\n", "example.com", ErrWrongSite},
-		{"port", header+"A,https://example.com:8443,u,p,,\n", "example.com", ErrWrongSite},
-		{"no password", header+"A,https://example.com,u,,,\n", "example.com", ErrInvalidCSV},
-		{"invalid site", header+"A,https://example.com,u,p,,\n", "*.example.com", ErrWrongSite},
+		{"bulk", header + "A,https://example.com,u,p,,\nB,https://example.com,u2,p2,,\n", "example.com", ErrInvalidCSV},
+		{"otp", header + "A,https://example.com,u,p,,otpauth://totp/example?secret=ABCDEFG\n", "example.com", ErrUnsupported},
+		{"notes", header + "A,https://example.com,u,p,personal note,\n", "example.com", ErrUnsupported},
+		{"lookalike", header + "A,https://example.com.evil.test,u,p,,\n", "example.com", ErrWrongSite},
+		{"http", header + "A,http://example.com,u,p,,\n", "example.com", ErrWrongSite},
+		{"userinfo", header + "A,https://example.com@evil.test,u,p,,\n", "example.com", ErrWrongSite},
+		{"url query", header + "A,https://example.com/login?ticket=abc,u,p,,\n", "example.com", ErrWrongSite},
+		{"port", header + "A,https://example.com:8443,u,p,,\n", "example.com", ErrWrongSite},
+		{"no password", header + "A,https://example.com,u,,,\n", "example.com", ErrInvalidCSV},
+		{"invalid site", header + "A,https://example.com,u,p,,\n", "*.example.com", ErrWrongSite},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
