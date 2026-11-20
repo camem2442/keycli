@@ -91,11 +91,12 @@ func Fulfill(ctx context.Context, now time.Time, c Challenge, auth Authority, se
 	default:
 		return "", ErrDenied
 	}
-	if auth.VerifyAndReserve(ctx, c) != nil {
-		return "", ErrDenied
-	}
+	// A near-expiry slot is not a valid chance to consume a one-use MFA grant.
 	if now.Unix()%30 >= 25 {
 		return "", ErrCodeWindow
+	}
+	if auth.VerifyAndReserve(ctx, c) != nil {
+		return "", ErrDenied
 	}
 	seed, err := seeds.SeedForSite(ctx, c.Site)
 	if err != nil || len(seed) < 16 || len(seed) > 128 {

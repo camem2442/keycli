@@ -144,7 +144,7 @@ func TestTimeOriginFactorAndFailures(t *testing.T) {
 	}
 	later := time.Unix(testTime.Unix()+24, 0)
 	_, err := Fulfill(context.Background(), later, challenge(BrokerTOTP), a, s, f)
-	if !errors.Is(err, ErrCodeWindow) || s.n != 0 || f.n != 0 {
+	if !errors.Is(err, ErrCodeWindow) || s.n != 0 || f.n != 0 || a.n != 0 {
 		t.Fatalf("should refuse near-expiry OTP: %v", err)
 	}
 }
