@@ -24,6 +24,32 @@ class ChromeProfileGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(ProfileRejected, "PERSONAL_CHROME_PROFILE_FORBIDDEN"):
                     verify_profile_root(root)
 
+    def test_personal_chrome_other_channel_and_chromium_profiles_refused(self):
+        variants = (
+            ("Library", "Application Support", "Google", "Chrome Beta"),
+            ("Library", "Application Support", "Google", "Chrome Dev"),
+            ("Library", "Application Support", "Google", "Chrome Canary"),
+            ("Library", "Application Support", "Chromium"),
+            (".config", "google-chrome-beta"),
+            (".config", "google-chrome-unstable"),
+            (".config", "chromium-browser"),
+            ("AppData", "Local", "Google", "Chrome SxS", "User Data"),
+        )
+        for segments in variants:
+            with self.subTest(segments=segments), tempfile.TemporaryDirectory() as d:
+                root = Path(d).joinpath(*segments)
+                root.mkdir(parents=True, mode=0o700)
+                root.chmod(0o700)
+                with self.assertRaisesRegex(ProfileRejected, "PERSONAL_CHROME_PROFILE_FORBIDDEN"):
+                    verify_profile_root(root)
+
+    def test_private_custom_keycli_profile_allowed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "Library" / "Application Support" / "KeyCLI" / "Chrome"
+            root.mkdir(parents=True)
+            root.chmod(0o700)
+            verify_profile_root(root)
+
     def test_symlink_in_ancestor_refused(self):
         with tempfile.TemporaryDirectory() as d:
             base = Path(d)

@@ -17,9 +17,19 @@ class ProfileRejected(ValueError):
 
 _UNSAFE_SEQUENCES = (
     ("library", "application support", "google", "chrome"),
+    ("library", "application support", "google", "chrome beta"),
+    ("library", "application support", "google", "chrome dev"),
+    ("library", "application support", "google", "chrome canary"),
+    ("library", "application support", "chromium"),
     (".config", "google-chrome"),
+    (".config", "google-chrome-beta"),
+    (".config", "google-chrome-unstable"),
     (".config", "chromium"),
+    (".config", "chromium-browser"),
     ("appdata", "local", "google", "chrome", "user data"),
+    ("appdata", "local", "google", "chrome beta", "user data"),
+    ("appdata", "local", "google", "chrome dev", "user data"),
+    ("appdata", "local", "google", "chrome sxs", "user data"),
 )
 
 
