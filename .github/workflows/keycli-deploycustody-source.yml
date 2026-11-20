@@ -5,6 +5,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - 'internal/deploycustody/**'
+      - 'cmd/kc-deploy-hostcheck/**'
       - '.github/workflows/keycli-deploycustody-source.yml'
 
 permissions:
@@ -56,6 +57,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECT_HEAD"
           test -z "$(git status --porcelain)"
           test -z "$(gofmt -l internal/deploycustody)"
-          go test -count=1 ./internal/deploycustody
+          go test -count=1 ./internal/deploycustody ./cmd/kc-deploy-hostcheck
+          go run ./cmd/kc-deploy-hostcheck --json
           test -z "$(git status --porcelain)"
           echo "SOURCE_ONLY_PASS head=$EXPECT_HEAD, provider_calls=0"
