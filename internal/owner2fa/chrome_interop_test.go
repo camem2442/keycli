@@ -19,8 +19,11 @@ import (
 // The child process imports only our synthetic Chrome field mock. No real
 // browser, password, OTP seed, Playwright or private profile is touched.
 const pythonOwnerFixture = `
+import os
 import socket
 from types import SimpleNamespace
+assert "KC_KEY" not in os.environ
+assert "OPENAI_API_KEY" not in os.environ
 from chrome_owner_totp_fd import OwnerFDTOTP
 
 class Field:
@@ -76,9 +79,11 @@ func TestGoPythonOwnerChromeSocketInterop(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	t.Setenv("KC_KEY", "SYNTHETIC-NOT-PASSED")
 	cmd := exec.CommandContext(ctx, interpreter, "-B", "-c", pythonOwnerFixture)
 	cmd.ExtraFiles = []*os.File{childFile} // fd=3; never a network port
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+scriptDir, "PYTHONDONTWRITEBYTECODE=1")
+	// Whitelist child environment. Never inherit owner KeyCLI/agent secrets.
+	cmd.Env = []string{"PYTHONPATH=" + scriptDir, "PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1"}
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
