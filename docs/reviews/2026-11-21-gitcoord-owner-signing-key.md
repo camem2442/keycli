@@ -126,6 +126,7 @@ Verified on `main` with the envelope only (no live PR, no proof pointer):
 `route_off_blockers == ["PROVIDER_GET_BILLING_PROFILE_UNVERIFIED"]`,
 `authorizes_deploy/route_on/ingest == false`.
 
-Operational note: v1 envelopes are now refused as
-`OWNER_PREDICATE_SHAPE_INVALID`. Keep the old v1 files as history, but any
-gate run must use the v2 envelope.
+Operational note: a v1 envelope is now refused at the predicate-type check
+(`OWNER_PREDICATE_TYPE_INVALID`, observed), and a v2 envelope without the
+`native` section fails as `OWNER_PREDICATE_SHAPE_INVALID`. Keep the old v1
+files as history, but any gate run must use the v2 envelope.
