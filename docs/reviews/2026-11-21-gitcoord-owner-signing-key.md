@@ -148,3 +148,22 @@ Live result with the v3 envelope: `route_off` =
 `READY_FOR_SEPARATE_DEPLOY_GRANT`, no route-OFF blockers, `route_on` still
 HOLD, `authorizes_*` all false. Evidence stays local (0600) in
 `~/Developer/reports/gitcoord-owner-attestation-v3-20261121/`.
+
+## Fourth signature: predicate v4, the deployed baseline (2026-11-21)
+
+The owner approved deploying the Coordinator Worker
+(`dev-control-git-coordination-universal-staging`, version `fe511776…`,
+worker tag `2f4592d60523484ca9cf74eae5356542`, two SQLite Durable Object
+namespaces, no route/workers.dev/preview target).
+
+Because the deployment changes the account inventory, predicate v4 records it:
+five destination Workers (the original four plus the coordinator), four D1
+databases, `OAUTH_KV`, two SQLite DO namespaces, and the coordinator tag that
+binds the private Access destination. The gate now derives its expected
+inventory from this signed declaration instead of a hardcoded pre-deploy
+baseline; a verified but malformed declaration fails closed.
+
+Signed with the same key id and fingerprint. Live result: `route_off` =
+`READY_FOR_SEPARATE_DEPLOY_GRANT` with no blockers, `route_on` HOLD with three
+remaining steps, `authorizes_*` all false. Evidence (0600, not committed):
+`~/Developer/reports/gitcoord-owner-attestation-v4-20261121/`.
