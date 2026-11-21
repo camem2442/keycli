@@ -112,8 +112,8 @@ func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending
 	return target.String(), Pending{State: state, CodeVerifier: verifier, RedirectURI: client.RedirectURI, Issuer: provider.Issuer, Resource: client.Resource}, nil
 }
 
-// ParseCallback rejects mismatched destinations and malformed/duplicate parameters.
-// Callers must consume/delete Pending once, even on failure.
+// ParseCallback rejects a mismatched destination, malformed or duplicate parameters, and a state that does not match Pending.
+// It only reads Pending and does not consume it. Callers must consume or delete Pending once, even on failure.
 func ParseCallback(p Pending, callback string) (string, error) {
 	want, err := url.Parse(p.RedirectURI)
 	if err != nil || !validRedirect(p.RedirectURI) || p.Issuer == "" ||

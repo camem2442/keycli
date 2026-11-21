@@ -40,6 +40,9 @@ func TestCallbackValidAndRejectsSmuggling(t *testing.T) {
 	if code, err := ParseCallback(p, good); err != nil || code != "one" {
 		t.Fatal(code, err)
 	}
+	if code, err := ParseCallback(p, good); err != nil || code != "one" {
+		t.Fatal("second read", code, err)
+	}
 	for _, candidate := range []string{
 		native.RedirectURI + "?code=one&state=wrong",
 		native.RedirectURI + "?code=one&code=two&state=" + p.State,
