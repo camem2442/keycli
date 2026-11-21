@@ -15,7 +15,7 @@ four owner hashes the predeploy gate already expects.
 | keycli (login keychain) | `kc get gitcoord_owner_ed25519` | yes, through `kc` only |
 | File | `~/.config/gitcoord-owner/ed25519.pem` (mode `0600`, single link) | yes, as a file path |
 | Public half | `~/.config/gitcoord-owner/ed25519.pub.pem` | yes, not secret |
-| Apple Passwords (iCloud) | manual copy by the owner — **NOT** automated | no; the app has no CLI or scripting interface |
+| Apple Passwords (iCloud, iPhone) | item `GitCoord owner attestation key`, username `owner-camem2442-gitcoord-2026-11`, PEM in the note field | no; the app has no CLI or scripting interface |
 
 `kc ls` shows `gitcoord_owner_ed25519`. The `kc` item's note records the
 key id, the public-key path and the fingerprint, so `kc ls --json` is
@@ -27,6 +27,24 @@ enough to locate the key without reading the value.
 - Type: Ed25519 (PKCS8 PEM, `openssl genpkey -algorithm ED25519`)
 - Public key: `MCowBQYDK2VwAyEAtQAD/uAwYbgs9wYI0ENx56k2JlbA/huw3zI3rwI0SvM=`
 - Public-key SHA-256: `2cf5ae707cd22e5e5f8ff7b67da5406dbf3fa10627a821b1fb183289950f6111`
+
+## iCloud / iPhone copy (2026-11-21)
+
+There is no iCloud web Passwords app (`https://www.icloud.com/passwords/`
+404s) and no scripting interface on the macOS app (`sdef` fails with
+-192), so the copy was made with the app's own CSV import:
+
+- A one-off CSV (`Title,URL,Username,Password,Notes,OTPAuth`) held the
+  key id as username, the public-key fingerprint as password, and the
+  PEM in `Notes`. It was mode `0600` and lived only for the import.
+- The item was imported through the Passwords UI as
+  `GitCoord owner attestation key`. Item count went 157 → 158 and a
+  search for `owner-camem2442` returns exactly that one entry.
+- The CSV was deleted immediately after the import; no plaintext key
+  copy remains outside `kc` and `~/.config/gitcoord-owner/`.
+
+The app auto-locks aggressively (it re-locked between automation steps),
+which is why the import needed a Touch ID unlock while the UI was open.
 
 ## How it is used
 
