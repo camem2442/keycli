@@ -105,3 +105,27 @@ remains.
 Local evidence (not committed): `~/Developer/reports/gitcoord-native-vm-20261121/proof.json`
 and `gate-verdict.json`. Runner registration receipts:
 `~/Developer/_management/workspaces/standard-vm/runner-evidence-20261121/`.
+
+## Second signature: predicate v2 with the native digest (2026-11-21)
+
+The owner approved re-signing so the native digest survives a merge. Predicate
+schema moved to `gitcoord-owner-cloudflare-evidence/v2` and now requires a
+`native` section: repository, PR number, run id, runner id, head/base SHA and
+the provider-computed artifact digest. `owner_evidence()` returns five hashes;
+the fifth is the artifact digest itself (`819b28fe…`), so it can be compared
+with GitHub after the run window closes.
+
+Signed with the same key id `owner-camem2442-gitcoord-2026-11` and fingerprint
+`2cf5ae707cd22e5e5f8ff7b67da5406dbf3fa10627a821b1fb183289950f6111`. The
+private key was read from `~/.config/gitcoord-owner/ed25519.pem` (0600) and
+never entered argv or logs. Envelope, predicate, statement and census live in
+`~/Developer/reports/gitcoord-owner-attestation-v2-20261121/` (0600, not
+committed). workspace-infra #847 carries the change.
+
+Verified on `main` with the envelope only (no live PR, no proof pointer):
+`route_off_blockers == ["PROVIDER_GET_BILLING_PROFILE_UNVERIFIED"]`,
+`authorizes_deploy/route_on/ingest == false`.
+
+Operational note: v1 envelopes are now refused as
+`OWNER_PREDICATE_SHAPE_INVALID`. Keep the old v1 files as history, but any
+gate run must use the v2 envelope.
