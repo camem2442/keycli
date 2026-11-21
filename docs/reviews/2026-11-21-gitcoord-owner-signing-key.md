@@ -167,3 +167,19 @@ Signed with the same key id and fingerprint. Live result: `route_off` =
 `READY_FOR_SEPARATE_DEPLOY_GRANT` with no blockers, `route_on` HOLD with three
 remaining steps, `authorizes_*` all false. Evidence (0600, not committed):
 `~/Developer/reports/gitcoord-owner-attestation-v4-20261121/`.
+
+## Staging replay credentials (2026-11-21, owner-approved)
+
+Route-ON replay needed an Access service token and three Worker secrets. The
+owner approved creating and keeping them. The single KeyCLI entry
+`gitcoord_staging_credentials` holds the Worker read/write/repository tokens and
+the Access service-token client id/secret; values are not repeated here or in
+any commit. The Worker secrets are `SHADOW_READ_TOKEN`,
+`SHADOW_WRITE_TOKEN` and `SHADOW_REPOSITORY_WRITE_GRANTS_JSON` (repository-scoped
+sha256 grant only).
+
+Creating the service token required adding `Access: Service Tokens Write`
+(account scope) to the existing `cloudflare_agent` token; other policies were
+preserved. Replay result: 201 `RECORDED` then 200 `REPLAY`
+(`IDENTICAL_EVENT_REPLAY`) with one-scope readback. Evidence:
+`~/Developer/reports/gitcoord-route-on-20261121/` (0600).
