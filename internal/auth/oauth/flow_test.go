@@ -86,3 +86,17 @@ func TestNoEntropyFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMalformedPendingRefused(t *testing.T) {
+	_, p := begin(t)
+	good := native.RedirectURI + "?code=one&state=" + url.QueryEscape(p.State)
+	p.CodeVerifier = "short"
+	if _, err := ParseCallback(p, good); !errors.Is(err, ErrCallback) {
+		t.Fatal("accepted malformed pending verifier")
+	}
+	p.CodeVerifier = strings.Repeat("Z", 43)
+	p.State = "short"
+	if _, err := ParseCallback(p, good); !errors.Is(err, ErrCallback) {
+		t.Fatal("accepted malformed pending state")
+	}
+}
