@@ -1,5 +1,16 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-21 — GitCoord owner 서명 키 보관
+
+GitCoord owner attestation용 Ed25519 키를 생성해 `kc set
+gitcoord_owner_ed25519`로 보관했다(파일 `~/.config/gitcoord-owner/ed25519.pem`,
+`0600`). key id `owner-camem2442-gitcoord-2026-11`, 공개키 지문
+`sha256:2cf5ae70…`. 용도는 `workspace-infra/tooling/gitcoord_owner_attestation.py`
+서명 하나뿐이며 API 토큰·SSH 키가 아니다. 어디 있는지·어떻게 쓰는지는
+[보관 기록](docs/reviews/2026-11-21-gitcoord-owner-signing-key.md)이 정본이다.
+Apple Passwords(iCloud) 사본은 앱에 CLI/스크립팅 인터페이스가 없어 **owner
+수동 복사**로 남아 있다.
+
 ## 2026-11-08 — 정책·전송 계층 마감
 
 PR #30–#39로 `deny`, 거부 사유, `policy show|validate`, Cursor Cloud allowlist 파일럿, alias 실 PUT, `kc push cloudflare`, import 덮어쓰기 거부를 닫았다. 요약과 NOT VERIFIED 목록은 [마감 문서](docs/reviews/2026-11-08-policy-lifecycle-closeout.md)가 소유한다. 다음은 P5(검증 통합)와 P6(v0.8.0 제안)이다.

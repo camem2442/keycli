@@ -1,0 +1,65 @@
+# GitCoord owner attestation signing key — custody record
+
+Date: 2026-11-21 · Owner: camem2442 · Status: **COMPLETE** (key created, used once, stored)
+
+This key signs the owner's Cloudflare Free/cost/migration/rollback
+attestation consumed by `workspace-infra/tooling/gitcoord_owner_attestation.py`.
+It is **not** an API token, **not** an SSH identity, and it grants no
+deploy, route-on or ingest authority: a valid envelope only supplies the
+four owner hashes the predeploy gate already expects.
+
+## Where it lives
+
+| Copy | Location | Readable by an agent |
+| --- | --- | --- |
+| keycli (login keychain) | `kc get gitcoord_owner_ed25519` | yes, through `kc` only |
+| File | `~/.config/gitcoord-owner/ed25519.pem` (mode `0600`, single link) | yes, as a file path |
+| Public half | `~/.config/gitcoord-owner/ed25519.pub.pem` | yes, not secret |
+| Apple Passwords (iCloud) | manual copy by the owner — **NOT** automated | no; the app has no CLI or scripting interface |
+
+`kc ls` shows `gitcoord_owner_ed25519`. The `kc` item's note records the
+key id, the public-key path and the fingerprint, so `kc ls --json` is
+enough to locate the key without reading the value.
+
+## Identity
+
+- Key id (pinned in every envelope and verifier): `owner-camem2442-gitcoord-2026-11`
+- Type: Ed25519 (PKCS8 PEM, `openssl genpkey -algorithm ED25519`)
+- Public key: `MCowBQYDK2VwAyEAtQAD/uAwYbgs9wYI0ENx56k2JlbA/huw3zI3rwI0SvM=`
+- Public-key SHA-256: `2cf5ae707cd22e5e5f8ff7b67da5406dbf3fa10627a821b1fb183289950f6111`
+
+## How it is used
+
+```sh
+# sign (private key never enters argv or logs)
+python3 -I -B tooling/gitcoord_owner_attestation.py sign \
+  --predicate <predicate.json> \
+  --key ~/.config/gitcoord-owner/ed25519.pem \
+  --key-id owner-camem2442-gitcoord-2026-11 \
+  --output <envelope.json>
+
+# verify against a fresh read-only census
+python3 -I -B tooling/gitcoord_owner_attestation.py verify \
+  --envelope <envelope.json> \
+  --public-key ~/.config/gitcoord-owner/ed25519.pub.pem \
+  --key-id owner-camem2442-gitcoord-2026-11 \
+  --census <census.json>
+```
+
+The CLI requires the private key to be a single regular file with no
+group or other permission bits, owned by the calling user.
+
+## First real use (2026-11-21)
+
+Envelope for the b398 GitCoord predicate verified `VERIFIED` with the
+key id above, and the predeploy gate dropped from 7 to 2 route-OFF
+blockers (`NATIVE_WORKERD_SHA256_MISSING`,
+`PROVIDER_GET_BILLING_PROFILE_UNVERIFIED`). `authorizes_deploy`,
+`authorizes_route_on` and `authorizes_ingest` stayed `false`.
+
+## Rotation and revocation
+
+There is no automatic rotation. Replacing the key means: mint a new
+key id, re-sign the current predicate, update the verifier's pinned
+`--owner-key-id`/`--owner-public-key`, and retire the old `kc` item.
+Do not reuse this key for SSH, API tokens or any other purpose.
