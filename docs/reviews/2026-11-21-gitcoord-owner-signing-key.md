@@ -81,3 +81,27 @@ There is no automatic rotation. Replacing the key means: mint a new
 key id, re-sign the current predicate, update the verifier's pinned
 `--owner-key-id`/`--owner-public-key`, and retire the old `kc` item.
 Do not reuse this key for SSH, API tokens or any other purpose.
+
+## Verified follow-up (2026-11-21, same key)
+
+The same key later authorized the gate run that supplied the native hash.
+The CI VM was recreated (`3C107E70-…`), `standard-vm-ci` ran once for
+`44901826119`, and `NativeVMOriginalEvidence.prove()` returned
+`PASS_EXECUTED_FULL` with artifact digest `sha256:819b28fe…`. The gate CLI
+now re-authenticates that digest itself (`--native-vm-proof`,
+workspace-infra #843) instead of accepting a file, and the live run reduced
+route-OFF to one blocker:
+
+```
+route_off: HOLD
+route_off_blockers: ["PROVIDER_GET_BILLING_PROFILE_UNVERIFIED"]
+authorizes_deploy: false
+```
+
+Cloudflare returns error `1324` ("billing profile could not be loaded") for
+both the agent and Billing Read tokens, so that blocker is provider-side and
+remains.
+
+Local evidence (not committed): `~/Developer/reports/gitcoord-native-vm-20261121/proof.json`
+and `gate-verdict.json`. Runner registration receipts:
+`~/Developer/_management/workspaces/standard-vm/runner-evidence-20261121/`.
