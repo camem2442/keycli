@@ -20,6 +20,7 @@ var (
 )
 
 var privateScheme = regexp.MustCompile("^[a-z][a-z0-9+.-]*\\.[a-z0-9+.-]+$")
+var pendingNonce = regexp.MustCompile("^[A-Za-z0-9_-]{43}$")
 
 // Provider contains trusted, independently verified authorization server metadata.
 // This package does not perform discovery or accept arbitrary metadata URLs.
@@ -111,11 +112,12 @@ func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending
 	return target.String(), Pending{State: state, CodeVerifier: verifier, RedirectURI: client.RedirectURI, Issuer: provider.Issuer, Resource: client.Resource}, nil
 }
 
-// ParseCallback rejects mismatched destinations, duplicate parameters and state replay.
+// ParseCallback rejects mismatched destinations and malformed/duplicate parameters.
 // Callers must consume/delete Pending once, even on failure.
 func ParseCallback(p Pending, callback string) (string, error) {
 	want, err := url.Parse(p.RedirectURI)
-	if err != nil || !validRedirect(p.RedirectURI) || p.State == "" || p.Issuer == "" {
+	if err != nil || !validRedirect(p.RedirectURI) || p.Issuer == "" ||
+		!pendingNonce.MatchString(p.State) || !pendingNonce.MatchString(p.CodeVerifier) {
 		return "", ErrCallback
 	}
 	got, err := url.Parse(callback)
