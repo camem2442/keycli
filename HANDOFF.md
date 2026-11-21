@@ -8,8 +8,10 @@ gitcoord_owner_ed25519`로 보관했다(파일 `~/.config/gitcoord-owner/ed25519
 `sha256:2cf5ae70…`. 용도는 `workspace-infra/tooling/gitcoord_owner_attestation.py`
 서명 하나뿐이며 API 토큰·SSH 키가 아니다. 어디 있는지·어떻게 쓰는지는
 [보관 기록](docs/reviews/2026-11-21-gitcoord-owner-signing-key.md)이 정본이다.
-Apple Passwords(iCloud) 사본은 앱에 CLI/스크립팅 인터페이스가 없어 **owner
-수동 복사**로 남아 있다.
+Apple Passwords(iCloud) 사본도 2026-11-21에 CSV 가져오기로 만들었다 —
+항목 `GitCoord owner attestation key`, 사용자 이름
+`owner-camem2442-gitcoord-2026-11`, 메모에 PEM. 가져오기용 CSV는 즉시
+삭제했고, 앱에는 CLI/스크립팅 인터페이스가 없어 이후 읽기는 사람만 할 수 있다.
 
 ## 2026-11-16 — 현재 계획 정본·PR 감사
 
