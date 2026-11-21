@@ -130,3 +130,21 @@ Operational note: a v1 envelope is now refused at the predicate-type check
 (`OWNER_PREDICATE_TYPE_INVALID`, observed), and a v2 envelope without the
 `native` section fails as `OWNER_PREDICATE_SHAPE_INVALID`. Keep the old v1
 files as history, but any gate run must use the v2 envelope.
+
+## Third signature: predicate v3 and the billing-profile declaration (2026-11-21)
+
+Cloudflare's `/billing/profile` returns 404 with code `1324` on this account;
+`payment-methods`, `subscriptions` and `spend-policies` all return `200` and
+are empty. Code 1324 means the billing customer record does not exist (a Free
+account that never added a payment method), not a missing scope.
+
+Predicate v3 makes that explicit: `plan.billing_profile` must be `present` or
+`absent_by_design`. The owner signed `absent_by_design` with the same key id
+and fingerprint, and the gate clears the block only when the live read is
+exactly 1324. A 403 or any other code still fails closed, and the declaration
+is inside `plan`, so `free_period_sha256` covers it.
+
+Live result with the v3 envelope: `route_off` =
+`READY_FOR_SEPARATE_DEPLOY_GRANT`, no route-OFF blockers, `route_on` still
+HOLD, `authorizes_*` all false. Evidence stays local (0600) in
+`~/Developer/reports/gitcoord-owner-attestation-v3-20261121/`.
