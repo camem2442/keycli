@@ -1,5 +1,16 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-21 — GitCoord owner 서명 키 보관
+
+GitCoord owner attestation용 Ed25519 키를 생성해 `kc set
+gitcoord_owner_ed25519`로 보관했다(파일 `~/.config/gitcoord-owner/ed25519.pem`,
+`0600`). key id `owner-camem2442-gitcoord-2026-11`, 공개키 지문
+`sha256:2cf5ae70…`. 용도는 `workspace-infra/tooling/gitcoord_owner_attestation.py`
+서명 하나뿐이며 API 토큰·SSH 키가 아니다. 어디 있는지·어떻게 쓰는지는
+[보관 기록](docs/reviews/2026-11-21-gitcoord-owner-signing-key.md)이 정본이다.
+Apple Passwords(iCloud) 사본은 앱에 CLI/스크립팅 인터페이스가 없어 **owner
+수동 복사**로 남아 있다.
+
 ## 2026-11-16 — 현재 계획 정본·PR 감사
 
 현재 main `2897465f`는 #69로 v0.10 **소스만** 통합, [post-merge CI](https://github.com/camem2442/keycli/actions/runs/43695782808) 두 Job 성공. 정식 릴리스·Mac 설치 pin은 v0.8.0 유지. 열린 PR 13개와 main 531경로의 blob을 비교해 중복·역사적 검증·독립 변경을 분리했다. 현재 구현 격차와 G1~G6 의존성은 [2026-11-16 정본](docs/planning/keycli-current-roadmap-2026-11-16.md) 참조. 아래 2026-11-15 이하 원본 기록은 변경 없이 보존한다. 운영 효과/설치/CI dispatch 없음.
