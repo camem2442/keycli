@@ -3,6 +3,10 @@
 하루 동안 정책 계층과 전송 경로를 닫은 범위를 한 곳에 모은다. 이 문서는 **요약**이며,
 각 항목의 정본은 연결된 영수증이다.
 
+> **역사 문서 (2026-11-22):** 이 문서는 PR #30–#39 시점의 마감 기록이다. 현재 상태와
+> 계획은 `HANDOFF.md`와 최신 `docs/reviews/`가 소유한다. 아래 import 항목은 **단일
+> writer 조건**에서만 성립하며, 동시 writer 보호는 NOT VERIFIED다.
+
 - 기준 바이너리: `kc version v0.7.2-50-g513414b (513414b)`
 - 저장소: `camem2442/keycli`
 - 모든 PR은 `main`에 머지 커밋으로 병합됨
@@ -33,11 +37,14 @@
 | `policy show` / `validate` | 구현 + 단위 테스트 |
 | Cursor alias → canonical PUT | 실 환경 왕복 |
 | `kc push cloudflare` | 일회성 Worker 실 PUT 후 삭제 |
-| import 덮어쓰기 | `--force` 없으면 거부, 만료 없음 경고 |
+| import 덮어쓰기 | `--force` 없으면 거부(**단일 writer 조건**), 만료 없음 경고 |
 
 ## 3. NOT VERIFIED (덮지 않은 것)
 
 - **다중 에이전트 동시 적용**, Codex/Claude 1턴, Mac GUI/TUI 네이티브 인수
+- **동시 writer의 원자적 no-overwrite**: 무가드 import는 목록 확인과 `Resolver.Set`이
+  분리되어 있어, 그 사이 같은 이름을 만드는 동시 writer는 보호되지 않는다. 거부는
+  단일 writer에서만 확인했다.
 - Cursor Cloud: `policy_digest` 재현, `pin_match`, GUI 주입, `--repos` 범위
 - Cloudflare: `--worker-env`, 다중 시크릿, 롤백, 무료 플랜 한도
 - `deny` 기능은 릴리스 `v0.7.2` 바이너리에 **없음** — 파일럿은 allowlist 계약만 검증했다
