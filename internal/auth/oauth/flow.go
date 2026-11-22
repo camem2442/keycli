@@ -46,6 +46,11 @@ type Pending struct {
 	Resource     string
 }
 
+// String and GoString prevent accidental credential reflection in diagnostics.
+// Pending is still secret-bearing; callers must never serialize or forward it.
+func (Pending) String() string { return "oauth.Pending{credentials:redacted}" }
+func (p Pending) GoString() string { return p.String() }
+
 func secureEndpoint(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Scheme == "https" && u.Hostname() != "" &&
@@ -70,10 +75,13 @@ func validRedirect(raw string) bool {
 // Begin creates RFC 7636 S256 PKCE and CSRF state for an RFC 8252 native app.
 // The caller owns external-browser opening, callback transport, and token exchange.
 func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending, error) {
-	if !secureEndpoint(provider.Issuer) || !secureEndpoint(provider.AuthorizationEndpoint) ||
-		!secureEndpoint(provider.TokenEndpoint) || !validRedirect(client.RedirectURI) ||
-		strings.TrimSpace(client.ID) != client.ID || client.ID == "" ||
-		(client.Resource != "" && !secureEndpoint(client.Resource)) {
+	if !secureEndpoint(provider.Issuer) || len(provider.Issuer) > 2048 ||
+		!secureEndpoint(provider.AuthorizationEndpoint) || len(provider.AuthorizationEndpoint) > 2048 ||
+		!secureEndpoint(provider.TokenEndpoint) || len(provider.TokenEndpoint) > 2048 ||
+		!validRedirect(client.RedirectURI) || len(client.RedirectURI) > 512 ||
+		strings.TrimSpace(client.ID) != client.ID || client.ID == "" || len(client.ID) > 256 ||
+		strings.IndexFunc(client.ID, func(r rune) bool { return r < 32 || r == 127 }) >= 0 ||
+		(client.Resource != "" && (!secureEndpoint(client.Resource) || len(client.Resource) > 2048)) {
 		return "", Pending{}, ErrConfiguration
 	}
 	for _, scope := range client.Scopes {
@@ -115,6 +123,9 @@ func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending
 // ParseCallback rejects a mismatched destination, malformed or duplicate parameters, and a state that does not match Pending.
 // It only reads Pending and does not consume it. Callers must consume or delete Pending once, even on failure.
 func ParseCallback(p Pending, callback string) (string, error) {
+	if len(callback) == 0 || len(callback) > 8192 {
+		return "", ErrCallback
+	}
 	want, err := url.Parse(p.RedirectURI)
 	if err != nil || !validRedirect(p.RedirectURI) || p.Issuer == "" ||
 		!pendingNonce.MatchString(p.State) || !pendingNonce.MatchString(p.CodeVerifier) {
