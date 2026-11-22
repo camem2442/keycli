@@ -36,6 +36,22 @@ KeyCLI #83's `owner2fa.FDCodeFiller` sends six ASCII OTP digits through an inher
 
 The two adapters are independently testable in synthetic Linux; they still need a trusted Mac owner supervisor that binds both inherited FDs and a distinct MFA child Grant/Claim/operation ID. Do not provide a socket descriptor, profile path, Apple TOTP or browser code to a remote agent.
 
+## 2026-11-20 source review: service-worker and restored-tab boundary
+
+Playwright's network route handler does **not** intercept fetches owned by a page service worker. The follow-up source child explicitly configures `service_workers="block"` in the persistent Chrome context and refuses already-restored nonblank pages **before a new requested page is opened**. A test exercises exact-origin/subdomain routing and a restored hostile tab. These are defense-in-depth checks, not a complete OS sandbox: an extension background worker may need service-worker support, and browser startup can perform network effects before this library attaches route handlers. Do **not** attempt real Apple Passwords extension/Passkey use until original owner Mac Chrome compatibility, credentials, browser native isolation and trusted host verification are demonstrated. Any failure is `HUMAN_ACTION_REQUIRED`/HOLD; never relax to `service_workers="allow"` or return raw CDP/cookies as a workaround.
+
+Official routing limitation: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-route
+
 ### MFA child association and stream fragmentation (2026-11-20)
 
 The owner socket receiver now requires a distinct trusted parent browser request ID and child MFA ID at construction, and checks the actual reauthentication callback matches the parent before reading an OTP. The Go #83 challenge separately requires parent/child IDs and an original trusted independent child grant. The six-byte AF_UNIX frame is read in a bounded loop rather than relying on a single `recv()`, which may legally return fewer bytes. The owner browser checks exact HTTPS origin again after filling and after the optional submit. Only the fixed input-completion ACK is sent; no login success, code or cookie enters the agent response. The parent/child FDs must be paired by a future trusted Mac supervisor, not the agent.
+
+## Service-worker and restored-tab boundary (follow-up)
+
+Playwright `BrowserContext.route` does **not** intercept fetches handled by page service workers. The child PR explicitly sets `service_workers="block"` and refuses restored nonblank tabs after installing the network route. This can interfere with Chrome/iCloud Passwords extension operation; compatibility needs original owner Mac evidence. Do not weaken the routing guard to `allow` for convenience. Profile safety/identity updates in the parent are retained, and neither path constitutes independent OS UID/Seatbelt protection. Browser startup network traffic before route installation is not proven blocked. Original Goal/Grant/Claim custody and real passkey/2FA login remain NOT VERIFIED. Reference: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-route
+
+## Browser intent status contract (Go ↔ Chrome owner adapter)
+
+The parent Go `internal/browserintent.Gate` previously accepted generic `performed`, which can mean an action was merely dispatched and cannot prove a logged-in session. The child now accepts only `session_present` or `no_session` for `session_status`, and `session_present` or `human_auth_required` for `reauthenticate`. A new pure `OutcomeFromOwnerStatus` maps the Python owner's **fixed** `SESSION_PRESENT`, `NO_SESSION`, `HUMAN_ACTION_REQUIRED` to those bounded outcomes. `read_page` remains rejected *before* owner authority or browser effects until a separately approved safe output interface exists. Unknown raw statuses and a generic `performed` can never become a reported authenticated session.
+
+Synthetic local Go 1.23 functional replay of the status and action gate, outside the original repository, passed **9 action/output variants plus 7 fixed-status mappings** (2 test functions). It is **not** the original keycli owning Go suite or a Chrome/2FA integration test. Real Python↔Go wire transport, trusted original authority and native login remain NOT VERIFIED; no user account used.

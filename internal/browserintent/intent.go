@@ -153,14 +153,36 @@ type Browser interface {
 type Outcome string
 
 const (
-	Performed  Outcome = "performed"
-	NeedsHuman Outcome = "human_auth_required"
+	// A browser action acknowledgement is never proof of an authenticated
+	// session. These outcomes describe independently observed session state.
+	SessionPresent Outcome = "session_present"
+	NoSession      Outcome = "no_session"
+	NeedsHuman     Outcome = "human_auth_required"
+	// Historical generic ACK, retained for callers but never accepted by Gate.
+	Performed Outcome = "performed"
 )
+
+// OutcomeFromOwnerStatus translates only the fixed statuses emitted by the
+// owner Chrome adapter. The bridge never returns page HTML, cookies or OTP.
+func OutcomeFromOwnerStatus(action, status string) (Outcome, error) {
+	switch {
+	case status == "SESSION_PRESENT" &&
+		(action == "session_status" || action == "reauthenticate"):
+		return SessionPresent, nil
+	case status == "NO_SESSION" && action == "session_status":
+		return NoSession, nil
+	case status == "HUMAN_ACTION_REQUIRED" && action == "reauthenticate":
+		return NeedsHuman, nil
+	default:
+		return "", ErrRejected
+	}
+}
 
 // Gate requires both an independent authority and browser executor. There is
 // no offline bypass; nil components fail closed.
 func Gate(ctx context.Context, now time.Time, in Intent, authority Authority, browser Browser) (Outcome, error) {
-	if ctx.Err() != nil || in.Validate(now) != nil || authority == nil || browser == nil {
+	if ctx.Err() != nil || in.Validate(now) != nil || authority == nil || browser == nil ||
+		in.Action == "read_page" { // no scoped/redacted output worker exists
 		return "", ErrRejected
 	}
 	if authority.VerifyAndReserve(ctx, in) != nil || ctx.Err() != nil {
@@ -170,8 +192,17 @@ func Gate(ctx context.Context, now time.Time, in Intent, authority Authority, br
 	if err != nil {
 		return "", ErrRejected
 	}
-	if result != Performed && result != NeedsHuman {
-		return "", ErrRejected
+	// The browser must report a current observed session, not merely
+	// that a command was accepted. A NO_SESSION read is not a 2FA request.
+	switch in.Action {
+	case "session_status":
+		if result == SessionPresent || result == NoSession {
+			return result, nil
+		}
+	case "reauthenticate":
+		if result == SessionPresent || result == NeedsHuman {
+			return result, nil
+		}
 	}
-	return result, nil
+	return "", ErrRejected
 }

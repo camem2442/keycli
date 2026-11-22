@@ -66,7 +66,7 @@ func TestGateCannotBypassAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &worker{result: Performed}
+	w := &worker{result: SessionPresent}
 	p := &permit{}
 	if _, err := Gate(context.Background(), now, i, p, w); !errors.Is(err, ErrRejected) {
 		t.Fatalf("denied grant: %v", err)
@@ -78,11 +78,81 @@ func TestGateCannotBypassAuthority(t *testing.T) {
 		t.Fatalf("nil verifier accepted: %v", err)
 	}
 	p.allow = true
-	if out, err := Gate(context.Background(), now, i, p, w); err != nil || out != Performed || w.calls != 1 {
+	if out, err := Gate(context.Background(), now, i, p, w); err != nil || out != SessionPresent || w.calls != 1 {
 		t.Fatalf("allowed mock: %v %v", out, err)
 	}
 	w.result = Outcome("unstructured-secret")
 	if _, err := Gate(context.Background(), now, i, p, w); !errors.Is(err, ErrRejected) {
 		t.Fatal("unstructured browser output escaped")
+	}
+}
+
+func TestGateDoesNotConflateBrowserAckAndSessionState(t *testing.T) {
+	makeIntent := func(action string) Intent {
+		i, err := Decode(strings.NewReader(validJSON()), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i.Action = action
+		return i
+	}
+	for _, tc := range []struct {
+		action string
+		out    Outcome
+		accept bool
+	}{
+		{"session_status", SessionPresent, true},
+		{"session_status", NoSession, true},
+		{"session_status", NeedsHuman, false},
+		{"session_status", Performed, false},
+		{"reauthenticate", SessionPresent, true},
+		{"reauthenticate", NeedsHuman, true},
+		{"reauthenticate", NoSession, false},
+		{"reauthenticate", Performed, false},
+		{"read_page", SessionPresent, false},
+	} {
+		t.Run(tc.action+"/"+string(tc.out), func(t *testing.T) {
+			p := &permit{allow: true}
+			w := &worker{result: tc.out}
+			out, err := Gate(context.Background(), now, makeIntent(tc.action), p, w)
+			if tc.accept {
+				if err != nil || out != tc.out || w.calls != 1 {
+					t.Fatalf("valid outcome rejected %q: %v", out, err)
+				}
+			} else if !errors.Is(err, ErrRejected) || out != "" {
+				t.Fatalf("unverified outcome was accepted %q: %v", out, err)
+			}
+			if tc.action == "read_page" && (p.called != 0 || w.calls != 0) {
+				t.Fatal("unsupported read_page triggered an effect")
+			}
+		})
+	}
+}
+
+func TestOutcomeFromOwnerStatusIsBoundToAction(t *testing.T) {
+	cases := []struct {
+		action string
+		status string
+		want   Outcome
+		valid  bool
+	}{
+		{"session_status", "SESSION_PRESENT", SessionPresent, true},
+		{"session_status", "NO_SESSION", NoSession, true},
+		{"reauthenticate", "SESSION_PRESENT", SessionPresent, true},
+		{"reauthenticate", "HUMAN_ACTION_REQUIRED", NeedsHuman, true},
+		{"session_status", "HUMAN_ACTION_REQUIRED", "", false},
+		{"reauthenticate", "NO_SESSION", "", false},
+		{"read_page", "SESSION_PRESENT", "", false},
+		{"session_status", "user@example.com:secret", "", false},
+	}
+	for _, tc := range cases {
+		out, err := OutcomeFromOwnerStatus(tc.action, tc.status)
+		if tc.valid {
+			if err != nil || out != tc.want {
+				t.Fatalf("%+v: %s %v", tc, out, err)
+			}
+		} else if !errors.Is(err, ErrRejected) || out != "" {
+			t.Fatalf("unexpected native status accepted: %+v => %q", tc, out)
+		}
 	}
 }
