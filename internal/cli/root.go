@@ -58,6 +58,7 @@ func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
 	root.AddCommand(newPushCmd(a))
 	root.AddCommand(newExportCmd(a))
 	root.AddCommand(newImportCmd(a))
+	root.AddCommand(newImportAppleCmd(a))
 	root.AddCommand(newStatusCmd(a))
 	root.AddCommand(newClipWaitClearCmd(a))
 	root.AddCommand(newLinkCmd(a))
