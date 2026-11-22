@@ -253,7 +253,10 @@ class ChromeOwnerTests(unittest.TestCase):
 
         player = FakePlaywright()
         launcher = PlaywrightChromeLauncher()
-        with patch("chrome_owner_bridge._sync_playwright", return_value=FakeManager(player)):
+        # Synthetic headless runner is not an Apple/Chrome GUI owner; the GUI
+        # gate has its own tests. This test owns the Playwright launch options.
+        with patch("chrome_owner_bridge.require_local_gui_attempt"), \
+                patch("chrome_owner_bridge._sync_playwright", return_value=FakeManager(player)):
             launcher.launch(Path("/tmp/readonly-synthetic"))
             launcher.close()
         self.assertEqual(player.options["service_workers"], "block")
