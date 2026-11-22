@@ -14,6 +14,7 @@ FILES = ("flow.go", "flow_test.go", "runtime_vectors_test.go",
          "testdata/runtime-vectors-v1.json")
 VECTOR_BLOB = "6dcc6df704300a8b475e94e834b37bf9e31c9681"
 MODULE = "github.com/camem2442/keycli/sdk/portableoauth"
+ALLOWED = frozenset(FILES + ("go.mod", "import_test.go", "README.md"))
 
 
 class MirrorHeld(ValueError):
@@ -25,6 +26,19 @@ def blob(data):
 
 
 def check():
+    observed = set()
+    for entry in CANDIDATE.rglob("*"):
+        if entry.is_symlink():
+            raise MirrorHeld("SCOPE_INVALID")
+        if entry.is_file():
+            observed.add(entry.relative_to(CANDIDATE).as_posix())
+    if observed != ALLOWED:
+        raise MirrorHeld("UNDECLARED_COMPILE_INPUT")
+    public_test = CANDIDATE / "import_test.go"
+    source = public_test.read_text(encoding="utf-8")
+    if ('package oauth_test' not in source or
+            '"github.com/camem2442/keycli/sdk/portableoauth"' not in source):
+        raise MirrorHeld("PUBLIC_IMPORT_NOT_VERIFIED")
     for rel in FILES:
         a, b = SOURCE / rel, CANDIDATE / rel
         if a.is_symlink() or b.is_symlink() or not a.is_file() or not b.is_file():
@@ -45,7 +59,8 @@ def check():
         "candidate_version": "0.1.0",
         "public_module_path": MODULE,
         "mirrored_files": len(FILES),
-        "source_pinned": True,
+        "mirror_identical": True,
+        "source_commit_attested": False,
         "external_consumer_verification": "NOT_VERIFIED",
         "published": False,
         "tag_created": False,
