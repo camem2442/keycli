@@ -1,13 +1,14 @@
 # Portable OAuth Go 0.1.0 candidate — NOT PUBLISHED
 
 Module path: `github.com/camem2442/keycli/sdk/portableoauth`.
-All runtime source and test files are a byte-identical mirror of the existing `internal/auth/oauth` package, pinned to the KeyCLI #94 candidate HEAD. The nested `go.mod` declares Go 1.22, no external dependencies and no `replace` directives; this candidate can be imported from a Go package outside the `internal/` visibility boundary. `import_test.go` exercises that public module path explicitly.
+All runtime source and test files are a byte-identical mirror of the existing `internal/auth/oauth` package, pinned to the KeyCLI #94 candidate HEAD. The mirror check enumerates the **entire candidate file set** (including any new Go compile input), rejects unexpected additions/removals and compares every mirrored file byte-for-byte. Its result says `mirror_identical: true` but `source_commit_attested: false`; the invoking owner VM must separately verify the clean exact Git HEAD. The nested `go.mod` declares Go 1.22, no external dependencies and no `replace` directives; this candidate can be imported from a Go package outside the `internal/` visibility boundary. `import_test.go` exercises that public module path explicitly.
 
 ## Private, isolated VM qualification
 
 The existing KeyCLI no-queue GitHub workflow is disabled deliberately. Do not replace it with a persistent Flip3 runner, paid hosted job or untrusted action. In the **original owner-authorized isolated KeyCLI VM**, after confirming the exact clean PR HEAD and policy:
 
 ```sh
+python3 -I -B scripts/test_check_portableoauth_sdk_mirror.py
 python3 -I -B scripts/check_portableoauth_sdk_mirror.py
 (cd sdk/portableoauth && GOWORK=off GOPROXY=off GOTOOLCHAIN=local go test -count=1 ./...)
 (cd sdk/portableoauth && GOWORK=off GOPROXY=off GOTOOLCHAIN=local go vet ./...)
