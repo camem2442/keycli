@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -81,6 +82,31 @@ func TestRefuseUnsafeConfiguration(t *testing.T) {
 		if _, _, err := Begin(x.p, x.c, nil); !errors.Is(err, ErrConfiguration) {
 			t.Fatalf("case %d accepted", i)
 		}
+	}
+}
+
+func TestPendingDiagnosticNeverPrintsSecretNonce(t *testing.T) {
+	_, pending := begin(t)
+	for _, diagnostic := range []string{fmt.Sprint(pending), fmt.Sprintf("%+v", pending), fmt.Sprintf("%#v", pending)} {
+		if strings.Contains(diagnostic, pending.CodeVerifier) || strings.Contains(diagnostic, pending.State) {
+			t.Fatal("Pending leaked ephemeral proof fields in diagnostic")
+		}
+		if !strings.Contains(diagnostic, "redacted") {
+			t.Fatal("Pending missing fixed redaction marker")
+		}
+	}
+}
+
+func TestCallbackAndPublicClientFieldsAreBounded(t *testing.T) {
+	_, pending := begin(t)
+	good := native.RedirectURI + "?code=one&state=" + pending.State
+	if _, err := ParseCallback(pending, good+strings.Repeat("x", 8192)); !errors.Is(err, ErrCallback) {
+		t.Fatal("oversized callback admitted")
+	}
+	badID := native
+	badID.ID = "public\x00client"
+	if _, _, err := Begin(cf, badID, nil); !errors.Is(err, ErrConfiguration) {
+		t.Fatal("control character in public client ID accepted")
 	}
 }
 
