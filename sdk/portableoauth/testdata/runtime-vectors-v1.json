@@ -1,0 +1,137 @@
+{
+  "schema": "personal-auth-runtime-vectors/v1",
+  "contract_version": "v1-proposed",
+  "description": "Synthetic, credential-free cross-runtime acceptance cases. Native OAuth callback and origin-signed JWT are separate roles.",
+  "native_client": {
+    "issuer": "https://fixture.cloudflareaccess.com",
+    "authorization_endpoint": "https://fixture.cloudflareaccess.com/oauth/authorize",
+    "token_endpoint": "https://fixture.cloudflareaccess.com/oauth/token",
+    "redirect_uri": "local.k.ios.aiusage:/oauth/callback",
+    "resource": "https://usage.example.invalid",
+    "public_client_id": "synthetic-native-client",
+    "state": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "verifier": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "created_at_epoch": 1000,
+    "verify_at_epoch": 1100,
+    "cases": [
+      {
+        "id": "callback-exact",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "ACCEPT"
+      },
+      {
+        "id": "callback-issuer-match",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&iss=https%3A%2F%2Ffixture.cloudflareaccess.com",
+        "expected": "ACCEPT"
+      },
+      {
+        "id": "callback-wrong-state",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-duplicate-state",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-duplicate-code",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&code=second",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-foreign-scheme",
+        "callback": "local.k.other:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-foreign-path",
+        "callback": "local.k.ios.aiusage:/other/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-unknown-parameter",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&token=synthetic",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-error-parameter",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&error=access_denied",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-fragment",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#fragment",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-missing-code",
+        "callback": "local.k.ios.aiusage:/oauth/callback?state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "expected": "REJECT"
+      },
+      {
+        "id": "callback-wrong-issuer",
+        "callback": "local.k.ios.aiusage:/oauth/callback?code=proof&state=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&iss=https%3A%2F%2Fevil.example",
+        "expected": "REJECT"
+      }
+    ]
+  },
+  "origin_assertion": {
+    "issuer": "https://fixture.cloudflareaccess.com",
+    "audience": "viewer-a",
+    "subject": "owner",
+    "now_epoch": 1000,
+    "cases": [
+      {
+        "id": "assertion-valid",
+        "variant": "valid",
+        "expected": "ACCEPT"
+      },
+      {
+        "id": "assertion-wrong-issuer",
+        "variant": "wrong-issuer",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-wrong-audience",
+        "variant": "wrong-audience",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-expired",
+        "variant": "expired",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-future-nbf",
+        "variant": "future-nbf",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-unknown-kid",
+        "variant": "unknown-kid",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-none-alg",
+        "variant": "none-alg",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-jku-injection",
+        "variant": "jku",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-duplicate-alg",
+        "variant": "duplicate-alg",
+        "expected": "REJECT"
+      },
+      {
+        "id": "assertion-tampered-payload",
+        "variant": "tampered-payload",
+        "expected": "REJECT"
+      }
+    ]
+  }
+}
