@@ -27,6 +27,10 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 | `https://h/tenant/` | `https://h/.well-known/oauth-authorization-server/tenant` |
 
 경로가 있는 issuer는 **well-known 뒤에** 붙는다(앞에 붙이면 다른 규격의 규칙이다).
+퍼센트 인코딩된 경로(`/a%20b`)는 **한 번만** 인코딩된다(디코드된 `Path`에 붙이고 `String()`이
+다시 인코딩). `EscapedPath()`를 그대로 대입하면 `%2520`으로 이중 인코딩된다.
+
+**엔드포인트 길이는 2048자로 제한**한다(`Begin`이 같은 URL에 적용하는 상한과 동일).
 
 ## ParseDiscovery — 거부 규칙
 
@@ -35,12 +39,18 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 | `issuer`가 핀 값과 **문자 단위로 다름** (trailing slash, 대소문자, host, scheme 포함) | `ErrDiscoveryIssuer` |
 | 핀 issuer 자체가 https가 아니거나 userinfo·query·fragment 포함 | `ErrDiscoveryIssuer` |
 | `authorization_endpoint`/`token_endpoint` 없음·https 아님·userinfo·query·fragment·port 0 | `ErrDiscoveryEndpoint` |
-| 두 엔드포인트가 동일 URL | `ErrDiscoveryEndpoint` |
+| 두 엔드포인트가 동일 URL | `ErrDiscoveryEndpoint` (**정책**, RFC 8414 요구 아님) |
 | `response_types_supported`에 `code` 없음(필드 생략 포함) | `ErrDiscoveryEndpoint` |
 | `code_challenge_methods_supported`에 `S256` 없음(생략 포함) | `ErrDiscoveryPKCE` |
 | `token_endpoint_auth_methods_supported`가 있고 `none`이 없음 | `ErrDiscoveryClientAuth` |
 | `revocation_endpoint`가 있는데 https가 아님 | `ErrDiscoveryEndpoint` |
-| 중복 키, JSON 아님, 후행 콘텐츠, 64KB 초과, scope token 형식 위반 | `ErrDiscoveryDocument` |
+| 필수 멤버(`issuer`·`authorization_endpoint`·`token_endpoint`) 누락, 타입 불일치 | `ErrDiscoveryDocument` |
+| 중복 키, JSON 아님, **잘린 JSON**, 후행 콘텐츠, 64KB 초과, scope token 형식 위반 | `ErrDiscoveryDocument` |
+
+**멤버 이름은 정확히 일치해야 한다.** `encoding/json`의 구조체 매칭은 대소문자와 일부
+유니코드 폴드를 무시하므로, `token_endpoint`와 `Token_Endpoint`를 함께 넣으면 나중 값이
+이긴다. 그래서 이 파서는 최상위를 `map[string]json.RawMessage`로 디코드하고 **정확한
+이름의 멤버만** 읽는다. 잘못된 표기의 멤버는 "없는 멤버"로 취급된다.
 
 **issuer 정규화는 하지 않는다.** RFC 8414 §3.3이 요구하는 것은 exact match이고,
 `https://issuer`와 `https://issuer/`를 같은 것으로 취급하면 그 순간 impersonation
@@ -54,6 +64,10 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 
 **확장 멤버는 무시한다.** RFC 8414는 확장 레지스트리이며, 미래 멤버를 거부하면 제공자
 업데이트에 취약해진다.
+
+**두 엔드포인트 동일 URL 거부와 S256/`none` 요구는 정책이다.** RFC 8414가 요구하는 항목이
+아니며, 이 클라이언트가 실제로 쓰는 흐름(공용 클라이언트 + authorization code + PKCE)에
+필요해서 넣었다. 다른 제공자를 붙일 때는 이 세 줄을 먼저 검토해야 한다.
 
 ## 남는 경계 (이 파일이 주장하지 않는 것)
 

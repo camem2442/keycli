@@ -165,6 +165,50 @@ func TestParseDiscoveryToleratesUnknownMembers(t *testing.T) {
 	}
 }
 
+// encoding/json matches struct fields case-insensitively, so a document could carry a
+// benign member and a differently-cased hostile twin. Only exactly-named members are read.
+func TestParseDiscoveryIgnoresDifferentlyCasedMembers(t *testing.T) {
+	raw := []byte(`{"issuer":"` + pinned + `",` +
+		`"authorization_endpoint":"` + pinned + `/a",` +
+		`"token_endpoint":"` + pinned + `/t",` +
+		`"Token_Endpoint":"https://evil.example/t",` +
+		`"response_types_supported":["code"],` +
+		`"code_challenge_methods_supported":["S256"]}`)
+	discovery, err := ParseDiscovery(raw, pinned)
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if discovery.TokenEndpoint != pinned+"/t" {
+		t.Fatalf("a differently-cased member must not win, got %s", discovery.TokenEndpoint)
+	}
+}
+
+// A document that only carries the wrong case is simply missing the required member.
+func TestParseDiscoveryRequiresExactMemberNames(t *testing.T) {
+	raw := []byte(`{"issuer":"` + pinned + `",` +
+		`"Authorization_Endpoint":"` + pinned + `/a",` +
+		`"token_endpoint":"` + pinned + `/t",` +
+		`"response_types_supported":["code"],` +
+		`"code_challenge_methods_supported":["S256"]}`)
+	if _, err := ParseDiscovery(raw, pinned); !errors.Is(err, ErrDiscoveryDocument) {
+		t.Fatalf("want ErrDiscoveryDocument, got %v", err)
+	}
+}
+
+func TestParseDiscoveryIssuerIsCaseSensitive(t *testing.T) {
+	raw := metadata(map[string]string{"issuer": `"https://ACCESS.example.com"`})
+	if _, err := ParseDiscovery(raw, pinned); !errors.Is(err, ErrDiscoveryIssuer) {
+		t.Fatalf("want ErrDiscoveryIssuer, got %v", err)
+	}
+}
+
+func TestParseDiscoveryRejectsZeroPortEndpoint(t *testing.T) {
+	raw := metadata(map[string]string{"token_endpoint": `"https://access.example.com:0/t"`})
+	if _, err := ParseDiscovery(raw, pinned); !errors.Is(err, ErrDiscoveryEndpoint) {
+		t.Fatalf("want ErrDiscoveryEndpoint, got %v", err)
+	}
+}
+
 func TestParseDiscoveryRefusesUntrustworthyPinnedIssuer(t *testing.T) {
 	for name, issuer := range map[string]string{
 		"http":     "http://access.example.com",

@@ -32,6 +32,24 @@ var (
 // mistake or an attempt to make the parser work for it.
 const MaxDiscoveryBytes = 64 << 10
 
+// maxEndpointLength matches the bound Begin applies to the same URLs.
+const maxEndpointLength = 2048
+
+// Member names are matched exactly. A differently-cased member is treated as absent
+// rather than folded onto its lower-case twin: encoding/json's own field matching folds
+// case and some Unicode forms, which is precisely how a document could carry a benign
+// "token_endpoint" and a hostile "Token_Endpoint" and have the hostile one win.
+const (
+	memberIssuer           = "issuer"
+	memberAuthorization    = "authorization_endpoint"
+	memberToken            = "token_endpoint"
+	memberRevocation       = "revocation_endpoint"
+	memberResponseTypes    = "response_types_supported"
+	memberPKCE             = "code_challenge_methods_supported"
+	memberTokenAuthMethods = "token_endpoint_auth_methods_supported"
+	memberScopes           = "scopes_supported"
+)
+
 // Discovery is the subset of RFC 8414 metadata this client relies on.
 type Discovery struct {
 	Issuer                string
@@ -50,31 +68,17 @@ func (d Discovery) Provider() Provider {
 	}
 }
 
-// metadataDocument mirrors the wire names. Unknown members are ignored on purpose:
-// RFC 8414 defines this as an extensible registry.
-type metadataDocument struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint"`
-	RevocationEndpoint                string   `json:"revocation_endpoint"`
-	ResponseTypesSupported            []string `json:"response_types_supported"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
-	ScopesSupported                   []string `json:"scopes_supported"`
-}
-
 // DiscoveryURL builds the well-known location for an issuer, per RFC 8414 section 3.1:
 // a path on the issuer is appended after the well-known segment, not before it.
 func DiscoveryURL(issuer string) (string, error) {
 	parsed, err := url.Parse(issuer)
-	if err != nil || parsed.Opaque != "" {
+	if err != nil || parsed.Opaque != "" || !validIssuer(issuer) {
 		return "", ErrDiscoveryIssuer
 	}
-	if !validIssuer(issuer) {
-		return "", ErrDiscoveryIssuer
-	}
+	// Path is the decoded form; URL.String escapes it again. Using EscapedPath here
+	// would double-encode a percent or a space in the issuer path.
 	base := &url.URL{Scheme: "https", Host: parsed.Host}
-	base.Path = "/.well-known/oauth-authorization-server" + strings.TrimSuffix(parsed.EscapedPath(), "/")
+	base.Path = "/.well-known/oauth-authorization-server" + strings.TrimSuffix(parsed.Path, "/")
 	return base.String(), nil
 }
 
@@ -110,62 +114,140 @@ func ParseDiscovery(raw []byte, pinnedIssuer string) (Discovery, error) {
 		return Discovery{}, err
 	}
 
-	var document metadataDocument
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if err := decoder.Decode(&document); err != nil {
-		return Discovery{}, ErrDiscoveryDocument
-	}
-	// Decode stops at the end of the first value; anything after it means the bytes are
-	// not a single metadata document, even if the first value looked valid.
-	if _, err := decoder.Token(); err != io.EOF {
-		return Discovery{}, ErrDiscoveryDocument
+	members, err := documentMembers(raw)
+	if err != nil {
+		return Discovery{}, err
 	}
 
-	if document.Issuer != pinnedIssuer {
+	issuer, err := stringMember(members, memberIssuer)
+	if err != nil || issuer != pinnedIssuer {
+		if err != nil {
+			return Discovery{}, err
+		}
 		return Discovery{}, ErrDiscoveryIssuer
 	}
-	if !secureEndpoint(document.AuthorizationEndpoint) || !secureEndpoint(document.TokenEndpoint) {
+	authorization, err := stringMember(members, memberAuthorization)
+	if err != nil {
+		return Discovery{}, err
+	}
+	token, err := stringMember(members, memberToken)
+	if err != nil {
+		return Discovery{}, err
+	}
+	if !acceptableEndpoint(authorization) || !acceptableEndpoint(token) {
 		return Discovery{}, ErrDiscoveryEndpoint
 	}
-	if document.AuthorizationEndpoint == document.TokenEndpoint {
-		// Not fatal by itself, but a server that publishes the same URL for both is
-		// almost always misconfigured; refusing keeps a bad document from looking fine.
+	if authorization == token {
+		// Policy, not an RFC 8414 requirement: a server publishing one URL for both
+		// flows is misconfigured often enough that accepting it would hide the mistake.
 		return Discovery{}, ErrDiscoveryEndpoint
 	}
 	// response_types_supported is REQUIRED by RFC 8414; we only implement the code flow.
-	if !contains(document.ResponseTypesSupported, "code") {
+	responseTypes, err := stringsMember(members, memberResponseTypes, true)
+	if err != nil {
+		return Discovery{}, err
+	}
+	if !contains(responseTypes, "code") {
 		return Discovery{}, ErrDiscoveryEndpoint
 	}
-	// PKCE is mandatory for a public client here, so the advertisement must say S256.
-	// An empty list means "not advertised", which is equally unusable for us.
-	if !contains(document.CodeChallengeMethodsSupported, "S256") {
+	// Policy: PKCE is mandatory for this public client, so S256 must be advertised.
+	// An absent member means "not advertised", which is equally unusable here.
+	pkce, err := stringsMember(members, memberPKCE, true)
+	if err != nil {
+		return Discovery{}, err
+	}
+	if !contains(pkce, "S256") {
 		return Discovery{}, ErrDiscoveryPKCE
 	}
-	// Only a public client is modelled. If the server lists auth methods and "none" is
-	// not among them, this client cannot authenticate at the token endpoint.
-	if len(document.TokenEndpointAuthMethodsSupported) > 0 &&
-		!containsFold(document.TokenEndpointAuthMethodsSupported, "none") {
+	// Policy: only a public client is modelled. When the server lists methods, "none"
+	// must be among them; an omitted member is tolerated.
+	authMethods, err := stringsMember(members, memberTokenAuthMethods, true)
+	if err != nil {
+		return Discovery{}, err
+	}
+	if len(authMethods) > 0 && !containsFold(authMethods, "none") {
 		return Discovery{}, ErrDiscoveryClientAuth
 	}
 
 	discovery := Discovery{
-		Issuer:                document.Issuer,
-		AuthorizationEndpoint: document.AuthorizationEndpoint,
-		TokenEndpoint:         document.TokenEndpoint,
-		Scopes:                document.ScopesSupported,
+		Issuer:                issuer,
+		AuthorizationEndpoint: authorization,
+		TokenEndpoint:         token,
 	}
-	if document.RevocationEndpoint != "" {
-		if !secureEndpoint(document.RevocationEndpoint) {
-			return Discovery{}, ErrDiscoveryEndpoint
+	if rawRevocation, present := members[memberRevocation]; present {
+		revocation, err := decodeString(rawRevocation)
+		if err != nil {
+			return Discovery{}, err
 		}
-		discovery.RevocationEndpoint = document.RevocationEndpoint
+		if revocation != "" {
+			if !acceptableEndpoint(revocation) {
+				return Discovery{}, ErrDiscoveryEndpoint
+			}
+			discovery.RevocationEndpoint = revocation
+		}
 	}
-	for _, scope := range document.ScopesSupported {
+	scopes, err := stringsMember(members, memberScopes, true)
+	if err != nil {
+		return Discovery{}, err
+	}
+	for _, scope := range scopes {
 		if !validScopeToken(scope) {
 			return Discovery{}, ErrDiscoveryDocument
 		}
 	}
+	discovery.Scopes = scopes
 	return discovery, nil
+}
+
+func acceptableEndpoint(value string) bool {
+	return value != "" && len(value) <= maxEndpointLength && secureEndpoint(value)
+}
+
+// documentMembers decodes the top level as raw members so that only exactly-named
+// members are ever consulted.
+func documentMembers(raw []byte) (map[string]json.RawMessage, error) {
+	var members map[string]json.RawMessage
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&members); err != nil || members == nil {
+		return nil, ErrDiscoveryDocument
+	}
+	// Decode stops at the end of the first value; anything after it means these bytes are
+	// not a single metadata document, even if the first value looked valid.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, ErrDiscoveryDocument
+	}
+	return members, nil
+}
+
+func decodeString(raw json.RawMessage) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", ErrDiscoveryDocument
+	}
+	return value, nil
+}
+
+func stringMember(members map[string]json.RawMessage, name string) (string, error) {
+	raw, present := members[name]
+	if !present {
+		return "", ErrDiscoveryDocument
+	}
+	return decodeString(raw)
+}
+
+func stringsMember(members map[string]json.RawMessage, name string, optional bool) ([]string, error) {
+	raw, present := members[name]
+	if !present {
+		if optional {
+			return nil, nil
+		}
+		return nil, ErrDiscoveryDocument
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, ErrDiscoveryDocument
+	}
+	return values, nil
 }
 
 // rejectDuplicateKeys walks the document so a repeated member cannot silently override an
@@ -204,16 +286,20 @@ func rejectDuplicateKeys(raw []byte) error {
 					return err
 				}
 			}
-			_, err := decoder.Token() // closing brace
-			return err
+			if _, err := decoder.Token(); err != nil { // closing brace
+				return ErrDiscoveryDocument
+			}
+			return nil
 		case '[':
 			for decoder.More() {
 				if err := walk(); err != nil {
 					return err
 				}
 			}
-			_, err := decoder.Token() // closing bracket
-			return err
+			if _, err := decoder.Token(); err != nil { // closing bracket
+				return ErrDiscoveryDocument
+			}
+			return nil
 		}
 		return ErrDiscoveryDocument
 	}
@@ -222,14 +308,10 @@ func rejectDuplicateKeys(raw []byte) error {
 	}
 	// walk consumed exactly one value. A second Token() must report EOF; any value means
 	// trailing content, and a syntax error means the bytes were already broken.
-	switch _, err := decoder.Token(); {
-	case err == io.EOF:
-		return nil
-	case err == nil:
-		return ErrDiscoveryDocument
-	default:
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return ErrDiscoveryDocument
 	}
+	return nil
 }
 
 func contains(values []string, want string) bool {
