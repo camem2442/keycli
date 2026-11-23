@@ -62,8 +62,8 @@ func TestPlanNegativeSkewCannotResurrectExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if action == UseAccessToken {
-		t.Fatal("a negative skew must not make an expired token usable")
+	if action != Refresh {
+		t.Fatalf("an expired token with a refresh token must plan Refresh, got %v", action)
 	}
 }
 
@@ -196,6 +196,19 @@ func TestApplyRefreshUnknownStoredScopeDoesNotRefuse(t *testing.T) {
 	next.Scope = "usage:read"
 	if _, _, err := ApplyRefresh(previous, next, t0, Policy{}); err != nil {
 		t.Fatalf("an unknown stored scope is not a grant of nothing: %v", err)
+	}
+}
+
+func TestApplyRefreshWhitespaceScopeInherits(t *testing.T) {
+	previous := bearer("at-1", time.Hour, "rt-1")
+	next := bearer("at-2", 2*time.Hour, "rt-2")
+	next.Scope = "   "
+	adopted, _, err := ApplyRefresh(previous, next, t0, Policy{})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if adopted.Scope != previous.Scope {
+		t.Fatalf("a whitespace scope must inherit the prior grant, got %q", adopted.Scope)
 	}
 }
 

@@ -80,8 +80,10 @@ func (p Policy) effectiveSkew() time.Duration {
 	return p.Skew
 }
 
-// safeToken reports whether a value is a plausible opaque token: non-empty, printable,
-// and free of whitespace so it cannot be split or injected into a header or form body.
+// safeToken reports whether a value is a plausible opaque token: non-empty and made only
+// of printable ASCII (0x21..0x7E), so it cannot be split, injected into a header or form
+// body, or carrying non-ASCII that a provider would encode differently. This is stricter
+// than 'no whitespace' on purpose: OAuth carries these values verbatim.
 func safeToken(value string) bool {
 	if value == "" {
 		return false
@@ -157,6 +159,10 @@ const (
 // It enforces the rules the lifecycle depends on:
 //   - A refresh response must carry a new access token that is usable beyond the skew,
 //     otherwise the caller would store a value it must immediately refresh again.
+//   - A response without an expiry is refused, which makes a provider that omits
+//     expires_in terminal for this client: Plan can ask for Refresh, but ApplyRefresh
+//     will never adopt the result. That is deliberate — storing an unknown lifetime
+//     would be worse — and the caller must surface it as a reauthorize, not a loop.
 //   - An omitted refresh token means "unchanged", not "cleared", which is what
 //     RFC 6749 section 6 permits.
 //   - A response whose refresh token equals the old one is not rotation; adopting it as
@@ -196,7 +202,7 @@ func ApplyRefresh(previous Tokens, next Tokens, now time.Time, policy Policy) (T
 			rotation = RotationReplaced
 		}
 	}
-	if adopted.Scope == "" {
+	if strings.TrimSpace(adopted.Scope) == "" {
 		adopted.Scope = previous.Scope
 	}
 	// Re-evaluate the adopted set so a caller cannot store something Plan would refuse.

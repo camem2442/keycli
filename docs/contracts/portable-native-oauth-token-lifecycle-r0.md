@@ -58,6 +58,9 @@ decision ambiguity those pieces would otherwise each invent.
 
 ## 비밀값 취급
 
+`Tokens`의 토큰 값은 **출력 가능한 ASCII(0x21~0x7E)만** 허용한다. 공백 금지보다 엄격한데,
+이 값들은 헤더·폼 본문에 그대로 실리므로 비-ASCII는 제공자마다 다르게 인코딩되기 때문이다.
+
 `Tokens`는 `String()`/`GoString()`이 값을 노출하지 않고, **`MarshalJSON`은 오류를 반환**한다
 (redacted 성공 응답을 만들면 "저장됐다"고 오해하게 된다). `fmt`의 `%v`/`%+v`와 중첩 구조체
 포맷, `json.Marshal` 직접·중첩 호출이 모두 비밀값을 내보내지 않는지 테스트로 고정한다. 실제 저장은 여전히 호출자(향후 per-app 보호
@@ -70,6 +73,9 @@ decision ambiguity those pieces would otherwise each invent.
 3. per-app 암호화 저장(Mac Keychain / Linux age) — **미구현**
 4. revoke 요청 실제 전송과 실패 처리 — **미구현**
 5. Pending 1회 소비·로그인 시간창 강제 — 호출자 책임, 게이트 **NOT VERIFIED**
+6. `expires_in`을 돌려주지 않는 제공자는 이 클라이언트에서 **종결 상태**다. `Plan`은 `Refresh`를
+   요청할 수 있지만 `ApplyRefresh`는 만료 없는 응답을 채택하지 않는다. 호출자는 이를
+   `Reauthorize`로 표면화해야 하며, 갱신 루프로 만들면 안 된다.
 
 ## 검증
 
