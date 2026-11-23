@@ -27,8 +27,13 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 | `https://h/tenant/` | `https://h/.well-known/oauth-authorization-server/tenant` |
 
 경로가 있는 issuer는 **well-known 뒤에** 붙는다(앞에 붙이면 다른 규격의 규칙이다).
-퍼센트 인코딩된 경로(`/a%20b`)는 **한 번만** 인코딩된다(디코드된 `Path`에 붙이고 `String()`이
-다시 인코딩). `EscapedPath()`를 그대로 대입하면 `%2520`으로 이중 인코딩된다.
+퍼센트 인코딩된 경로는 **한 번만** 인코딩되고, 인코딩된 구분자도 보존된다.
+
+- `/a%20b` → `…/a%20b` (`%2520`이 되지 않는다)
+- `/a%2Fb` → `…/a%2Fb` (한 세그먼트. 디코드된 `Path`만 쓰면 `/a/b`로 갈라진다)
+
+구현은 `Path`(디코드)와 `RawPath`(이스케이프)를 **둘 다** 채워 `URL.String()`이 한 번만
+인코딩하면서 구분자 정보를 잃지 않게 한다.
 
 **엔드포인트 길이는 2048자로 제한**한다(`Begin`이 같은 URL에 적용하는 상한과 동일).
 
@@ -38,7 +43,7 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 | --- | --- |
 | `issuer`가 핀 값과 **문자 단위로 다름** (trailing slash, 대소문자, host, scheme 포함) | `ErrDiscoveryIssuer` |
 | 핀 issuer 자체가 https가 아니거나 userinfo·query·fragment 포함 | `ErrDiscoveryIssuer` |
-| `authorization_endpoint`/`token_endpoint` 없음·https 아님·userinfo·query·fragment·port 0 | `ErrDiscoveryEndpoint` |
+| `authorization_endpoint`/`token_endpoint`가 있으나 https 아님·userinfo·query·fragment·port 0·2048자 초과 | `ErrDiscoveryEndpoint` |
 | 두 엔드포인트가 동일 URL | `ErrDiscoveryEndpoint` (**정책**, RFC 8414 요구 아님) |
 | `response_types_supported`에 `code` 없음(필드 생략 포함) | `ErrDiscoveryEndpoint` |
 | `code_challenge_methods_supported`에 `S256` 없음(생략 포함) | `ErrDiscoveryPKCE` |
@@ -63,7 +68,9 @@ issuer-pinned RFC 8414 discovery 어댑터를 통해 얻어야 한다"고만 적
 정상 `issuer`와 악성 `token_endpoint`를 함께 넣는 형태를 막기 위해 토큰 단위로 순회한다.
 
 **확장 멤버는 무시한다.** RFC 8414는 확장 레지스트리이며, 미래 멤버를 거부하면 제공자
-업데이트에 취약해진다.
+업데이트에 취약해진다. 단 문서는 **어디에서든 중복 키가 없어야** 한다(확장 객체 내부 포함).
+값은 무시하지만, 같은 이름이 두 번 나오는 문서는 해석이 하나로 정해지지 않으므로 fail-closed로
+거부한다.
 
 **두 엔드포인트 동일 URL 거부와 S256/`none` 요구는 정책이다.** RFC 8414가 요구하는 항목이
 아니며, 이 클라이언트가 실제로 쓰는 흐름(공용 클라이언트 + authorization code + PKCE)에

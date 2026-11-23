@@ -133,11 +133,13 @@ func TestParseDiscoveryRejectsAmbiguousDocuments(t *testing.T) {
 		"duplicate issuer": []byte(`{"issuer":"` + pinned + `","issuer":"https://evil.example",` +
 			`"authorization_endpoint":"` + pinned + `/a","token_endpoint":"` + pinned + `/t",` +
 			`"response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`),
-		"not an object":    []byte(`["issuer"]`),
-		"trailing content": append(metadata(nil), []byte(` {}`)...),
-		"invalid json":     []byte(`{"issuer":`),
-		"empty":            nil,
-		"invalid scope":    metadata(map[string]string{"scopes_supported": `["bad\"scope"]`}),
+		"not an object":         []byte(`["issuer"]`),
+		"trailing content":      append(metadata(nil), []byte(` {}`)...),
+		"trailing scalar":       append(metadata(nil), []byte(` 1`)...),
+		"truncated after value": append(metadata(nil), []byte(` {"issuer":`)...),
+		"invalid json":          []byte(`{"issuer":`),
+		"empty":                 nil,
+		"invalid scope":         metadata(map[string]string{"scopes_supported": `["bad\"scope"]`}),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -230,6 +232,8 @@ func TestDiscoveryURLFollowsRFC8414PathRules(t *testing.T) {
 		pinned + "/":        pinned + "/.well-known/oauth-authorization-server",
 		pinned + "/tenant":  pinned + "/.well-known/oauth-authorization-server/tenant",
 		pinned + "/tenant/": pinned + "/.well-known/oauth-authorization-server/tenant",
+		pinned + "/a%20b":   pinned + "/.well-known/oauth-authorization-server/a%20b",
+		pinned + "/a%2Fb":   pinned + "/.well-known/oauth-authorization-server/a%2Fb",
 	}
 	for issuer, want := range cases {
 		got, err := DiscoveryURL(issuer)

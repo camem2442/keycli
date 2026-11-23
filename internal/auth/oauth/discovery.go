@@ -75,10 +75,13 @@ func DiscoveryURL(issuer string) (string, error) {
 	if err != nil || parsed.Opaque != "" || !validIssuer(issuer) {
 		return "", ErrDiscoveryIssuer
 	}
-	// Path is the decoded form; URL.String escapes it again. Using EscapedPath here
-	// would double-encode a percent or a space in the issuer path.
+	// Path is decoded and RawPath the escaped form. Supplying both keeps URL.String from
+	// double-encoding (%20 must stay %20) while preserving an encoded separator: an issuer
+	// path of /a%2Fb is one segment, not two, and naively decoding Path would split it.
+	const prefix = "/.well-known/oauth-authorization-server"
 	base := &url.URL{Scheme: "https", Host: parsed.Host}
-	base.Path = "/.well-known/oauth-authorization-server" + strings.TrimSuffix(parsed.Path, "/")
+	base.Path = prefix + strings.TrimSuffix(parsed.Path, "/")
+	base.RawPath = prefix + strings.TrimSuffix(parsed.EscapedPath(), "/")
 	return base.String(), nil
 }
 
@@ -143,7 +146,7 @@ func ParseDiscovery(raw []byte, pinnedIssuer string) (Discovery, error) {
 		return Discovery{}, ErrDiscoveryEndpoint
 	}
 	// response_types_supported is REQUIRED by RFC 8414; we only implement the code flow.
-	responseTypes, err := stringsMember(members, memberResponseTypes, true)
+	responseTypes, err := stringsMember(members, memberResponseTypes)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -152,7 +155,7 @@ func ParseDiscovery(raw []byte, pinnedIssuer string) (Discovery, error) {
 	}
 	// Policy: PKCE is mandatory for this public client, so S256 must be advertised.
 	// An absent member means "not advertised", which is equally unusable here.
-	pkce, err := stringsMember(members, memberPKCE, true)
+	pkce, err := stringsMember(members, memberPKCE)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -161,7 +164,7 @@ func ParseDiscovery(raw []byte, pinnedIssuer string) (Discovery, error) {
 	}
 	// Policy: only a public client is modelled. When the server lists methods, "none"
 	// must be among them; an omitted member is tolerated.
-	authMethods, err := stringsMember(members, memberTokenAuthMethods, true)
+	authMethods, err := stringsMember(members, memberTokenAuthMethods)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -186,7 +189,7 @@ func ParseDiscovery(raw []byte, pinnedIssuer string) (Discovery, error) {
 			discovery.RevocationEndpoint = revocation
 		}
 	}
-	scopes, err := stringsMember(members, memberScopes, true)
+	scopes, err := stringsMember(members, memberScopes)
 	if err != nil {
 		return Discovery{}, err
 	}
@@ -235,13 +238,12 @@ func stringMember(members map[string]json.RawMessage, name string) (string, erro
 	return decodeString(raw)
 }
 
-func stringsMember(members map[string]json.RawMessage, name string, optional bool) ([]string, error) {
+// stringsMember reads an optional string array; an absent member is simply empty, which
+// the individual callers then judge (no code flow, no S256, no advertised methods).
+func stringsMember(members map[string]json.RawMessage, name string) ([]string, error) {
 	raw, present := members[name]
 	if !present {
-		if optional {
-			return nil, nil
-		}
-		return nil, ErrDiscoveryDocument
+		return nil, nil
 	}
 	var values []string
 	if err := json.Unmarshal(raw, &values); err != nil {
