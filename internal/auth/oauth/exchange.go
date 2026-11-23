@@ -22,7 +22,8 @@ var (
 // stops a caller from reusing a verifier with a different redirect or audience, which
 // providers reject at best and mis-issue at worst.
 func BuildExchange(provider Provider, client Client, pending Pending, code string) (url.Values, error) {
-	if !secureEndpoint(provider.TokenEndpoint) || len(provider.TokenEndpoint) > 2048 {
+	if !secureEndpoint(provider.Issuer) || len(provider.Issuer) > 2048 ||
+		!secureEndpoint(provider.TokenEndpoint) || len(provider.TokenEndpoint) > 2048 {
 		return nil, ErrExchange
 	}
 	if !validClientID(client.ID) {

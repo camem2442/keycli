@@ -13,7 +13,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -60,20 +59,24 @@ const DefaultTimeout = 10 * time.Second
 // bytes; anything larger is a bug, not a configuration.
 const MaxFormBytes = 16 << 10
 
-// Exchange posts form and returns the credential set on success.
+// Exchange builds the code exchange form from the same Pending that Begin returned,
+// posts it to provider.TokenEndpoint, and returns the credential set on success.
+//
+// Taking the provider, client and pending rather than a form and a URL is deliberate: a
+// separate form argument could be built for one provider and posted to another, which is
+// exactly the mismatch that leaks a verifier to the wrong host.
 //
 // A non-200 response is never allowed to yield credentials, even if its body happens to
 // contain an access_token: only status 200 is treated as a success document.
-func Exchange(ctx context.Context, doer Doer, endpoint string, form url.Values, now time.Time, policy Policy) (oauth.Tokens, error) {
+func Exchange(ctx context.Context, doer Doer, provider oauth.Provider, client oauth.Client, pending oauth.Pending, code string, now time.Time, policy Policy) (oauth.Tokens, error) {
 	if doer == nil {
 		return oauth.Tokens{}, fmt.Errorf("%w: nil doer", ErrTransport)
 	}
-	if !oauth.SecureEndpoint(endpoint) || len(endpoint) > 2048 {
-		return oauth.Tokens{}, ErrRequest
+	form, err := oauth.BuildExchange(provider, client, pending, code)
+	if err != nil {
+		return oauth.Tokens{}, err
 	}
-	if len(form) == 0 {
-		return oauth.Tokens{}, ErrRequest
-	}
+	endpoint := provider.TokenEndpoint
 	encoded := form.Encode()
 	if len(encoded) > MaxFormBytes {
 		return oauth.Tokens{}, fmt.Errorf("%w: form is %d bytes", ErrRequest, len(encoded))
@@ -132,17 +135,22 @@ func Exchange(ctx context.Context, doer Doer, endpoint string, form url.Values, 
 	if err != nil {
 		return oauth.Tokens{}, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
-	if int64(len(body)) > maxBytes {
-		return oauth.Tokens{}, fmt.Errorf("%w: more than %d bytes", ErrTooLarge, maxBytes)
-	}
+	oversized := int64(len(body)) > maxBytes
 
 	if response.StatusCode != http.StatusOK {
 		// RFC 6749 section 5.2 returns 400 with a JSON error document. Classify it, but
-		// keep ErrStatus so a caller can react to the status itself.
+		// keep ErrStatus so a caller can react to the status itself. An oversized error
+		// body must not replace that with a truncation error.
+		if oversized {
+			return oauth.Tokens{}, fmt.Errorf("%w: %d", ErrStatus, response.StatusCode)
+		}
 		if classified := oauth.ParseTokenError(body); classified != nil && !errors.Is(classified, oauth.ErrTokenResponse) {
 			return oauth.Tokens{}, fmt.Errorf("%w: %d: %w", ErrStatus, response.StatusCode, classified)
 		}
 		return oauth.Tokens{}, fmt.Errorf("%w: %d", ErrStatus, response.StatusCode)
+	}
+	if oversized {
+		return oauth.Tokens{}, fmt.Errorf("%w: more than %d bytes", ErrTooLarge, maxBytes)
 	}
 	if !oauth.IsJSONMediaType(response.Header.Get("Content-Type")) {
 		return oauth.Tokens{}, fmt.Errorf("%w: %q", ErrContentType, response.Header.Get("Content-Type"))

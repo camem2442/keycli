@@ -111,10 +111,46 @@ func TestParseTokenResponseBoundsExpiresIn(t *testing.T) {
 	}
 }
 
+// The error member ends up inside an error string. A hostile body must not be able to
+// put control bytes or a long arbitrary string into a log line.
+func TestParseTokenErrorSanitisesHostileCodes(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"newline":   tokenDocument(map[string]string{"error": `"bad\ncode"`}),
+		"carriage":  tokenDocument(map[string]string{"error": `"bad\rcode"`}),
+		"quote":     tokenDocument(map[string]string{"error": `"bad\"code"`}),
+		"backslash": tokenDocument(map[string]string{"error": `"bad\\code"`}),
+		"very long": tokenDocument(map[string]string{"error": `"` + strings.Repeat("a", 65) + `"`}),
+		"empty":     tokenDocument(map[string]string{"error": `""`}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ParseTokenError(raw)
+			if !errors.Is(err, ErrTokenResponse) {
+				t.Fatalf("want ErrTokenResponse, got %v", err)
+			}
+			if strings.ContainsAny(err.Error(), "\r\n") {
+				t.Fatalf("error contains a control character: %q", err.Error())
+			}
+			if strings.Contains(err.Error(), strings.Repeat("a", 65)) {
+				t.Fatalf("error echoed an over-long code: %v", err)
+			}
+		})
+	}
+}
+
 func TestParseTokenResponseRejectsMalformedScope(t *testing.T) {
-	fields := map[string]string{"access_token": `"at"`, "scope": `"bad\"scope"`}
-	if _, err := ParseTokenResponse(tokenDocument(fields), fixedNow); !errors.Is(err, ErrTokenResponse) {
-		t.Fatalf("want ErrTokenResponse, got %v", err)
+	for name, scope := range map[string]string{
+		"quote":     `"bad\"scope"`,
+		"tab":       `"a\tb"`,
+		"newline":   `"a\nb"`,
+		"carriage":  `"a\rb"`,
+		"backslash": `"a\\b"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fields := map[string]string{"access_token": `"at"`, "scope": scope}
+			if _, err := ParseTokenResponse(tokenDocument(fields), fixedNow); !errors.Is(err, ErrTokenResponse) {
+				t.Fatalf("want ErrTokenResponse, got %v", err)
+			}
+		})
 	}
 }
 

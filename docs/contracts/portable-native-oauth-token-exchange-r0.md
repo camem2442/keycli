@@ -54,14 +54,21 @@ Packages:
 | 그 밖 | `ErrTokenResponse` | 분류 불가 |
 
 `error_description`은 **오류 메시지에 넣지 않는다.** 서버가 보낸 텍스트를 로그·영수증으로
-흘리는 경로를 만들지 않기 위해서다. 코드 문자열만 포함한다.
+흘리는 경로를 만들지 않기 위해서다.
+
+`error` 코드도 그대로 넣지 않는다. 64자 이하이면서 scope-token 형식(printable ASCII, `"`·`\`
+제외)일 때만 `%q`로 인용해 포함하고, 그 밖은 `ErrTokenResponse`로 끝낸다. CR/LF나 임의의 긴
+문자열이 로그 한 줄에 들어가는 것을 막기 위해서다.
+
+`scope`는 **원문 바이트를 먼저 검사**한다(space 또는 0x21–0x7E, `"`·`\` 제외). `strings.Fields`는
+탭·개행도 구분자로 받아들이므로, 먼저 나누면 제어문자가 들어간 원문이 그대로 저장된다.
 
 ## 네트워크 어댑터
 
 | 조건 | 오류 |
 | --- | --- |
-| endpoint가 https 아님·userinfo/query/fragment·2048자 초과 | `ErrRequest` (요청 시도 전) |
-| 폼이 비었거나 16KB 초과 | `ErrRequest` |
+| provider/issuer/token endpoint가 https 아님·userinfo/query/fragment·2048자 초과 | `oauth.ErrExchange` (요청 시도 전) |
+| 폼이 16KB 초과 | `ErrRequest` |
 | doer nil·요청 실패·응답/본문 nil·읽기 실패·ctx 취소 | `ErrTransport` (원인 `%w` 보존) |
 | 응답 `Request.URL`이 endpoint와 다름 | `ErrRedirect` |
 | status ≠ 200 | `ErrStatus` (+ 분류된 `ErrTokenRejected`/`ErrTokenTransient`) |
@@ -69,8 +76,15 @@ Packages:
 | 본문 64KB 초과 | `ErrTooLarge` |
 
 **200이 아닌 응답은 절대 자격증명을 반환하지 않는다.** 본문이 성공 문서처럼 생겨도
-`ErrStatus`다. 자격증명을 보내지 않고(`Authorization` 없음), 요청/응답 본문은 오류 메시지에
-넣지 않는다.
+`ErrStatus`다. 자격증명을 보내지 않고(`Authorization` 없음), 요청 본문은 오류 메시지에 넣지
+않으며, 응답에서는 검증을 통과한 오류 코드만 인용한다.
+
+**status 판정이 크기 판정보다 먼저다.** 401의 본문이 상한을 넘더라도 `ErrTooLarge` 대신
+`ErrStatus`(+분류)를 반환한다. 호출자가 행동할 정보는 상태 코드이기 때문이다.
+
+**폼과 endpoint는 분리할 수 없다.** `Exchange`는 `Provider`·`Client`·`Pending`·코드를 받아
+내부에서 `BuildExchange`를 호출한다. 폼을 따로 받으면 한 발급자용 폼을 다른 호스트로 보내는
+실수가 가능하고, 그 실수는 verifier 유출이다.
 
 ## 주장하지 않는 것
 
@@ -104,9 +118,14 @@ go build ./...                               PASS
 | error+access_token 모호성 검사 제거 | `TestParseTokenResponseRefusesAmbiguousErrorDocument` |
 | `expires_in` 상한 제거 | `TestParseTokenResponseBoundsExpiresIn` |
 | access_token `safeToken` 제거 | `TestParseTokenResponseRejectsUnusableCredentials` |
+| `error` 코드 검증 제거 | `TestParseTokenErrorSanitisesHostileCodes` |
+| `scope` 원문 바이트 검사 제거 | `TestParseTokenResponseRejectsMalformedScope` |
+| issuer의 https 검사 제거 | `TestBuildExchangeRefusesMismatchedState/insecure_issuer` |
+| 크기 판정을 status보다 먼저 | `TestExchangeKeepsTheStatusWhenAnErrorBodyIsOversized` |
 
 실 제공자 **오류 경로** 1회 확인(임시 테스트, 커밋 안 함): 실제 Cloudflare 토큰 엔드포인트에
 가짜 코드를 보내 `401 invalid_client` → `ErrStatus` + `ErrTokenRejected`, 자격증명 없음.
+호출은 현재 시그니처로 `Exchange(ctx, &http.Client{}, provider, client, pending, "not-a-real-code", time.Now(), Policy{Timeout: 15 * time.Second})`.
 
 ```text
 tokens_empty=true status_err=true rejected=true transient=false

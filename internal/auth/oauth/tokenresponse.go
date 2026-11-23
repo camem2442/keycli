@@ -29,6 +29,10 @@ var (
 // a mistake or an attempt to make the parser work for it.
 const MaxTokenResponseBytes = 64 << 10
 
+// maxErrorCodeBytes bounds the error member before it is echoed. RFC 6749 codes are a
+// dozen characters; anything larger is not something to copy into a log line.
+const maxErrorCodeBytes = 64
+
 // MaxTokenBytes bounds an individual credential. Tokens are opaque but short enough that
 // a megabyte value is never legitimate.
 const MaxTokenBytes = 8192
@@ -120,6 +124,18 @@ func ParseTokenResponse(raw []byte, now time.Time) (Tokens, error) {
 		if err != nil {
 			return Tokens{}, ErrTokenResponse
 		}
+		// RFC 6749 section 3.3 separates scope-tokens with a single space. Splitting with
+		// strings.Fields would accept a tab or newline and then store the raw value with
+		// that byte in it, so the raw string is checked before any splitting happens.
+		for i := 0; i < len(value); i++ {
+			ch := value[i]
+			if ch == ' ' {
+				continue
+			}
+			if !validScopeToken(string(ch)) {
+				return Tokens{}, ErrTokenResponse
+			}
+		}
 		for _, token := range scopes(value) {
 			if !validScopeToken(token) {
 				return Tokens{}, ErrTokenResponse
@@ -176,17 +192,23 @@ func classifyTokenError(rawError json.RawMessage, members map[string]json.RawMes
 	if err != nil || code == "" {
 		return ErrTokenResponse
 	}
+	// The code is server text that ends up in an error string, so it must be a short
+	// token before it is interpolated. Otherwise a body could put CR/LF or a very long
+	// string into a log line that the doc promises contains only a code.
+	if len(code) > maxErrorCodeBytes || !validScopeToken(code) {
+		return ErrTokenResponse
+	}
 	if _, ambiguous := members["access_token"]; ambiguous {
 		// A document that both fails and carries a credential cannot be trusted either way.
 		return ErrTokenResponse
 	}
 	if _, ok := terminalErrors[code]; ok {
-		return fmt.Errorf("%w: %s", ErrTokenRejected, code)
+		return fmt.Errorf("%w: %q", ErrTokenRejected, code)
 	}
 	if _, ok := transientErrors[code]; ok {
-		return fmt.Errorf("%w: %s", ErrTokenTransient, code)
+		return fmt.Errorf("%w: %q", ErrTokenTransient, code)
 	}
-	return fmt.Errorf("%w: %s", ErrTokenResponse, code)
+	return fmt.Errorf("%w: %q", ErrTokenResponse, code)
 }
 
 func requiredString(members map[string]json.RawMessage, name string) (string, error) {

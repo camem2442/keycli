@@ -97,6 +97,14 @@ func TestBuildExchangeRefusesMismatchedState(t *testing.T) {
 			p.TokenEndpoint = "http://access.example.com/token"
 			return p, client, pending, "code"
 		},
+		"insecure issuer": func() (Provider, Client, Pending, string) {
+			p := provider
+			p.Issuer = "http://access.example.com"
+			// Keep Pending in step, otherwise the equality check fires first and the
+			// issuer's own scheme is never examined.
+			pending.Issuer = p.Issuer
+			return p, client, pending, "code"
+		},
 		"client id with space": func() (Provider, Client, Pending, string) {
 			c := client
 			c.ID = " client-id"
