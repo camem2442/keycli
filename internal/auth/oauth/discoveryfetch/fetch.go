@@ -18,7 +18,6 @@ import (
 	"math"
 	"mime"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -144,41 +143,11 @@ func Fetch(ctx context.Context, doer Doer, issuer string, policy Policy) (oauth.
 }
 
 func requireSameURL(target string, request *http.Request) error {
-	if request == nil || request.URL == nil {
+	if request == nil || !oauth.SameEndpoint(target, request.URL) {
 		// A doer that does not say where the response came from cannot prove the pin.
-		return fmt.Errorf("%w: response has no request URL", ErrRedirect)
-	}
-	want, err := url.Parse(target)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrRedirect, err)
-	}
-	if !sameURL(want, request.URL) {
-		return fmt.Errorf("%w: %s", ErrRedirect, request.URL.Redacted())
+		return fmt.Errorf("%w: response did not come from %s", ErrRedirect, target)
 	}
 	return nil
-}
-
-// sameURL compares the parts that identify a resource. Fragment is ignored because it is
-// never sent; the rest is compared after normalising host case and an empty path.
-func sameURL(a, b *url.URL) bool {
-	if !strings.EqualFold(a.Scheme, b.Scheme) || !strings.EqualFold(a.Host, b.Host) {
-		return false
-	}
-	if a.User != nil || b.User != nil {
-		return false
-	}
-	if a.RawQuery != b.RawQuery {
-		return false
-	}
-	return normalizePath(a) == normalizePath(b)
-}
-
-func normalizePath(u *url.URL) string {
-	path := u.EscapedPath()
-	if path == "" {
-		return "/"
-	}
-	return path
 }
 
 // requireJSON is a policy check, not an RFC 8414 requirement: the RFC does not fix a
