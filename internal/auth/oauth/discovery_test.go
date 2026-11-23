@@ -133,13 +133,15 @@ func TestParseDiscoveryRejectsAmbiguousDocuments(t *testing.T) {
 		"duplicate issuer": []byte(`{"issuer":"` + pinned + `","issuer":"https://evil.example",` +
 			`"authorization_endpoint":"` + pinned + `/a","token_endpoint":"` + pinned + `/t",` +
 			`"response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`),
-		"not an object":         []byte(`["issuer"]`),
-		"trailing content":      append(metadata(nil), []byte(` {}`)...),
-		"trailing scalar":       append(metadata(nil), []byte(` 1`)...),
-		"truncated after value": append(metadata(nil), []byte(` {"issuer":`)...),
-		"invalid json":          []byte(`{"issuer":`),
-		"empty":                 nil,
-		"invalid scope":         metadata(map[string]string{"scopes_supported": `["bad\"scope"]`}),
+		"not an object":    []byte(`["issuer"]`),
+		"trailing content": append(metadata(nil), []byte(` {}`)...),
+		"trailing scalar":  append(metadata(nil), []byte(` 1`)...),
+		// These stop mid-container, so the closing-token call is what sees the problem.
+		"unclosed object": []byte(`{"issuer":"` + pinned + `","authorization_endpoint":"` + pinned + `/a"`),
+		"unclosed array":  []byte(`{"response_types_supported":["code"`),
+		"invalid json":    []byte(`{"issuer":`),
+		"empty":           nil,
+		"invalid scope":   metadata(map[string]string{"scopes_supported": `["bad\"scope"]`}),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {

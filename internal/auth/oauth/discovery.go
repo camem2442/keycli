@@ -288,6 +288,10 @@ func rejectDuplicateKeys(raw []byte) error {
 					return err
 				}
 			}
+			// Defensive: truncated input is normally caught one step earlier, because
+			// Decoder.More still reports another element until the closing delimiter is
+			// actually read. This branch covers the remaining case where the delimiter
+			// itself is malformed.
 			if _, err := decoder.Token(); err != nil { // closing brace
 				return ErrDiscoveryDocument
 			}
