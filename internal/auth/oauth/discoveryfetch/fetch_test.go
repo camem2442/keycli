@@ -274,6 +274,15 @@ func TestFetchClosesTheBodyOnEveryPath(t *testing.T) {
 	}
 }
 
+// The default is part of the contract, not an implementation detail: loosening it would
+// let a stalled metadata endpoint hold a login for much longer than documented. Asserting
+// the constant is what stops a band check from accepting a larger value.
+func TestDefaultTimeoutIsTenSeconds(t *testing.T) {
+	if DefaultTimeout != 10*time.Second {
+		t.Fatalf("DefaultTimeout is %v; the contract documents 10s", DefaultTimeout)
+	}
+}
+
 func TestFetchSetsADeadlineFromPolicy(t *testing.T) {
 	cases := map[string]struct {
 		policy       Policy
