@@ -20,7 +20,8 @@ import (
 )
 
 var (
-	// ErrRequest means the endpoint or form cannot be used as supplied.
+	// ErrRequest means the built exchange form exceeds MaxFormBytes. Endpoint problems
+	// are reported as oauth.ErrExchange by the builder instead.
 	ErrRequest = errors.New("tokenexchange: unusable request")
 	// ErrTransport means the request could not be completed.
 	ErrTransport = errors.New("tokenexchange: request failed")
