@@ -72,6 +72,20 @@ func validRedirect(raw string) bool {
 	return privateScheme.MatchString(u.Scheme) && u.Host == "" && strings.HasPrefix(u.Path, "/")
 }
 
+// RFC 6749 section 3.3: a scope-token is printable ASCII except DQUOTE and backslash.
+func validScopeToken(scope string) bool {
+	if scope == "" {
+		return false
+	}
+	for i := 0; i < len(scope); i++ {
+		ch := scope[i]
+		if ch != 0x21 && (ch < 0x23 || ch > 0x5B) && (ch < 0x5D || ch > 0x7E) {
+			return false
+		}
+	}
+	return true
+}
+
 // Begin creates RFC 7636 S256 PKCE and CSRF state for an RFC 8252 native app.
 // The caller owns external-browser opening, callback transport, and token exchange.
 func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending, error) {
@@ -85,7 +99,7 @@ func Begin(provider Provider, client Client, entropy io.Reader) (string, Pending
 		return "", Pending{}, ErrConfiguration
 	}
 	for _, scope := range client.Scopes {
-		if scope == "" || strings.ContainsAny(scope, " \r\n\t") {
+		if !validScopeToken(scope) {
 			return "", Pending{}, ErrConfiguration
 		}
 	}
