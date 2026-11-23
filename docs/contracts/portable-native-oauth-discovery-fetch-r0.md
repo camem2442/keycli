@@ -34,11 +34,14 @@ oauth.ParseDiscovery(body, issuer) // issuer exact match 등 재검증
 | `doer`가 nil, 요청 실패, 응답/본문 nil, 읽기 실패, ctx 취소 | `ErrTransport` |
 | 응답의 `Request.URL`이 요청한 well-known URL과 다름, 또는 `Request` 없음 | `ErrRedirect` |
 | status ≠ 200 | `ErrStatus` |
-| Content-Type이 JSON이 아님(예: 로그인 페이지의 `text/html`) | `ErrContentType` |
+| Content-Type이 JSON이 아님(예: 로그인 페이지의 `text/html`) | `ErrContentType` (**정책**, RFC 8414는 미디어 타입을 규정하지 않음) |
 | 본문이 `MaxBytes` 초과(기본 `oauth.MaxDiscoveryBytes` = 64KB) | `ErrTooLarge` |
 | 발급자 자체가 신뢰 불가 | `oauth.ErrDiscoveryIssuer` (요청 시도 전) |
 | 문서가 다른 issuer를 설명 | `oauth.ErrDiscoveryIssuer` |
 | 그 밖의 문서 결함 | `oauth.ErrDiscovery*` |
+
+전송 계층 오류는 `ErrTransport`로 감싸되 **원인을 `%w`로 보존**한다. 호출자는
+`errors.Is(err, context.DeadlineExceeded)`나 `net.Error`로 타임아웃을 구분할 수 있다.
 
 **리다이렉트는 사후에 거부한다.** `*http.Client`는 기본으로 리다이렉트를 따라가므로, 우리가
 요청한 URL과 실제 응답을 만든 URL을 비교한다. 사후 비교인 이유는 `Doer` 인터페이스가
@@ -73,15 +76,23 @@ go build ./...                                              PASS
 
 | 변이 | 결과 |
 | --- | --- |
-| 리다이렉트 URL 비교 제거 | `TestFetchRefusesRedirectedResponse`, `...WithoutProvenance` **FAIL** |
+| URL 비교를 host만으로 축소 | `TestFetchRefusesRedirectedResponse` **FAIL** (path·scheme 하위 케이스) |
+| URL 비교에서 scheme 제거 | `TestFetchRefusesRedirectedResponse/scheme_downgrade` **FAIL** |
 | Content-Type 검사 제거 | `TestFetchRefusesStatusAndContentType` **FAIL** |
 | 본문 상한 제거 | `TestFetchBoundsTheBody` **FAIL** |
+| `maxBytes+1` 오버플로 가드 제거 | `TestFetchBoundsTheBody` **FAIL** (`MaxInt64` 케이스) |
+| 읽기 오류 원인을 `%v`로 | `TestFetchTimeoutInterruptsABodyRead` **FAIL** |
 | `Accept` 헤더 제거 | `TestFetchReturnsParsedMetadata` **FAIL** |
+
+타임아웃 의미는 테스트로 고정되어 있다: `Timeout == 0`이면 `DefaultTimeout`(10s),
+음수면 추가 데드라인을 걸지 않고 호출자 ctx에 맡기며, 양수면 그 값이 적용된다. 데드라인은
+**본문 읽기까지** 적용되는 것을 blocking `Body.Read`로 확인한다.
 
 실 제공자 1회 확인(임시 테스트, 커밋 안 함):
 
 ```text
-Fetch(ctx, &http.Client{}, "https://white-brook-b162.cloudflareaccess.com", 15s)
+Fetch(ctx, &http.Client{}, "https://white-brook-b162.cloudflareaccess.com",
+      Policy{Timeout: 15 * time.Second})
 → issuer/ token/ revoke 3개 엔드포인트 수용 (0.68s)
 ```
 

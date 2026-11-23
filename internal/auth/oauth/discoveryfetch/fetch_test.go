@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -110,13 +111,26 @@ func TestFetchOmitsEmptyUserAgent(t *testing.T) {
 }
 
 func TestFetchRefusesRedirectedResponse(t *testing.T) {
-	doer := doerFunc(func(request *http.Request) (*http.Response, error) {
-		response := reply(request, http.StatusOK, "application/json", metadata(nil))
-		response.Request = &http.Request{URL: mustParse(t, "https://evil.example"+request.URL.Path)}
-		return response, nil
-	})
-	if _, err := Fetch(context.Background(), doer, pinned, Policy{}); !errors.Is(err, ErrRedirect) {
-		t.Fatalf("want ErrRedirect, got %v", err)
+	// Each case isolates one component of the comparison. A weakened sameURL that only
+	// checked the host, or only the scheme and host, would pass the cross-host case above
+	// and still miss these.
+	cases := map[string]string{
+		"other host":       "https://evil.example",
+		"same host, path":  pinned + "/other",
+		"scheme downgrade": "http://access.example.com",
+		"port change":      "https://access.example.com:8443",
+	}
+	for name, destination := range cases {
+		t.Run(name, func(t *testing.T) {
+			doer := doerFunc(func(request *http.Request) (*http.Response, error) {
+				response := reply(request, http.StatusOK, "application/json", metadata(nil))
+				response.Request = &http.Request{URL: mustParse(t, destination+request.URL.Path)}
+				return response, nil
+			})
+			if _, err := Fetch(context.Background(), doer, pinned, Policy{}); !errors.Is(err, ErrRedirect) {
+				t.Fatalf("want ErrRedirect, got %v", err)
+			}
+		})
 	}
 }
 
@@ -176,6 +190,10 @@ func TestFetchBoundsTheBody(t *testing.T) {
 	// Exactly at the bound is fine.
 	if _, err := Fetch(context.Background(), doer, pinned, Policy{MaxBytes: int64(len(body))}); err != nil {
 		t.Fatalf("exact bound must be accepted: %v", err)
+	}
+	// The largest bound must not overflow the read limit and read nothing.
+	if _, err := Fetch(context.Background(), doer, pinned, Policy{MaxBytes: math.MaxInt64}); err != nil {
+		t.Fatalf("MaxInt64 bound must be accepted: %v", err)
 	}
 }
 
@@ -256,20 +274,64 @@ func TestFetchClosesTheBodyOnEveryPath(t *testing.T) {
 	}
 }
 
-func TestPolicyTimeoutApplies(t *testing.T) {
-	// A negative timeout disables the extra bound and leaves the caller's context alone.
-	if _, err := Fetch(context.Background(), accept(metadata(nil)), pinned, Policy{Timeout: -time.Second}); err != nil {
-		t.Fatalf("negative timeout must not fail: %v", err)
+func TestFetchSetsADeadlineFromPolicy(t *testing.T) {
+	cases := map[string]struct {
+		policy       Policy
+		wantDeadline bool
+	}{
+		"zero means default": {Policy{}, true},
+		"negative disables":  {Policy{Timeout: -time.Second}, false},
+		"positive applies":   {Policy{Timeout: time.Minute}, true},
 	}
-	// A positive timeout must produce a cancelable context that ends the request.
-	doer := doerFunc(func(request *http.Request) (*http.Response, error) {
-		<-request.Context().Done()
-		return nil, request.Context().Err()
-	})
-	if _, err := Fetch(context.Background(), doer, pinned, Policy{Timeout: 20 * time.Millisecond}); !errors.Is(err, ErrTransport) {
-		t.Fatalf("want ErrTransport, got %v", err)
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			var deadline time.Time
+			var present bool
+			doer := doerFunc(func(request *http.Request) (*http.Response, error) {
+				deadline, present = request.Context().Deadline()
+				return reply(request, http.StatusOK, "application/json", metadata(nil)), nil
+			})
+			if _, err := Fetch(context.Background(), doer, pinned, test.policy); err != nil {
+				t.Fatalf("unexpected: %v", err)
+			}
+			if present != test.wantDeadline {
+				t.Fatalf("deadline present=%v, want %v", present, test.wantDeadline)
+			}
+			if present && test.policy.Timeout > 0 {
+				if remaining := time.Until(deadline); remaining > test.policy.Timeout {
+					t.Fatalf("deadline %v is beyond the policy %v", remaining, test.policy.Timeout)
+				}
+			}
+		})
 	}
 }
+
+func TestFetchTimeoutInterruptsABodyRead(t *testing.T) {
+	doer := doerFunc(func(request *http.Request) (*http.Response, error) {
+		response := reply(request, http.StatusOK, "application/json", "")
+		response.Body = &blockingBody{ctx: request.Context()}
+		return response, nil
+	})
+	_, err := Fetch(context.Background(), doer, pinned, Policy{Timeout: 20 * time.Millisecond})
+	if !errors.Is(err, ErrTransport) {
+		t.Fatalf("want ErrTransport, got %v", err)
+	}
+	// The cause must stay unwrappable so a caller can distinguish a timeout.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want the deadline cause to survive wrapping, got %v", err)
+	}
+}
+
+// blockingBody only returns when the request context ends, which is what a server that
+// accepted the headers and then stalled on the body looks like.
+type blockingBody struct{ ctx context.Context }
+
+func (b *blockingBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b *blockingBody) Close() error { return nil }
 
 type trackingCloser struct {
 	io.Reader

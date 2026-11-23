@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -54,6 +55,7 @@ type Policy struct {
 	UserAgent string
 }
 
+// DefaultTimeout bounds a fetch when Policy.Timeout is zero.
 const DefaultTimeout = 10 * time.Second
 
 // Fetch retrieves and validates the metadata document for a pinned issuer.
@@ -73,6 +75,12 @@ func Fetch(ctx context.Context, doer Doer, issuer string, policy Policy) (oauth.
 	if maxBytes <= 0 {
 		maxBytes = oauth.MaxDiscoveryBytes
 	}
+	// Read one byte past the bound so "too large" is distinguishable from "exactly at the
+	// bound". Only increment when that cannot overflow int64.
+	readLimit := maxBytes
+	if readLimit < math.MaxInt64 {
+		readLimit++
+	}
 
 	timeout := policy.Timeout
 	if timeout == 0 {
@@ -86,7 +94,7 @@ func Fetch(ctx context.Context, doer Doer, issuer string, policy Policy) (oauth.
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return oauth.Discovery{}, fmt.Errorf("%w: %v", ErrTransport, err)
+		return oauth.Discovery{}, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 	// RFC 8414 section 3.1 is a plain GET of a well-known location. No credentials are
 	// sent: the metadata is public, and an Authorization header here would leak a bearer
@@ -100,9 +108,9 @@ func Fetch(ctx context.Context, doer Doer, issuer string, policy Policy) (oauth.
 	if err != nil {
 		// A context deadline is worth distinguishing from a generic transport failure.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return oauth.Discovery{}, fmt.Errorf("%w: %v", ErrTransport, ctxErr)
+			return oauth.Discovery{}, fmt.Errorf("%w: %w", ErrTransport, ctxErr)
 		}
-		return oauth.Discovery{}, fmt.Errorf("%w: %v", ErrTransport, err)
+		return oauth.Discovery{}, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 	if response == nil {
 		return oauth.Discovery{}, fmt.Errorf("%w: nil response", ErrTransport)
@@ -125,9 +133,9 @@ func Fetch(ctx context.Context, doer Doer, issuer string, policy Policy) (oauth.
 		return oauth.Discovery{}, err
 	}
 
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(response.Body, readLimit))
 	if err != nil {
-		return oauth.Discovery{}, fmt.Errorf("%w: %v", ErrTransport, err)
+		return oauth.Discovery{}, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 	if int64(len(body)) > maxBytes {
 		return oauth.Discovery{}, fmt.Errorf("%w: more than %d bytes", ErrTooLarge, maxBytes)
@@ -173,7 +181,11 @@ func normalizePath(u *url.URL) string {
 	return path
 }
 
-// requireJSON accepts application/json and the structured-suffix form RFC 6839 defines
+// requireJSON is a policy check, not an RFC 8414 requirement: the RFC does not fix a
+// media type, but refusing anything that is not JSON stops a login page served in place
+// of the metadata from being parsed as if it were metadata.
+//
+// It accepts application/json and the structured-suffix form RFC 6839 defines
 // (for example application/oauth-metadata+json). Anything else — notably text/html from a
 // login page that answered instead of the metadata endpoint — is refused before parsing.
 func requireJSON(contentType string) error {
