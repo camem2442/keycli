@@ -297,10 +297,18 @@ func TestFetchSetsADeadlineFromPolicy(t *testing.T) {
 			if present != test.wantDeadline {
 				t.Fatalf("deadline present=%v, want %v", present, test.wantDeadline)
 			}
-			if present && test.policy.Timeout > 0 {
-				if remaining := time.Until(deadline); remaining > test.policy.Timeout {
-					t.Fatalf("deadline %v is beyond the policy %v", remaining, test.policy.Timeout)
-				}
+			if !present {
+				return
+			}
+			// Pin the value, not just its existence: zero must mean DefaultTimeout, and a
+			// positive policy must be the deadline. The lower band allows for elapsed time
+			// between setting the deadline and reading it back.
+			want := test.policy.Timeout
+			if want == 0 {
+				want = DefaultTimeout
+			}
+			if remaining := time.Until(deadline); remaining > want || remaining < want/2 {
+				t.Fatalf("deadline %v is outside (%v/2, %v]", remaining, want, want)
 			}
 		})
 	}
