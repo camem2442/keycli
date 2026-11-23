@@ -14,10 +14,13 @@ import (
 var (
 	// ErrTokenSet means the supplied token material cannot be used at all.
 	ErrTokenSet = errors.New("oauth: unusable token set")
+	// ErrTokenRedacted means a caller tried to serialize a token set.
+	ErrTokenRedacted = errors.New("oauth: token sets are never serialized")
 )
 
 // Tokens is secret-bearing. Callers must store it in a protected backend and must not
-// serialize it into logs, receipts, or agent output.
+// serialize it into logs, receipts, or agent output. Marshalling is refused rather than
+// redacted so a mistake fails loudly instead of writing a plausible-looking record.
 type Tokens struct {
 	AccessToken  string
 	RefreshToken string
@@ -30,12 +33,19 @@ type Tokens struct {
 func (Tokens) String() string     { return "oauth.Tokens{credentials:redacted}" }
 func (t Tokens) GoString() string { return t.String() }
 
+// MarshalJSON refuses to encode a token set at all. A redacted-but-successful encoding
+// would still let a caller believe the value had been persisted correctly.
+func (Tokens) MarshalJSON() ([]byte, error) { return nil, ErrTokenRedacted }
+
 // Action is what the caller must do next. It never implies a network call by itself.
 type Action int
 
 const (
+	// ActionUnspecified is the zero value so an unset decision cannot silently mean
+	// "the token is fine".
+	ActionUnspecified Action = iota
 	// UseAccessToken means the current access token is still valid beyond the skew.
-	UseAccessToken Action = iota
+	UseAccessToken
 	// Refresh means the access token is stale and a refresh token is available.
 	Refresh
 	// Reauthorize means only a new interactive login can continue.
@@ -52,14 +62,45 @@ func (a Action) String() string {
 	case Reauthorize:
 		return "reauthorize"
 	default:
-		return "unknown"
+		return "unspecified"
 	}
 }
 
 // Policy is the caller's tolerance. Skew is how early a token counts as stale, so a
-// request is not sent with a token that expires while it is in flight.
+// request is not sent with a token that expires while it is in flight. A negative Skew
+// is clamped to zero: tolerating a token that already expired is never intended.
 type Policy struct {
 	Skew time.Duration
+}
+
+func (p Policy) effectiveSkew() time.Duration {
+	if p.Skew < 0 {
+		return 0
+	}
+	return p.Skew
+}
+
+// safeToken reports whether a value is a plausible opaque token: non-empty, printable,
+// and free of whitespace so it cannot be split or injected into a header or form body.
+func safeToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch <= 0x20 || ch >= 0x7F {
+			return false
+		}
+	}
+	return true
+}
+
+// scopes splits a scope string into RFC 6749 section 3.3 tokens.
+func scopes(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.Fields(value)
 }
 
 // Plan reports the next action for an access token.
@@ -67,13 +108,17 @@ type Policy struct {
 // Rules, in order:
 //   - No access token at all: a refresh token alone is enough to Refresh, otherwise Reauthorize.
 //   - A token type other than Bearer (case-insensitive) is refused: this client only sends bearer.
-//   - A zero expiry is refused rather than treated as "never expires"; servers must say when.
+//   - A zero expiry is never treated as "never expires". If a refresh token exists the
+//     recoverable action is Refresh; otherwise the caller must Reauthorize.
 //   - Expired (or within Skew of expiry): Refresh when a refresh token exists, else Reauthorize.
 func Plan(t Tokens, now time.Time, policy Policy) (Action, error) {
-	if strings.ContainsAny(t.AccessToken, " \t\r\n") {
+	if t.AccessToken != "" && !safeToken(t.AccessToken) {
 		return Reauthorize, ErrTokenSet
 	}
 	if kind := strings.TrimSpace(t.TokenType); kind != "" && !strings.EqualFold(kind, "Bearer") {
+		return Reauthorize, ErrTokenSet
+	}
+	if t.RefreshToken != "" && !safeToken(t.RefreshToken) {
 		return Reauthorize, ErrTokenSet
 	}
 	if t.AccessToken == "" {
@@ -83,9 +128,12 @@ func Plan(t Tokens, now time.Time, policy Policy) (Action, error) {
 		return Reauthorize, nil
 	}
 	if t.ExpiresAt.IsZero() {
+		if t.RefreshToken != "" {
+			return Refresh, nil
+		}
 		return Reauthorize, ErrTokenSet
 	}
-	if now.Add(policy.Skew).Before(t.ExpiresAt) {
+	if now.Add(policy.effectiveSkew()).Before(t.ExpiresAt) {
 		return UseAccessToken, nil
 	}
 	if t.RefreshToken != "" {
@@ -107,27 +155,32 @@ const (
 // ApplyRefresh folds a token-endpoint response into the stored set.
 //
 // It enforces the rules the lifecycle depends on:
-//   - A refresh response must carry a new access token; otherwise nothing is adopted.
+//   - A refresh response must carry a new access token that is usable beyond the skew,
+//     otherwise the caller would store a value it must immediately refresh again.
 //   - An omitted refresh token means "unchanged", not "cleared", which is what
 //     RFC 6749 section 6 permits.
 //   - A response whose refresh token equals the old one is not rotation; adopting it as
 //     such would hide a server that is not rotating and make reuse detection useless.
-//   - Scope may only shrink; a refresh must not silently widen authority.
+//   - Scope may only shrink; a refresh must not silently widen authority. An unknown
+//     stored scope is not a grant of nothing, so the check is skipped rather than
+//     refusing every refresh from providers that return no scope.
 func ApplyRefresh(previous Tokens, next Tokens, now time.Time, policy Policy) (Tokens, Rotation, error) {
-	if strings.TrimSpace(next.AccessToken) == "" {
+	if !safeToken(next.AccessToken) {
 		return previous, RotationNone, ErrTokenSet
 	}
-	if strings.ContainsAny(next.AccessToken, " \t\r\n") {
+	if next.RefreshToken != "" && !safeToken(next.RefreshToken) {
 		return previous, RotationNone, ErrTokenSet
 	}
 	if kind := strings.TrimSpace(next.TokenType); kind != "" && !strings.EqualFold(kind, "Bearer") {
 		return previous, RotationNone, ErrTokenSet
 	}
-	if next.ExpiresAt.IsZero() {
+	if next.ExpiresAt.IsZero() || !next.ExpiresAt.After(now.Add(policy.effectiveSkew())) {
 		return previous, RotationNone, ErrTokenSet
 	}
-	if !next.ExpiresAt.After(now) {
-		return previous, RotationNone, ErrTokenSet
+	for _, scope := range scopes(next.Scope) {
+		if !validScopeToken(scope) {
+			return previous, RotationNone, ErrTokenSet
+		}
 	}
 	if widenedScope(previous.Scope, next.Scope) {
 		return previous, RotationNone, ErrTokenSet
@@ -154,15 +207,17 @@ func ApplyRefresh(previous Tokens, next Tokens, now time.Time, policy Policy) (T
 }
 
 // widenedScope reports whether next contains a scope token that previous did not grant.
+// An empty previous scope means "unknown", not "nothing granted", so it is not a basis
+// for refusing a refresh.
 func widenedScope(previous, next string) bool {
-	if strings.TrimSpace(next) == "" {
+	if strings.TrimSpace(next) == "" || strings.TrimSpace(previous) == "" {
 		return false
 	}
 	held := map[string]struct{}{}
-	for _, scope := range strings.Fields(previous) {
+	for _, scope := range scopes(previous) {
 		held[scope] = struct{}{}
 	}
-	for _, scope := range strings.Fields(next) {
+	for _, scope := range scopes(next) {
 		if _, ok := held[scope]; !ok {
 			return true
 		}
@@ -181,9 +236,10 @@ type Logout struct {
 
 // PlanLogout decides whether a revocation request is worth sending before clearing.
 //
-// A refresh token is worth revoking; an access token is not, because revocation of an
-// access token is not honoured by every provider and the value is short-lived anyway.
-// Keeping the rule here stops callers from inventing their own.
+// Only the refresh token is scheduled. Some providers do honour RFC 7009 for access
+// tokens; a provider-specific adapter may send that call itself, but this shared rule
+// does not request it, because an access token is short-lived and many providers reject
+// the call, which would turn a successful sign-out into a failed one.
 func PlanLogout(t Tokens) Logout {
 	return Logout{RevokeRefresh: t.RefreshToken != "", ClearStored: true}
 }
