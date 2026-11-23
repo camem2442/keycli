@@ -129,3 +129,21 @@ func TestMalformedPendingRefused(t *testing.T) {
 		t.Fatal("accepted malformed pending state")
 	}
 }
+
+func TestScopeTokensFollowRFC6749(t *testing.T) {
+	valid := native
+	valid.Scopes = []string{"openid", "read:items", "urn:example/foo", "a[b]", "foo!bar"}
+	if _, _, err := Begin(cf, valid, nil); err != nil {
+		t.Fatalf("valid scope tokens rejected: %v", err)
+	}
+	for _, scope := range []string{
+		"", "two scopes", "bad\"scope", "bad\\scope",
+		"bad\x00scope", "bad\tscope", "bad\nscope", "café", "abc\x7f",
+	} {
+		bad := native
+		bad.Scopes = []string{"openid", scope}
+		if _, _, err := Begin(cf, bad, nil); !errors.Is(err, ErrConfiguration) {
+			t.Fatalf("non-RFC6749 scope token accepted: %q", scope)
+		}
+	}
+}
