@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 	"regexp"
+	"strings"
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/hostbridge"
@@ -19,26 +19,7 @@ type MockTimerVersionMetadata struct {
 
 const mockTimerVersionAccount = "a3f7ae5cc3a22033fa53964e935c413a"
 const mockTimerVersionWorker = "mocktimer-members-production"
-var mockTimerVersionUUID = regexp.MustCompile(`^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}package effectgateway
-
-import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"strings"
-	"regexp"
-
-	"github.com/camem2442/keycli/internal/delivery/journal"
-	"github.com/camem2442/keycli/internal/hostbridge"
-)
-
-// MockTimerVersionMetadata is supplied by an independently trusted observer.
-// The hashes must refer to verified bytes/config, not merely remote annotations.
-type MockTimerVersionMetadata struct {
-	ID, Tag, Message, ArtifactsSHA256, ConfigSHA256 string
-}
-
-)
+var mockTimerVersionUUID = regexp.MustCompile(`^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$`)
 
 type MockTimerVersionSnapshot struct {
 	AccountID, WorkerName string
