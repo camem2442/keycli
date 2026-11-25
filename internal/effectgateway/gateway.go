@@ -22,6 +22,9 @@ type Gateway struct {
 	Provider  Provider
 	Now       func() time.Time
 
+	// MockTimerVersions is a typed product-effect candidate, never a credential rotation.
+	// Operational enrollment is explicitly disabled pending the trusted provider/host contract.
+	MockTimerVersions *MockTimerVersionExecutor
 	RotationActions   RotationResolver
 	RecoveryAuthority RecoveryAuthorizer
 	RecoveryObserver  RecoveryObserver
@@ -39,6 +42,9 @@ func (g *Gateway) now() time.Time {
 func (g *Gateway) configured() bool {
 	if g == nil || g.Claims == nil || g.Keys == nil || g.Authority == nil || g.Journal.Root == "" {
 		return false
+	}
+	if g.MockTimerVersions != nil {
+		return !g.Operational && g.Provider == nil && g.RotationActions == nil
 	}
 	if !g.Operational {
 		return g.Provider != nil || g.RotationActions != nil
@@ -107,6 +113,9 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		if err != nil || !matchesRotation(action, req) {
 			return Receipt{Status: StatusNoEffect}, ErrAdmissionRejected
 		}
+	}
+	if g.MockTimerVersions != nil && !g.MockTimerVersions.matches(req) {
+		return Receipt{Status: StatusNoEffect}, ErrAdmissionRejected
 	}
 	intent := journal.Intent{
 		OperationID:  req.MutationID,
@@ -200,6 +209,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 			if err := rotation.CheckRollbackFence(g.Journal, intent); err != nil {
 				return outcome(err)
 			}
+		}
+		if g.MockTimerVersions != nil {
+			observation, attempted, err := g.MockTimerVersions.execute(ctx, req, g.Journal, checkFence)
+			if attempted { calls++ }
+			if err != nil { return outcome(err) }
+			return observation, nil
 		}
 		if action != nil {
 			fencePassed := false

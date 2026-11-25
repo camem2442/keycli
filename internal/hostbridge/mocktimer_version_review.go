@@ -62,6 +62,14 @@ type MockTimerBindingReview struct {
 	MutationID string
 	CanRegister bool
 	AuthorizesExecution bool
+	PreviousVersionID string
+	ArtifactsSHA256 string
+	PreviousArtifactsSHA256 string
+	ConfigSHA256 string
+	Tag string
+	Message string
+	PreviousTag string
+	PreviousMessage string
 }
 
 func mockTimerHash(raw []byte) string {
@@ -153,5 +161,8 @@ func ReviewMockTimerVersionPlan(raw []byte, operation string) (MockTimerBindingR
 		TargetDigest: TargetDigest("cloudflare", operation, mockTimerAccount+"/"+mockTimerWorker),
 		PlanDigest: p.PlanDigest, MutationID: p.OperationID+suffix,
 		CanRegister: false, AuthorizesExecution: false,
+		PreviousVersionID: p.PreviousVersionID, ArtifactsSHA256: p.ArtifactsSHA256,
+		PreviousArtifactsSHA256: p.PreviousArtifactsSHA256, ConfigSHA256: p.ConfigSHA256,
+		Tag: p.Tag, Message: p.Message, PreviousTag: p.PreviousTag, PreviousMessage: p.PreviousMessage,
 	}, nil
 }
