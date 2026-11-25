@@ -109,7 +109,7 @@ func ReviewMockTimerVersionPlan(raw []byte, operation string) (MockTimerBindingR
 	var p mockTimerVersionPlan
 	strict := json.NewDecoder(bytes.NewReader(raw))
 	strict.DisallowUnknownFields()
-	if len(fields) != 20 || strict.Decode(&p) != nil ||
+	if len(fields) != 19 || strict.Decode(&p) != nil ||
 		p.Schema != "mocktimer-worker-version-plan/v1" || p.AccountID != mockTimerAccount ||
 		p.WorkerName != mockTimerWorker || p.TrafficPercent != 100 || p.DeployAuthorized ||
 		!mockTimerSHA.MatchString(p.Head) || !mockTimerSHA.MatchString(p.Previous) ||
