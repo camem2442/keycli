@@ -44,7 +44,7 @@ func mockTimerFixture(t *testing.T)(*harness,*MockTimerVersionExecutor,*mockTime
 		"planDigest":"171818d52b56a8d91ae3ddabe01a5f13dc1edf91aa02e3119ef3f669e337d539",
 	})
 	if err!=nil{t.Fatal(err)}
-	f:=&mockTimerPortFixture{snapshot:MockTimerVersionSnapshot{ActiveVersionID:"11111111-1111-4111-8111-111111111111",TrafficPercent:100,
+	f:=&mockTimerPortFixture{snapshot:MockTimerVersionSnapshot{AccountID:mockTimerVersionAccount,WorkerName:mockTimerVersionWorker,ActiveVersionID:"11111111-1111-4111-8111-111111111111",TrafficPercent:100,
 		Versions:[]MockTimerVersionMetadata{{ID:"11111111-1111-4111-8111-111111111111",Tag:strings.Repeat("b",12),
 			Message:strings.Repeat("d",12)+" artifacts:"+strings.Repeat("a",12),ArtifactsSHA256:strings.Repeat("a",64),ConfigSHA256:strings.Repeat("f",64)}}}}
 	e,err:=NewMockTimerVersionExecutor(raw,testGrant,strings.Repeat("4",64),f);if err!=nil{t.Fatal(err)}
@@ -82,4 +82,11 @@ func TestMockTimerWrongGrantAndUnacknowledgedStageCannotDispatch(t *testing.T){
 	if _,err:=h.gw.Submit(context.Background(),Sign(wrong,[]byte(testKey)));!errors.Is(err,ErrAdmissionRejected){t.Fatalf("wrong grant: %v",err)}
 	r,err:=h.gw.Submit(context.Background(),Sign(activate,[]byte(testKey)))
 	if err!=nil||r.Status!=StatusNoEffect||len(f.calls)!=0{t.Fatalf("early activation: %+v %v",r,err)}
+}
+
+func TestMockTimerWrongObservedWorkerCannotDispatch(t *testing.T){
+ h,_,f,upload,_:=mockTimerFixture(t)
+ f.snapshot.WorkerName="mocktimer-r4-rehearsal"
+ r,err:=h.gw.Submit(context.Background(),Sign(upload,[]byte(testKey)))
+ if err!=nil||r.Status!=StatusNoEffect||len(f.calls)!=0{t.Fatalf("wrong target: %+v %v",r,err)}
 }

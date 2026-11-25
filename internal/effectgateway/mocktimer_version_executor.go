@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"regexp"
 
 	"github.com/camem2442/keycli/internal/delivery/journal"
 	"github.com/camem2442/keycli/internal/hostbridge"
@@ -16,7 +17,31 @@ type MockTimerVersionMetadata struct {
 	ID, Tag, Message, ArtifactsSHA256, ConfigSHA256 string
 }
 
+const mockTimerVersionAccount = "a3f7ae5cc3a22033fa53964e935c413a"
+const mockTimerVersionWorker = "mocktimer-members-production"
+var mockTimerVersionUUID = regexp.MustCompile(`^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}package effectgateway
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+	"regexp"
+
+	"github.com/camem2442/keycli/internal/delivery/journal"
+	"github.com/camem2442/keycli/internal/hostbridge"
+)
+
+// MockTimerVersionMetadata is supplied by an independently trusted observer.
+// The hashes must refer to verified bytes/config, not merely remote annotations.
+type MockTimerVersionMetadata struct {
+	ID, Tag, Message, ArtifactsSHA256, ConfigSHA256 string
+}
+
+)
+
 type MockTimerVersionSnapshot struct {
+	AccountID, WorkerName string
 	ActiveVersionID string
 	TrafficPercent int
 	Versions []MockTimerVersionMetadata
@@ -72,10 +97,10 @@ func (e *MockTimerVersionExecutor) matches(req Request) bool {
 }
 
 func versionSnapshotValid(s MockTimerVersionSnapshot) bool {
-	if s.TrafficPercent!=100 || len(s.Versions)==0 || len(s.Versions)>100 {return false}
+	if s.AccountID!=mockTimerVersionAccount || s.WorkerName!=mockTimerVersionWorker || s.TrafficPercent!=100 || len(s.Versions)==0 || len(s.Versions)>100 {return false}
 	seen:=map[string]bool{}
 	for _,v:=range s.Versions {
-		if v.ID=="" || len(v.ID)>64 || seen[v.ID] {return false}
+		if !mockTimerVersionUUID.MatchString(v.ID) || seen[v.ID] {return false}
 		seen[v.ID]=true
 	}
 	return seen[s.ActiveVersionID]
