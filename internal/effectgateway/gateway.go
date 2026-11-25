@@ -212,8 +212,12 @@ func (g *Gateway) Submit(ctx context.Context, env Envelope) (Receipt, error) {
 		}
 		if g.MockTimerVersions != nil {
 			observation, attempted, err := g.MockTimerVersions.execute(ctx, req, g.Journal, checkFence)
-			if attempted { calls++ }
-			if err != nil { return outcome(err) }
+			if attempted {
+				calls++
+			}
+			if err != nil {
+				return outcome(err)
+			}
 			return observation, nil
 		}
 		if action != nil {

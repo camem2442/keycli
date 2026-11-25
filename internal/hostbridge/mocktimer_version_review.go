@@ -14,38 +14,38 @@ import (
 )
 
 const (
-	mockTimerAccount = "a3f7ae5cc3a22033fa53964e935c413a"
-	mockTimerWorker = "mocktimer-members-production"
-	MockTimerUpload = "upload-worker-artifact-version"
+	mockTimerAccount  = "a3f7ae5cc3a22033fa53964e935c413a"
+	mockTimerWorker   = "mocktimer-members-production"
+	MockTimerUpload   = "upload-worker-artifact-version"
 	MockTimerActivate = "activate-worker-artifact-version"
 )
 
 var (
-	mockTimerSHA = regexp.MustCompile("^[a-f0-9]{40}$")
-	mockTimerUUID = regexp.MustCompile("^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
+	mockTimerSHA         = regexp.MustCompile("^[a-f0-9]{40}$")
+	mockTimerUUID        = regexp.MustCompile("^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
 	mockTimerOperationID = regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$")
-	errMockTimerPlan = errors.New("invalid MockTimer version plan")
+	errMockTimerPlan     = errors.New("invalid MockTimer version plan")
 )
 
 type mockTimerVersionBody struct {
-	Schema string `json:"schema"`
-	AccountID string `json:"accountId"`
-	WorkerName string `json:"workerName"`
-	Head string `json:"head"`
-	Previous string `json:"previous"`
-	SourceFingerprint string `json:"sourceFingerprint"`
-	PreviousFingerprint string `json:"previousFingerprint"`
-	ArtifactsSHA256 string `json:"artifactsSha256"`
-	ConfigSHA256 string `json:"configSha256"`
+	Schema                  string `json:"schema"`
+	AccountID               string `json:"accountId"`
+	WorkerName              string `json:"workerName"`
+	Head                    string `json:"head"`
+	Previous                string `json:"previous"`
+	SourceFingerprint       string `json:"sourceFingerprint"`
+	PreviousFingerprint     string `json:"previousFingerprint"`
+	ArtifactsSHA256         string `json:"artifactsSha256"`
+	ConfigSHA256            string `json:"configSha256"`
 	PreviousArtifactsSHA256 string `json:"previousArtifactsSha256"`
-	PreviousVersionID string `json:"previousVersionId"`
-	OperationID string `json:"operationId"`
-	Tag string `json:"tag"`
-	Message string `json:"message"`
-	PreviousTag string `json:"previousTag"`
-	PreviousMessage string `json:"previousMessage"`
-	TrafficPercent int `json:"trafficPercent"`
-	DeployAuthorized bool `json:"deployAuthorized"`
+	PreviousVersionID       string `json:"previousVersionId"`
+	OperationID             string `json:"operationId"`
+	Tag                     string `json:"tag"`
+	Message                 string `json:"message"`
+	PreviousTag             string `json:"previousTag"`
+	PreviousMessage         string `json:"previousMessage"`
+	TrafficPercent          int    `json:"trafficPercent"`
+	DeployAuthorized        bool   `json:"deployAuthorized"`
 }
 
 type mockTimerVersionPlan struct {
@@ -56,20 +56,20 @@ type mockTimerVersionPlan struct {
 // MockTimerBindingReview is not RegisteredOperation, a grant or an execution
 // decision. The proposed common resource must be enrolled by the real owner.
 type MockTimerBindingReview struct {
-	ResourceDigest string
-	TargetDigest string
-	PlanDigest string
-	MutationID string
-	CanRegister bool
-	AuthorizesExecution bool
-	PreviousVersionID string
-	ArtifactsSHA256 string
+	ResourceDigest          string
+	TargetDigest            string
+	PlanDigest              string
+	MutationID              string
+	CanRegister             bool
+	AuthorizesExecution     bool
+	PreviousVersionID       string
+	ArtifactsSHA256         string
 	PreviousArtifactsSHA256 string
-	ConfigSHA256 string
-	Tag string
-	Message string
-	PreviousTag string
-	PreviousMessage string
+	ConfigSHA256            string
+	Tag                     string
+	Message                 string
+	PreviousTag             string
+	PreviousMessage         string
 }
 
 func mockTimerHash(raw []byte) string {
@@ -158,8 +158,8 @@ func ReviewMockTimerVersionPlan(raw []byte, operation string) (MockTimerBindingR
 	}
 	return MockTimerBindingReview{
 		ResourceDigest: mockTimerHash(resource),
-		TargetDigest: TargetDigest("cloudflare", operation, mockTimerAccount+"/"+mockTimerWorker),
-		PlanDigest: p.PlanDigest, MutationID: p.OperationID+suffix,
+		TargetDigest:   TargetDigest("cloudflare", operation, mockTimerAccount+"/"+mockTimerWorker),
+		PlanDigest:     p.PlanDigest, MutationID: p.OperationID + suffix,
 		CanRegister: false, AuthorizesExecution: false,
 		PreviousVersionID: p.PreviousVersionID, ArtifactsSHA256: p.ArtifactsSHA256,
 		PreviousArtifactsSHA256: p.PreviousArtifactsSHA256, ConfigSHA256: p.ConfigSHA256,
