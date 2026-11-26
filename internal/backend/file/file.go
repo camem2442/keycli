@@ -140,6 +140,29 @@ func (s *Store) Set(ctx context.Context, name string, value []byte, meta backend
 		data.Secrets = map[string]secretRecord{}
 	}
 	key := strings.ToLower(name)
+	// A rotation (`kc set NAME`) carries no kind/url/username. Keep the stored
+	// ones instead of silently dropping the classification; an explicit value
+	// always wins.
+	prev := data.Secrets[key]
+	kind := meta.Kind
+	if kind == "" {
+		kind = prev.Kind
+	}
+	if kind == "login" {
+		// A rotation (`kc set NAME`) carries no url/username. Keep the stored
+		// ones instead of silently dropping them; an explicit value wins.
+		if meta.URL == "" {
+			meta.URL = prev.URL
+		}
+		if meta.Username == "" {
+			meta.Username = prev.Username
+		}
+	} else {
+		// Reclassifying away from a login drops the login-only fields.
+		meta.URL = ""
+		meta.Username = ""
+	}
+	meta.Kind = kind
 	data.Secrets[key] = secretRecord{
 		Value:    string(value),
 		Note:     meta.Note,

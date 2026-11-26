@@ -108,7 +108,9 @@ func newSetCmd(a *app.App) *cobra.Command {
 				}
 				exp = &t
 			}
-			if !noVerify {
+			// A seed is not a provider token: probing would send it to the
+			// provider API. kc otp validates it locally instead.
+			if !noVerify && kind != "otp" {
 				vout, err := verify.Run(cmd.Context(), name, note, value, nil)
 				if err != nil {
 					return err

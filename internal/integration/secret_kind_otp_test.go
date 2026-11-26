@@ -113,7 +113,7 @@ func TestOTPCommandAndExecInjection(t *testing.T) {
 	if c != 0 {
 		t.Fatalf("exec --otp failed: %s", stderr)
 	}
-	if strings.TrimSpace(out) != "94287082" && !regexp.MustCompile(`^\d{8}$`).MatchString(strings.TrimSpace(out)) {
+	if !regexp.MustCompile(`^\d{8}$`).MatchString(strings.TrimSpace(out)) {
 		t.Fatalf("exec --otp did not inject a code: %q", out)
 	}
 }
@@ -205,8 +205,10 @@ func TestCSVExportMergesSeedIntoItsLoginRow(t *testing.T) {
 	if !strings.Contains(string(data), uri) {
 		t.Fatalf("seed not merged into the login row: %q", string(data))
 	}
-	if strings.Contains(string(data), "\r\nsite_login.otp,") {
-		t.Fatalf("seed written as its own row: %q", string(data))
+	for _, line := range strings.Split(string(data), "\r\n") {
+		if strings.HasPrefix(line, "site_login.otp,") {
+			t.Fatalf("seed written as its own row: %q", line)
+		}
 	}
 
 	// Re-import keeps both entries (OTPAuth is opt-in on import).
@@ -218,5 +220,51 @@ func TestCSVExportMergesSeedIntoItsLoginRow(t *testing.T) {
 	c, meta, _ := runKCSplit(target, "", "ls", "--json")
 	if c != 0 || !strings.Contains(meta, `"kind": "login"`) || !strings.Contains(meta, `"kind": "otp"`) {
 		t.Fatalf("round trip lost a kind: %s", meta)
+	}
+}
+
+func TestSeedOnlyCSVExportFails(t *testing.T) {
+	env := storeEnv(t)
+	uri := "otpauth://totp?secret=" + rfcSeedB32 + "&digits=6&period=30"
+	if c, _, stderr := runKCSplit(env, uri, "set", "site_login.otp", "--no-verify", "--kind", "otp"); c != 0 {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	out := filepath.Join(t.TempDir(), "passwords.csv")
+	c, _, stderr := runKCSplit(env, "", "export", "site_login.otp", "--format", "csv",
+		"--allow-plaintext", "--output-file", out)
+	if c == 0 {
+		t.Fatal("seed-only export reported success")
+	}
+	if !strings.Contains(stderr, "site_login") {
+		t.Fatalf("error does not name the login entry to export: %q", stderr)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("seed-only export left a file: %v", err)
+	}
+}
+
+func TestRotationKeepsAndReclassificationDropsMetadata(t *testing.T) {
+	env := storeEnv(t)
+	if c, _, stderr := runKCSplit(env, "first", "set", "site_login", "--no-verify",
+		"--kind", "login", "--url", "https://example.test/", "--username", "octocat"); c != 0 {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	// A rotation without flags must not erase the classification.
+	if c, _, stderr := runKCSplit(env, "second", "set", "site_login", "--no-verify"); c != 0 {
+		t.Fatalf("rotate failed: %s", stderr)
+	}
+	c, meta, _ := runKCSplit(env, "", "ls", "--json")
+	if c != 0 || !strings.Contains(meta, `"kind": "login"`) ||
+		!strings.Contains(meta, `"username": "octocat"`) ||
+		!strings.Contains(meta, `"url": "https://example.test/"`) {
+		t.Fatalf("rotation dropped metadata: %s", meta)
+	}
+	// Reclassifying away from login drops the login-only fields.
+	if c, _, stderr := runKCSplit(env, "third", "set", "site_login", "--no-verify", "--kind", "token"); c != 0 {
+		t.Fatalf("reclassify failed: %s", stderr)
+	}
+	c, meta, _ = runKCSplit(env, "", "ls", "--json")
+	if c != 0 || !strings.Contains(meta, `"kind": "token"`) || strings.Contains(meta, `"username"`) {
+		t.Fatalf("reclassification kept login fields: %s", meta)
 	}
 }
