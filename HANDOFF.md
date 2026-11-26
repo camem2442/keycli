@@ -31,7 +31,7 @@
   [apple-passwords-csv.md](docs/guides/apple-passwords-csv.md),
   [one-time-codes.md](docs/guides/one-time-codes.md).
 - **설치본 교체(2026-11-26)**: `~/.local/bin/kc`를 `v0.10.0(352e12d)`에서 이 브랜치
-  `9f45ad3`(go1.22.12, `CGO_ENABLED=0`)로 바꿨다. 이전 바이너리는
+  최신 빌드(go1.22.12, `CGO_ENABLED=0`; 설치 시점 `7b65707`)로 바꿨다. 이전 바이너리는
   `~/.local/share/keycli-backups/kc-v0.10.0-352e12d-20261126.bin`에 두었다. 이전 커밋은
   현재 HEAD의 조상이라 후퇴가 아니며, `kc ls`/`status`/`doctor`와 저장소 파일이 교체 전후
   동일함을 확인했다. PR #104는 아직 열려 있으므로 이 설치본은 **미병합 브랜치 빌드**다.
