@@ -13,6 +13,8 @@
 ```bash
 # 사람: 한 번 저장
 kc set openai --clip          # 클립보드 값을 저장하고 클립보드 비움
+kc set github --kind token    # 종류 표시(login|token|key|otp|note), ls --json에 실림
+kc set mybank --kind login --url https://bank.example --username me
 kc link groq keychain:local.study.ai.groq
 
 # 에이전트: 필요할 때 꺼냄
@@ -26,6 +28,8 @@ kc interactive              # TTY에서 대화형 관리
 
 # 사람: 복사
 kc cp                         # 목록에서 골라 복사, 30초 뒤 자동 삭제
+kc cp mybank_otp --otp        # 2FA 코드를 복사(30초 뒤 삭제)
+kc otp mybank_otp             # 터미널에서만 코드 확인, 파이프는 --stdout 필요
 
 # 맥 → 클라우드
 kc push cursor --env-id … TOKEN   # Cursor 환경 시크릿

@@ -16,6 +16,9 @@
 | v0.8.0 릴리스 증거·Cursor 파일럿 | [planning/v080-release-evidence.md](planning/v080-release-evidence.md) |
 | Mac TUI·Cursor 검증 매트릭스 | [planning/v08-mac-tui-cursor-acceptance.md](planning/v08-mac-tui-cursor-acceptance.md) |
 | 코딩 에이전트 설정 | [guides/agents.md](guides/agents.md) |
+| 비밀 종류(`kind`)와 일회용 코드(TOTP) | [guides/one-time-codes.md](guides/one-time-codes.md) |
+| Apple Passwords CSV 왕복 | [guides/apple-passwords-csv.md](guides/apple-passwords-csv.md) |
+| 자동 채움·주기 출력(S3) 보류 이유 | [planning/keycli-otp-s3-watch-20261126.md](planning/keycli-otp-s3-watch-20261126.md) |
 | v0.9/v0.10 소스 랜딩 증거 | [reviews/2026-11-10-v010-source-landing/README.md](reviews/2026-11-10-v010-source-landing/README.md) |
 | 선행 구현 조사 | [reviews/2026-10-24-prior-art.md](reviews/2026-10-24-prior-art.md) |
 
