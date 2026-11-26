@@ -32,10 +32,15 @@
   [one-time-codes.md](docs/guides/one-time-codes.md).
 - 검증: `internal/totp` RFC 벡터·파서 **PASS**, `internal/cli` **PASS**,
   `internal/integration`의 kind/CSV 왕복/`otp`/`exec --otp`/`cp --otp` **PASS**(합성 값).
-  `verify.sh --suite docs`·`policy` **PASS**. `--suite unit`은 이 macOS에서 Go 1.22
-  툴체인 바이너리가 `dyld: missing LC_UUID`로 죽어(우리가 건드리지 않은 패키지도 동일,
-  기존 환경 문제) 실행은 로컬 Go로 했고 gofmt·vet은 1.22로 확인했다.
-  실제 provider 로그인·macOS Passwords 앱·자동 채움: **NOT VERIFIED**.
+  `verify.sh --suite docs`·`policy` **PASS**. `--suite unit`은 이 macOS에서 Go 1.22로 빌드한
+  cgo 동적 바이너리가 `dyld: missing LC_UUID`로 죽어 실행 불가다 — `import "net"`만 있는
+  최소 프로그램으로 재현했고 Go 1.27은 정상이라 환경 문제로 확정했다. 실행은 로컬 Go,
+  gofmt·vet은 1.22로 확인했다.
+- 추가 실측: TOTP를 독립 Python 구현과 218개 대조(불일치 0), 실제 pty/파이프 TTY 경계,
+  독립 TOTP 검증기에 코드 제출(200)·오답 거부(401)·seed 비주입, 실제 로그인 키체인에서
+  set/get/교체/ls/rm. macOS Passwords 앱은 가져오기 안내·파일 패널까지 확인했으나 실제
+  가져오기는 세션 간섭으로 **BLOCKED**(사용자 볼트 무변경). 실제 provider 로그인·자동 채움:
+  **NOT VERIFIED**.
 
 ## 2026-11-26 — Apple Passwords CSV 양방향
 
