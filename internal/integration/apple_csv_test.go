@@ -67,6 +67,10 @@ func TestAppleCSVExportImport(t *testing.T) {
 	if c, _, _ := runKCSplit(receiver, "", "import", "--format", "csv", "--input-file", out); c == 0 {
 		t.Fatal("csv import without --allow-plaintext accepted")
 	}
+	if c, _, _ := runKCSplit(receiver, "", "import", "--format", "csv", "--allow-plaintext",
+		"--input-file", out, "--expected-name", "demo_one"); c == 0 {
+		t.Fatal("age guard accepted for a csv import")
+	}
 	c, _, stderr = runKCSplit(receiver, "", "import", "--format", "csv", "--allow-plaintext", "--input-file", out)
 	if c != 0 {
 		t.Fatalf("csv import failed: %s", stderr)

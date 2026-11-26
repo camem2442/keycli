@@ -29,6 +29,10 @@ func newImportCmd(a *app.App) *cobra.Command {
 			switch format {
 			case "":
 			case "csv":
+				if cmd.Flags().Changed("expected-sha256") || cmd.Flags().Changed("verified-recipient") ||
+					cmd.Flags().Changed("expected-name") {
+					return fmt.Errorf("--expected-sha256, --verified-recipient and --expected-name apply to age bundles, not --format csv")
+				}
 				return importAppleCSV(cmd, a, inputFile, allowPlaintext, dryRun, keepOTP, force)
 			default:
 				return fmt.Errorf("unknown --format %q; only csv is supported", format)
