@@ -99,13 +99,14 @@ func newImportCmd(a *app.App) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
 					len(overwrites), strings.Join(overwrites, ", "))
 			}
+			stored, err := secretmeta.StoredAll(cmd.Context(), a)
+			if err != nil {
+				return err
+			}
 			for name, val := range secrets {
-				meta := backend.Meta{}
-				prev, ok, err := secretmeta.Stored(cmd.Context(), a, name)
-				if err != nil {
-					return err
-				}
-				if err := a.Resolver.Set(cmd.Context(), name, val, secretmeta.Preserve(prev, ok, meta)); err != nil {
+				prev, ok := stored[secretmeta.Key(a, name)]
+				meta := secretmeta.Preserve(prev, ok, backend.Meta{})
+				if err := a.Resolver.Set(cmd.Context(), name, val, meta); err != nil {
 					return err
 				}
 			}

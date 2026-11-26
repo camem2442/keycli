@@ -4,6 +4,7 @@ package secretmeta
 
 import (
 	"context"
+	"strings"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/backend"
@@ -13,6 +14,17 @@ import (
 // is the record an overwrite replaces. It reads metadata only, never values.
 func Stored(ctx context.Context, a *app.App, name string) (backend.Item, bool, error) {
 	return a.Resolver.StoredItem(ctx, name)
+}
+
+// StoredAll returns every stored metadata record keyed by lower-case
+// canonical name, for callers that overwrite many names at once.
+func StoredAll(ctx context.Context, a *app.App) (map[string]backend.Item, error) {
+	return a.Resolver.StoredItems(ctx)
+}
+
+// Key normalises a name for a StoredAll lookup.
+func Key(a *app.App, name string) string {
+	return strings.ToLower(a.Resolver.CanonicalName(name))
 }
 
 // Preserve keeps the stored classification for writes that do not carry

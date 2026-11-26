@@ -297,28 +297,37 @@ func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta back
 	return b.Set(ctx, r.CanonicalName(name), value, meta)
 }
 
-// StoredItem returns the metadata that Set would overwrite. It asks the write
-// backend itself, not List, because a read-only backend in front of it (env)
-// shadows the name without holding any metadata.
-func (r *Resolver) StoredItem(ctx context.Context, name string) (backend.Item, bool, error) {
+// StoredItems returns every metadata record the write backend holds, keyed by
+// canonical name. It asks that backend directly instead of List, because a
+// read-only backend in front of it (env) shadows names without holding any
+// metadata. Backends that do not persist metadata return nil.
+func (r *Resolver) StoredItems(ctx context.Context) (map[string]backend.Item, error) {
 	b, err := r.writeBackend(ctx)
 	if err != nil {
-		return backend.Item{}, false, err
+		return nil, err
 	}
-	if !b.Caps().CanList {
-		return backend.Item{}, false, nil
+	if !b.Caps().HasMetadata {
+		return nil, nil
 	}
 	items, err := b.List(ctx)
 	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]backend.Item, len(items))
+	for _, it := range items {
+		out[strings.ToLower(r.CanonicalName(it.Name))] = it
+	}
+	return out, nil
+}
+
+// StoredItem returns the metadata that Set would overwrite.
+func (r *Resolver) StoredItem(ctx context.Context, name string) (backend.Item, bool, error) {
+	items, err := r.StoredItems(ctx)
+	if err != nil {
 		return backend.Item{}, false, err
 	}
-	canon := r.CanonicalName(name)
-	for _, it := range items {
-		if strings.EqualFold(r.CanonicalName(it.Name), canon) {
-			return it, true, nil
-		}
-	}
-	return backend.Item{}, false, nil
+	it, ok := items[strings.ToLower(r.CanonicalName(name))]
+	return it, ok, nil
 }
 
 // Delete removes from writable backends that hold the name.
