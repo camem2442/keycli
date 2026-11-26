@@ -84,4 +84,7 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 
 - Linux CI: `internal/applecsv` 코덱·CLI 가드·왕복 가져오기 **PASS**(합성 값만).
 - kind/url/username 왕복과 `OTPAuth` 병합: Linux 통합 테스트 **PASS**(합성 값).
-- 실제 macOS Passwords 앱의 가져오기 오류 목록·자동완성·Touch ID 프롬프트: **NOT VERIFIED**.
+- 실제 macOS Passwords 앱: 메뉴 `파일 > 파일에서 암호 가져오기…` → 안내 시트 → 표준 열기
+  패널에 kc의 6열 CSV가 표시되는 것까지 **확인**. 실제 가져오기 실행·항목 생성·`OTPAuth`
+  인식·삭제는 세션 간섭(앱 전환, 화면 오버레이)으로 **BLOCKED** — 자동완성·Touch ID
+  프롬프트도 **NOT VERIFIED**.

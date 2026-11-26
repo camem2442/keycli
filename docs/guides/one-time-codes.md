@@ -59,7 +59,12 @@ kc otp github_otp --at 2030-01-01T00:00:00Z  # 과거/미래 시점 계산(테�
 
 - RFC 6238 표준 벡터(SHA1/256/512), label 없는 URI, 기본값, HOTP 거부, 오류 메시지의
   seed 비노출, step 경계: `go test ./internal/totp` **PASS**.
+- 독립 구현(Python stdlib)과 218개 코드 대조(27개 파라미터 조합 × 8개 시각, step 경계 포함,
+  Apple label-less URI·소문자 seed 포함): **일치 218/218**.
+- TTY 경계: 실제 pty에서 출력, 파이프는 거부, `--stdout`은 허용 — **실측 PASS**.
+- kc 코드를 독립 TOTP 검증기(±1 step)에 `kc exec --otp`로 제출: **수락(HTTP 200)**, 오답
+  대조군 거부(401), 자식 env에 seed 없음. 로컬 검증기이며 실제 provider는 아니다.
 - `kc otp`·`exec --otp`·`cp --otp`·seed 비주입: Linux 통합 테스트 **PASS**(합성 seed).
-- 실제 provider 로그인 화면에 코드를 넣는 end-to-end: **NOT VERIFIED**.
+- 실제 provider 로그인 화면에 코드를 넣는 end-to-end: **NOT VERIFIED**(검증기로 갈음).
 - 자동 채움·주기 출력(S3)은 [계획](../planning/keycli-otp-s3-watch-20261126.md)에 이유와 함께
   보류로 기록했다.
