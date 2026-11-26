@@ -79,6 +79,21 @@ func TestParseWrongFieldCount(t *testing.T) {
 	}
 }
 
+func TestParseUnterminatedQuote(t *testing.T) {
+	in := "Title,URL,Username,Password,Notes,OTPAuth\n\"demo,,,value,,\n"
+	_, err := Parse(strings.NewReader(in))
+	if err == nil || !strings.Contains(err.Error(), "unterminated") {
+		t.Fatalf("unterminated quote accepted: %v", err)
+	}
+}
+
+func TestParseTooManyColumns(t *testing.T) {
+	in := "Title,URL,Username,Password,Notes,OTPAuth\na,b,c,d,e,f,g\n"
+	if _, err := Parse(strings.NewReader(in)); err == nil {
+		t.Fatal("seven-column record accepted")
+	}
+}
+
 func TestParseEmptyFile(t *testing.T) {
 	if _, err := Parse(strings.NewReader("")); err == nil {
 		t.Fatal("empty csv accepted")

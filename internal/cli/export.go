@@ -60,7 +60,8 @@ func newExportCmd(a *app.App) *cobra.Command {
 				if outputFile == "" {
 					return fmt.Errorf("csv export requires --output-file")
 				}
-				if stdout || toRecipient != "" || toGitHub != "" || verifiedRecipient != "" {
+				if stdout || cmd.Flags().Changed("to") || cmd.Flags().Changed("to-github") ||
+					cmd.Flags().Changed("verified-recipient") {
 					return fmt.Errorf("csv export cannot be combined with --stdout, --to, --to-github or --verified-recipient")
 				}
 				return exportAppleCSV(cmd, a, args, outputFile)
@@ -164,10 +165,12 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
+		os.Remove(outputFile)
 		return fmt.Errorf("write csv output: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("close csv output; inspect the file before reuse: %w", err)
+		os.Remove(outputFile)
+		return fmt.Errorf("close csv output; the partial file was removed: %w", err)
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(),
 		"kc: wrote %d row(s) to %s (plaintext, 0600). Import it in Passwords (File > Import Passwords from File), then delete it.\n",

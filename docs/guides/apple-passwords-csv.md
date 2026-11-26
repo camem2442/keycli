@@ -47,8 +47,13 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 - `--allow-plaintext` 없으면 거부한다. stdin도 받는다(`--input-file` 생략).
 - `Title` → 이름: 소문자, `[a-z0-9._-]` 유지, 나머지는 `-`로 접는다. 같은 파일 안에서
   중복이면 `-2`, `-3`.
-- `Password` → 값. `Username`·`URL`·원래 `Notes` → note(`username=… | url=… | …`).
-- 이미 있는 이름은 `--force` 없이는 거부한다(age 번들 가져오기와 같은 규칙).
+- `Password` → 값. `Username`·`URL` → note(`username=… | url=…`). Apple의 `Notes` 셀은
+  **기본 미보관**이다 — `kc ls --json`으로 에이전트에 읽히고, 사람들이 복구 코드·seed를
+  거기에 넣기 때문이다. 필요하면 `--keep-notes`로 명시한다.
+- 이미 있는 이름은 `--force` 없이는 거부한다(age 번들 가져오기와 같은 규칙). 이름은 쓰기 전에
+  canonical로 해석하므로 alias(`gh` → `github`)도 충돌로 잡힌다. 파일 안 중복에서 생기는
+  `-2` 접미사는 기존 이름과 겹치지 않을 때까지 올라간다.
+- `--dry-run`은 이름과 `--force`가 필요한 이름만 보고하고, 충돌이 있어도 실패하지 않는다.
 - 비밀번호가 빈 행은 건너뛰고 개수만 보고한다.
 - `OTPAuth`는 **기본 미보관**이다. note 필드는 `kc ls --json`으로 에이전트에 읽히므로
   2FA seed를 거기에 넣지 않는다. `--keep-otp`를 주면 `NAME.otp` 시크릿으로 저장한다.

@@ -31,6 +31,10 @@ func TestAppleCSVExportImport(t *testing.T) {
 		"--output-file", out, "--stdout"); c == 0 {
 		t.Fatal("csv export combined with --stdout accepted")
 	}
+	if c, _, _ := runKCSplit(env, "", "export", "demo_one", "--format", "csv", "--allow-plaintext",
+		"--output-file", out, "--to", ""); c == 0 {
+		t.Fatal("csv export combined with an empty --to accepted")
+	}
 
 	c, stdout, stderr := runKCSplit(env, "", "export", "demo_one", "demo_two",
 		"--format", "csv", "--allow-plaintext", "--output-file", out)
@@ -133,8 +137,25 @@ func TestAppleCSVImportNamesAndVerificationCodes(t *testing.T) {
 	if strings.Contains(ls, "site.otp") {
 		t.Fatal("verification code stored without --keep-otp")
 	}
-	if c, note, _ := runKCSplit(env, "", "ls", "--json"); c != 0 || !strings.Contains(note, "username=octocat") {
+	c, meta, _ := runKCSplit(env, "", "ls", "--json")
+	if c != 0 || !strings.Contains(meta, "username=octocat") {
 		t.Fatal("username not kept as metadata")
+	}
+	if strings.Contains(meta, "note one") {
+		t.Fatal("Notes cell copied into agent-readable metadata without --keep-notes")
+	}
+	if c, _, _ := runKCSplit(env, "", "import", "--format", "csv", "--allow-plaintext",
+		"--input-file", csvPath, "--dry-run"); c != 0 {
+		t.Fatal("dry run refused a file with existing names")
+	}
+
+	kept := storeEnv(t)
+	if c, _, stderr := runKCSplit(kept, "", "import", "--format", "csv", "--allow-plaintext",
+		"--input-file", csvPath, "--keep-notes"); c != 0 {
+		t.Fatalf("import --keep-notes failed: %s", stderr)
+	}
+	if c, keptMeta, _ := runKCSplit(kept, "", "ls", "--json"); c != 0 || !strings.Contains(keptMeta, "note one") {
+		t.Fatal("--keep-notes did not keep the Notes cell")
 	}
 
 	second := storeEnv(t)

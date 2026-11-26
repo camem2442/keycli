@@ -12,7 +12,7 @@ func TestPlanCSVImportSkipsRowsWithoutPassword(t *testing.T) {
 		{Title: "GitHub", Username: "octocat", Password: "synthetic-only"},
 		{Title: "No password", Username: "someone"},
 	}
-	plans, stats := planCSVImport(rows, map[string]bool{}, false)
+	plans, stats := planCSVImport(rows, canonNone, map[string]bool{}, false, false)
 	if len(plans) != 1 || plans[0].name != "github" {
 		t.Fatalf("plans = %v", plans)
 	}
@@ -27,7 +27,7 @@ func TestPlanCSVImportSuffixesDuplicateTitles(t *testing.T) {
 		{Title: "bank", Password: "two"},
 		{Title: "Bank!", Password: "three"},
 	}
-	plans, _ := planCSVImport(rows, map[string]bool{}, false)
+	plans, _ := planCSVImport(rows, canonNone, map[string]bool{}, false, false)
 	var names []string
 	for _, p := range plans {
 		names = append(names, p.name)
@@ -43,7 +43,7 @@ func TestPlanCSVImportKeepsVerificationCodeOnlyOnRequest(t *testing.T) {
 		Password: "synthetic-only",
 		OTPAuth:  "otpauth://totp?secret=SYNTHETIC&algorithm=SHA1&digits=6&period=30",
 	}}
-	plans, stats := planCSVImport(rows, map[string]bool{}, false)
+	plans, stats := planCSVImport(rows, canonNone, map[string]bool{}, false, false)
 	if len(plans) != 1 || stats.otp != 1 {
 		t.Fatalf("default must keep the code out of the store: %v %+v", plans, stats)
 	}
@@ -53,7 +53,7 @@ func TestPlanCSVImportKeepsVerificationCodeOnlyOnRequest(t *testing.T) {
 		}
 	}
 
-	plans, stats = planCSVImport(rows, map[string]bool{}, true)
+	plans, stats = planCSVImport(rows, canonNone, map[string]bool{}, true, false)
 	if len(plans) != 2 || stats.otp != 0 {
 		t.Fatalf("--keep-otp plans = %v stats = %+v", plans, stats)
 	}
@@ -62,19 +62,61 @@ func TestPlanCSVImportKeepsVerificationCodeOnlyOnRequest(t *testing.T) {
 	}
 }
 
-func TestCSVNoteCarriesMetadataNotSecrets(t *testing.T) {
-	note := csvNote(applecsv.Row{
+func TestCSVNoteKeepsNotesCellOnlyOnRequest(t *testing.T) {
+	row := applecsv.Row{
 		Username: "octocat",
 		URL:      "https://example.test/",
-		Notes:    "personal",
-	})
-	if want := "username=octocat | url=https://example.test/ | personal"; note != want {
-		t.Fatalf("note = %q, want %q", note, want)
+		Notes:    "RECOVERY-CODE-AAAA-BBBB",
 	}
-	if got := csvNote(applecsv.Row{}); got != "" {
+	if got, want := csvNote(row, false), "username=octocat | url=https://example.test/"; got != want {
+		t.Fatalf("default note = %q, want %q", got, want)
+	}
+	if got, want := csvNote(row, true), "username=octocat | url=https://example.test/ | RECOVERY-CODE-AAAA-BBBB"; got != want {
+		t.Fatalf("--keep-notes note = %q, want %q", got, want)
+	}
+	if got := csvNote(applecsv.Row{}, false); got != "" {
 		t.Fatalf("empty note = %q", got)
 	}
 }
+
+func TestPlanCSVImportCanonicalisesAliasSoForceIsRequired(t *testing.T) {
+	alias := func(name string) string {
+		if name == "gh" {
+			return "github"
+		}
+		return name
+	}
+	rows := []applecsv.Row{{Title: "gh", Password: "synthetic-only"}}
+	plans, _ := planCSVImport(rows, alias, map[string]bool{"github": true}, false, false)
+	if len(plans) != 1 || plans[0].name != "github" {
+		t.Fatalf("alias not canonicalised: %+v", plans)
+	}
+	if got := conflictNames(plans, map[string]bool{"github": true}); len(got) != 1 {
+		t.Fatalf("alias collision missed: %v", got)
+	}
+}
+
+func TestPlanCSVImportSuffixAvoidsExistingName(t *testing.T) {
+	rows := []applecsv.Row{
+		{Title: "bank", Password: "one"},
+		{Title: "bank", Password: "two"},
+	}
+	existing := map[string]bool{"bank-2": true}
+	plans, _ := planCSVImport(rows, canonNone, existing, false, false)
+	var names []string
+	for _, p := range plans {
+		names = append(names, p.name)
+	}
+	if want := []string{"bank", "bank-3"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("names = %v, want %v", names, want)
+	}
+	conflicts := conflictNames(plans, existing)
+	if len(conflicts) != 0 {
+		t.Fatalf("generated suffix counted as a conflict: %v", conflicts)
+	}
+}
+
+func canonNone(name string) string { return name }
 
 func TestConflictNamesSorted(t *testing.T) {
 	plans := []csvPlan{{name: "b"}, {name: "a"}, {name: "c"}}

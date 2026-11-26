@@ -252,8 +252,8 @@ func (p *parser) next() ([]string, error) {
 			p.pos++
 			return p.recordDone(fields)
 		default:
-			return nil, fmt.Errorf("record %d: unexpected %q after a quoted field",
-				p.record, string(p.data[p.pos]))
+			return nil, fmt.Errorf("record %d: unexpected byte 0x%02x at offset %d after a quoted field",
+				p.record, p.data[p.pos], p.pos)
 		}
 	}
 	return p.recordDone(fields)

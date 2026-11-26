@@ -21,7 +21,7 @@ func newImportCmd(a *app.App) *cobra.Command {
 	var expectedDigest, verifiedRecipient, expectedName string
 	var force bool
 	var format, inputFile string
-	var allowPlaintext, dryRun, keepOTP bool
+	var allowPlaintext, dryRun, keepOTP, keepNotes bool
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import an age bundle from stdin, or an Apple Passwords CSV, into the file store",
@@ -33,12 +33,12 @@ func newImportCmd(a *app.App) *cobra.Command {
 					cmd.Flags().Changed("expected-name") {
 					return fmt.Errorf("--expected-sha256, --verified-recipient and --expected-name apply to age bundles, not --format csv")
 				}
-				return importAppleCSV(cmd, a, inputFile, allowPlaintext, dryRun, keepOTP, force)
+				return importAppleCSV(cmd, a, inputFile, allowPlaintext, dryRun, keepOTP, keepNotes, force)
 			default:
 				return fmt.Errorf("unknown --format %q; only csv is supported", format)
 			}
-			if inputFile != "" || allowPlaintext || dryRun || keepOTP {
-				return fmt.Errorf("--input-file, --allow-plaintext, --dry-run and --keep-otp apply only to --format csv")
+			if inputFile != "" || allowPlaintext || dryRun || keepOTP || keepNotes {
+				return fmt.Errorf("--input-file, --allow-plaintext, --dry-run, --keep-otp and --keep-notes apply only to --format csv")
 			}
 			guarded := cmd.Flags().Changed("expected-sha256") || cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("expected-name")
 			if guarded && (expectedDigest == "" || verifiedRecipient == "" || expectedName == "") {
@@ -118,6 +118,7 @@ func newImportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().BoolVar(&allowPlaintext, "allow-plaintext", false, "with --format csv: acknowledge that the input is unencrypted")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "with --format csv: print the names that would be imported, write nothing")
 	cmd.Flags().BoolVar(&keepOTP, "keep-otp", false, "with --format csv: store each verification code as NAME.otp")
+	cmd.Flags().BoolVar(&keepNotes, "keep-notes", false, "with --format csv: also copy the Notes cell into kc metadata (readable by agents via ls --json)")
 	return cmd
 }
 
@@ -132,7 +133,7 @@ type csvPlan struct {
 // password column becomes the value; username, URL and the original notes
 // become metadata. Verification codes are secrets too, so they are never
 // copied into the note field — that field is readable through `kc ls --json`.
-func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlaintext, dryRun, keepOTP, force bool) error {
+func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlaintext, dryRun, keepOTP, keepNotes, force bool) error {
 	if !allowPlaintext {
 		return fmt.Errorf("csv input is plaintext; re-run with --allow-plaintext")
 	}
@@ -159,20 +160,12 @@ func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlain
 		existing[strings.ToLower(it.Name)] = true
 	}
 
-	plans, stats := planCSVImport(rows, existing, keepOTP)
+	plans, stats := planCSVImport(rows, a.Resolver.CanonicalName, existing, keepOTP, keepNotes)
 	if len(plans) == 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(), "kc: csv에 가져올 항목이 없습니다 (건너뜀 %d행).\n", stats.skipped)
 		return nil
 	}
 	conflicts := conflictNames(plans, existing)
-	if len(conflicts) > 0 && !force {
-		return fmt.Errorf("refusing to overwrite %d existing secret(s): %s (re-run with --force)",
-			len(conflicts), strings.Join(conflicts, ", "))
-	}
-	if len(conflicts) > 0 {
-		fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
-			len(conflicts), strings.Join(conflicts, ", "))
-	}
 
 	if dryRun {
 		names := make([]string, 0, len(plans))
@@ -181,8 +174,22 @@ func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlain
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "kc: dry run: %d secret(s) would be written: %s\n",
 			len(names), summarise(names, 20))
+		if len(conflicts) > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"kc: %d name(s) already exist and need --force: %s\n",
+				len(conflicts), summarise(conflicts, 10))
+		}
 		reportCSVSkips(cmd, stats, keepOTP)
 		return nil
+	}
+
+	if len(conflicts) > 0 && !force {
+		return fmt.Errorf("refusing to overwrite %d existing secret(s): %s (re-run with --force)",
+			len(conflicts), strings.Join(conflicts, ", "))
+	}
+	if len(conflicts) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
+			len(conflicts), strings.Join(conflicts, ", "))
 	}
 
 	for _, p := range plans {
@@ -205,9 +212,13 @@ type csvStats struct {
 }
 
 // planCSVImport builds the write set: one secret per row with a password, an
-// extra NAME.otp per row with a verification code when keepOTP is set. Titles
-// that collide inside the file get -2, -3 suffixes.
-func planCSVImport(rows []applecsv.Row, existing map[string]bool, keepOTP bool) ([]csvPlan, csvStats) {
+// extra NAME.otp per row with a verification code when keepOTP is set.
+//
+// Names are canonicalised before the conflict check because Resolver.Set
+// canonicalises on write: a title that matches an alias ("gh" → "github") must
+// not slip past the --force guard. Suffixed names avoid names that already
+// exist so a generated "name-2" never overwrites an entry nobody confirmed.
+func planCSVImport(rows []applecsv.Row, canonical func(string) string, existing map[string]bool, keepOTP, keepNotes bool) ([]csvPlan, csvStats) {
 	var (
 		plans []csvPlan
 		stats csvStats
@@ -219,12 +230,12 @@ func planCSVImport(rows []applecsv.Row, existing map[string]bool, keepOTP bool) 
 			stats.noPassword++
 			continue
 		}
-		name := uniqueName(applecsv.NameFromTitle(row.Title), used)
+		name := assignedName(applecsv.NameFromTitle(row.Title), canonical, existing, used)
 		used[name] = true
 		plans = append(plans, csvPlan{
 			name:  name,
 			value: []byte(row.Password),
-			note:  csvNote(row),
+			note:  csvNote(row, keepNotes),
 		})
 		if !applecsv.IsOTPAuth(row.OTPAuth) {
 			continue
@@ -233,7 +244,7 @@ func planCSVImport(rows []applecsv.Row, existing map[string]bool, keepOTP bool) 
 			stats.otp++
 			continue
 		}
-		otpName := uniqueName(name+".otp", used)
+		otpName := assignedName(name+".otp", canonical, existing, used)
 		used[otpName] = true
 		plans = append(plans, csvPlan{
 			name:  otpName,
@@ -244,19 +255,27 @@ func planCSVImport(rows []applecsv.Row, existing map[string]bool, keepOTP bool) 
 	return plans, stats
 }
 
-func uniqueName(base string, used map[string]bool) string {
-	if !used[base] {
-		return base
+// assignedName returns the canonical name for a title. The first row that asks
+// for a name gets it even when the store already holds it, so the caller can
+// report it as a conflict; later rows and generated names step around both the
+// file and the store.
+func assignedName(base string, canonical func(string) string, existing, used map[string]bool) string {
+	name := canonical(base)
+	if !used[name] {
+		return name
 	}
 	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
-		if !used[candidate] {
+		candidate := canonical(fmt.Sprintf("%s-%d", base, i))
+		if !used[candidate] && !existing[candidate] {
 			return candidate
 		}
 	}
 }
 
-func csvNote(row applecsv.Row) string {
+// csvNote keeps only fields that are metadata. Apple's Notes cell is opt-in
+// because it is readable through `kc ls --json`, and people do keep recovery
+// codes and seeds there.
+func csvNote(row applecsv.Row, keepNotes bool) string {
 	var parts []string
 	if row.Username != "" {
 		parts = append(parts, "username="+row.Username)
@@ -264,7 +283,7 @@ func csvNote(row applecsv.Row) string {
 	if row.URL != "" {
 		parts = append(parts, "url="+row.URL)
 	}
-	if row.Notes != "" {
+	if keepNotes && row.Notes != "" {
 		parts = append(parts, row.Notes)
 	}
 	return strings.Join(parts, " | ")
