@@ -1,5 +1,34 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-26 — 시크릿 종류(`kind`)와 일회용 코드(S2)
+
+시크릿에 **종류**를 붙였다: `kc set --kind login|token|key|otp|note`, 그리고
+`--kind login`에서만 `--url`·`--username`. `kind`·`url`·`username`은 file store에만
+저장되고 `kc ls --json`에 **값이 있을 때만** 실린다(스키마 v1의 하위 호환 추가). 미분류
+항목은 지금까지와 똑같이 필드를 생략한다.
+
+- Apple CSV 왕복이 좋아졌다: 가져오기는 `kind=login`·`url`·`username`을 전용 필드로
+  저장하고(이전에는 note 문자열), 내보내기는 그 필드로 URL·Username 셀을 채운다.
+  `--keep-otp`는 `kind=otp`인 `NAME.otp`로 저장하고, 내보낼 때 `NAME` 행의 `OTPAuth`
+  셀로 합친다. 짝이 없는 seed는 이름 없이 개수만 보고한다.
+- **일회용 코드(S2)**: `internal/totp`(RFC 6238, SHA1/256/512, 6–8자리, HOTP 거부)를
+  추가하고 `kc otp NAME [--stdout] [--at RFC3339]`·`kc cp NAME --otp`·
+  `kc exec --otp NAME -- CMD`를 붙였다. `kc otp`는 **stdout이 TTY일 때만** 출력하고
+  파이프에는 `--stdout`을 요구한다(`op item get --otp`와 다른 선택). `kc exec`의 기본
+  전체 주입은 `kind=otp` 항목을 건너뛴다 — seed가 자식 env로 새지 않게.
+- 오류 메시지는 seed를 반복하지 않고, `totp.Config`는 `String`/`GoString`이 redacted다.
+- S3(`--watch`, QR 재표시, 자동 채움)는 만들지 않고 이유·재검토 조건을
+  [계획](docs/planning/keycli-otp-s3-watch-20261126.md)에 남겼다.
+- 계약·가이드: [cli.md](docs/contracts/cli.md), [transfer.md](docs/contracts/transfer.md),
+  [apple-passwords-csv.md](docs/guides/apple-passwords-csv.md),
+  [one-time-codes.md](docs/guides/one-time-codes.md).
+- 검증: `internal/totp` RFC 벡터·파서 **PASS**, `internal/cli` **PASS**,
+  `internal/integration`의 kind/CSV 왕복/`otp`/`exec --otp`/`cp --otp` **PASS**(합성 값).
+  `verify.sh --suite docs`·`policy` **PASS**. `--suite unit`은 이 macOS에서 Go 1.22
+  툴체인 바이너리가 `dyld: missing LC_UUID`로 죽어(우리가 건드리지 않은 패키지도 동일,
+  기존 환경 문제) 실행은 로컬 Go로 했고 gofmt·vet은 1.22로 확인했다.
+  실제 provider 로그인·macOS Passwords 앱·자동 채움: **NOT VERIFIED**.
+
 ## 2026-11-26 — Apple Passwords CSV 양방향
 
 `kc export --format csv --output-file F --allow-plaintext`와
