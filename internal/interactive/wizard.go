@@ -116,9 +116,11 @@ func RunSetWizard(ctx context.Context, a *app.App, initialName string) (string, 
 	// Save to resolver. The wizard collects no classification, so keep any
 	// that the entry already had.
 	meta := backend.Meta{Note: note, Expires: exp}
-	if prev, ok, err := secretmeta.Stored(ctx, a, name); err == nil {
-		meta = secretmeta.Preserve(prev, ok, meta)
+	prev, ok, err := secretmeta.Stored(ctx, a, name)
+	if err != nil {
+		return "", err
 	}
+	meta = secretmeta.Preserve(prev, ok, meta)
 	if err := a.Resolver.Set(ctx, name, secretValue, meta); err != nil {
 		return "", err
 	}

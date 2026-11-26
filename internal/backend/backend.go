@@ -11,6 +11,8 @@ type Capabilities struct {
 	CanList      bool
 	Interactive  bool
 	NeedsNetwork bool
+	// HasMetadata reports whether the backend persists Kind/URL/Username.
+	HasMetadata bool
 }
 
 // Item is list metadata without a secret value.

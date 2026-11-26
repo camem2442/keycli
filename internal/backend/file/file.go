@@ -71,7 +71,7 @@ type Store struct {
 func (s *Store) InstanceName() string { return s.instance }
 func (s *Store) Kind() string         { return "file" }
 func (s *Store) Caps() backend.Capabilities {
-	return backend.Capabilities{CanWrite: true, CanList: true}
+	return backend.Capabilities{CanWrite: true, CanList: true, HasMetadata: true}
 }
 
 func (s *Store) Available(ctx context.Context) (bool, string, error) {
