@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -192,16 +193,38 @@ func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlain
 			len(conflicts), strings.Join(conflicts, ", "))
 	}
 
-	for _, p := range plans {
-		if err := a.Resolver.Set(cmd.Context(), p.name, p.value, backend.Meta{Note: p.note}); err != nil {
-			return fmt.Errorf("store %s: %w", p.name, err)
-		}
+	fs, err := a.FileStore(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if err := writeCSVPlans(cmd.Context(), fs, plans, existing, force); err != nil {
+		return err
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(),
 		"kc: imported %d secret(s) from CSV with no expiry — record rotation ownership; `kc ls` shows expires\n",
 		len(plans))
 	reportCSVSkips(cmd, stats, keepOTP)
 	fmt.Fprintln(cmd.ErrOrStderr(), "kc: delete the source CSV now that the import finished")
+	return nil
+}
+
+type csvFileWriter interface {
+	Set(context.Context, string, []byte, backend.Meta) error
+	SetIfAbsent(context.Context, string, []byte, backend.Meta) error
+}
+
+func writeCSVPlans(ctx context.Context, fs csvFileWriter, plans []csvPlan, existing map[string]bool, force bool) error {
+	for _, p := range plans {
+		write := fs.SetIfAbsent
+		// --force applies to conflicts identified before the write. A name
+		// created since listing is not part of that set.
+		if force && existing[strings.ToLower(p.name)] {
+			write = fs.Set
+		}
+		if err := write(ctx, p.name, p.value, backend.Meta{Note: p.note}); err != nil {
+			return fmt.Errorf("store %s: %w", p.name, err)
+		}
+	}
 	return nil
 }
 
@@ -225,7 +248,7 @@ func planCSVImport(rows []applecsv.Row, canonical func(string) string, existing 
 		used  = make(map[string]bool, len(rows))
 	)
 	for _, row := range rows {
-		if strings.TrimSpace(row.Password) == "" {
+		if row.Password == "" {
 			stats.skipped++
 			stats.noPassword++
 			continue

@@ -135,3 +135,18 @@ func TestNameFromTitle(t *testing.T) {
 		t.Fatalf("name not truncated: %d bytes", len(got))
 	}
 }
+
+func TestMalformedInputDoesNotEchoCell(t *testing.T) {
+	const marker = "synthetic-private-cell"
+	_, err := Parse(strings.NewReader("Title,URL,Username," + marker + ",Notes,OTPAuth\r\n"))
+	if err == nil || strings.Contains(err.Error(), marker) {
+		t.Fatal("expected a redacted error for mistaken header contents")
+	}
+}
+
+func TestParseKeepsEmptyLastCellWithoutTerminalNewline(t *testing.T) {
+	rows, err := Parse(strings.NewReader("Title,URL,Username,Password,Notes,OTPAuth\r\nFixture,,,synthetic,,"))
+	if err != nil || len(rows) != 1 || rows[0].OTPAuth != "" {
+		t.Fatal("expected a full record with empty final cell")
+	}
+}

@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/camem2442/keycli/internal/applecsv"
+	"github.com/camem2442/keycli/internal/backend"
 )
 
 func TestPlanCSVImportSkipsRowsWithoutPassword(t *testing.T) {
@@ -132,5 +135,45 @@ func TestSummariseCapsList(t *testing.T) {
 	}
 	if got := summarise([]string{"a"}, 2); got != "a" {
 		t.Fatalf("summarise short = %q", got)
+	}
+}
+
+func TestPlanCSVImportKeepsWhitespacePassword(t *testing.T) {
+	plans, stats := planCSVImport([]applecsv.Row{{Title: "Fixture", Password: " 	 "}}, canonNone, nil, false, false)
+	if len(plans) != 1 || string(plans[0].value) != " 	 " || stats.noPassword != 0 {
+		t.Fatal("nonempty whitespace-only value must be preserved")
+	}
+}
+
+type fakeCSVStore struct {
+	present  map[string]bool
+	replaced []string
+}
+
+func (f *fakeCSVStore) Set(_ context.Context, name string, _ []byte, _ backend.Meta) error {
+	f.replaced = append(f.replaced, name)
+	f.present[name] = true
+	return nil
+}
+
+func (f *fakeCSVStore) SetIfAbsent(_ context.Context, name string, _ []byte, _ backend.Meta) error {
+	if f.present[name] {
+		return errors.New("concurrently added")
+	}
+	f.present[name] = true
+	return nil
+}
+
+func TestCSVWriteNeverOverwritesUnlistedName(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		store := &fakeCSVStore{present: map[string]bool{"new": true}}
+		if err := writeCSVPlans(context.Background(), store, []csvPlan{{name: "new"}}, nil, force); err == nil || len(store.replaced) != 0 {
+			t.Fatal("a name created after listing must not be overwritten")
+		}
+	}
+	store := &fakeCSVStore{present: map[string]bool{"known": true}}
+	if err := writeCSVPlans(context.Background(), store, []csvPlan{{name: "known"}}, map[string]bool{"known": true}, true); err != nil ||
+		!reflect.DeepEqual(store.replaced, []string{"known"}) {
+		t.Fatal("an existing conflict still supports explicit force")
 	}
 }

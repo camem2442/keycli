@@ -50,7 +50,8 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 - `Password` → 값. `Username`·`URL` → note(`username=… | url=…`). Apple의 `Notes` 셀은
   **기본 미보관**이다 — `kc ls --json`으로 에이전트에 읽히고, 사람들이 복구 코드·seed를
   거기에 넣기 때문이다. 필요하면 `--keep-notes`로 명시한다.
-- 이미 있는 이름은 `--force` 없이는 거부한다(age 번들 가져오기와 같은 규칙). 이름은 쓰기 전에
+- CSV는 설정된 로컬 file store에만 저장하며, 다른 백엔드로 우회하지 않는다.
+- 이미 있는 이름은 `--force` 없이는 거부한다. `--force`도 계획에 포함된 충돌 이름만 대체한다. 이름은 쓰기 전에
   canonical로 해석하므로 alias(`gh` → `github`)도 충돌로 잡힌다. 파일 안 중복에서 생기는
   `-2` 접미사는 기존 이름과 겹치지 않을 때까지 올라간다.
 - `--dry-run`은 이름과 `--force`가 필요한 이름만 보고하고, 충돌이 있어도 실패하지 않는다.

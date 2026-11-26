@@ -197,8 +197,8 @@ func headerIndex(head []string) (map[string]int, error) {
 	for i, col := range head {
 		name := canonicalHeader(col)
 		if name == "" {
-			return nil, fmt.Errorf("csv header column %d is %q; expected one of %s",
-				i+1, col, strings.Join(Header, ","))
+			return nil, fmt.Errorf("csv header column %d is unrecognized; expected one of %s",
+				i+1, strings.Join(Header, ","))
 		}
 		if _, dup := index[name]; dup {
 			return nil, fmt.Errorf("csv header repeats %q", name)
@@ -252,8 +252,8 @@ func (p *parser) next() ([]string, error) {
 			p.pos++
 			return p.recordDone(fields)
 		default:
-			return nil, fmt.Errorf("record %d: unexpected byte 0x%02x at offset %d after a quoted field",
-				p.record, p.data[p.pos], p.pos)
+			return nil, fmt.Errorf("record %d: unexpected data at offset %d after a quoted field",
+				p.record, p.pos)
 		}
 	}
 	return p.recordDone(fields)
