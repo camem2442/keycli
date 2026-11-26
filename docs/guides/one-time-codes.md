@@ -17,6 +17,8 @@ kc set github_otp --kind otp        # 값 입력 프롬프트에 otpauth://totp?
 - `otpauth://hotp`는 거부한다(카운터 동기화는 지원하지 않는다).
 - label 없는 Apple 표기(`otpauth://totp?secret=…`)도 받는다.
 - seed는 note로 옮기지 않는다. note는 `kc ls --json`으로 읽히는 메타데이터다.
+- 같은 이름을 다시 저장(교체)해도 `kind=otp`가 유지되고, 이때도 provider 검증을 건너뛴다.
+  `--kind none`으로 미분류로 되돌릴 수 있다.
 
 ## 코드 얻기
 

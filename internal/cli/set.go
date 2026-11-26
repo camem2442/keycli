@@ -13,6 +13,7 @@ import (
 	"github.com/camem2442/keycli/internal/interactive"
 	"github.com/camem2442/keycli/internal/kcerrors"
 	"github.com/camem2442/keycli/internal/secret"
+	"github.com/camem2442/keycli/internal/secretmeta"
 	"github.com/camem2442/keycli/internal/totp"
 	"github.com/camem2442/keycli/internal/verify"
 	"github.com/spf13/cobra"
@@ -63,6 +64,11 @@ func newSetCmd(a *app.App) *cobra.Command {
 			if (url != "" || username != "") && kind != "login" {
 				return fmt.Errorf("--url and --username require --kind login")
 			}
+			// --kind none returns an entry to unclassified.
+			if kind == "none" {
+				kind = ""
+			}
+			prev, hasPrev := secretmeta.Stored(cmd.Context(), a, name)
 			var value []byte
 			var err error
 			var cp clip.Provider
@@ -109,8 +115,13 @@ func newSetCmd(a *app.App) *cobra.Command {
 				exp = &t
 			}
 			// A seed is not a provider token: probing would send it to the
-			// provider API. kc otp validates it locally instead.
-			if !noVerify && kind != "otp" {
+			// provider API. kc otp validates it locally instead. A plain
+			// rotation keeps the stored kind, so resolve it before deciding.
+			effectiveKind := kind
+			if effectiveKind == "" && hasPrev {
+				effectiveKind = prev.Kind
+			}
+			if !noVerify && effectiveKind != "otp" {
 				vout, err := verify.Run(cmd.Context(), name, note, value, nil)
 				if err != nil {
 					return err
@@ -125,13 +136,14 @@ func newSetCmd(a *app.App) *cobra.Command {
 					}
 				}
 			}
-			if err := a.Resolver.Set(cmd.Context(), name, value, backend.Meta{
+			meta := secretmeta.MergeFlags(prev, hasPrev, backend.Meta{
 				Note:     note,
 				Expires:  exp,
 				Kind:     kind,
 				URL:      url,
 				Username: username,
-			}); err != nil {
+			}, cmd.Flags().Changed("kind"), cmd.Flags().Changed("url"), cmd.Flags().Changed("username"))
+			if err := a.Resolver.Set(cmd.Context(), name, value, meta); err != nil {
 				return err
 			}
 			// Clear the clipboard only after the value was stored, so a failed
@@ -172,7 +184,7 @@ func trimTrailingNewline(b []byte) []byte {
 
 // secretKinds are the recognised secret kinds. Empty means unclassified, which
 // is what every entry stored before kinds existed reports.
-var secretKinds = []string{"login", "token", "key", "otp", "note"}
+var secretKinds = []string{"login", "token", "key", "otp", "note", "none"}
 
 func validSecretKind(kind string) bool {
 	for _, k := range secretKinds {

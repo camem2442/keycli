@@ -135,10 +135,16 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 	}
 
 	rows := make([]applecsv.Row, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
 	requestedSeeds := make(map[string]struct{}, len(names))
+	var seedHints []string
 	for _, name := range names {
 		canon := a.Resolver.CanonicalName(name)
 		lower := strings.ToLower(canon)
+		if _, dup := seen[lower]; dup {
+			continue
+		}
+		seen[lower] = struct{}{}
 		val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
 		if err != nil {
 			if kcerrors.Code(err) == kcerrors.ExitNotFound {
@@ -155,6 +161,9 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 		if meta[lower].Kind == "otp" {
 			// The seed belongs on its login row; merge it in the second pass.
 			requestedSeeds[lower] = struct{}{}
+			if login := strings.TrimSuffix(canon, ".otp"); login != canon && login != "" {
+				seedHints = append(seedHints, login)
+			}
 			continue
 		}
 		m := meta[lower]
@@ -168,15 +177,21 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 	}
 
 	if len(rows) == 0 {
-		return fmt.Errorf("csv export writes login rows only; an otp entry is merged into its login row, so export the login name (for example %q) instead",
-			strings.TrimSuffix(a.Resolver.CanonicalName(names[0]), ".otp"))
+		if len(seedHints) > 0 {
+			return fmt.Errorf("csv export writes login rows only; a seed is merged into its login row, so export %s instead",
+				strings.Join(seedHints, ", "))
+		}
+		return fmt.Errorf("csv export writes login rows only; a seed (kind=otp) is merged into its login row, so name that login entry instead")
 	}
 
 	// Attach seeds that belong to an exported login row, reading each one
 	// through the normal policy path. A denied seed leaves the cell empty
 	// rather than failing the export or leaking anything.
-	unmatched := len(requestedSeeds)
-	denied := 0
+	rowTitles := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		rowTitles[strings.ToLower(row.Title)] = struct{}{}
+	}
+	deniedSeeds := make(map[string]struct{})
 	for i := range rows {
 		seedName := strings.ToLower(rows[i].Title) + ".otp"
 		if _, ok := meta[seedName]; !ok {
@@ -185,21 +200,25 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 		seed, _, err := a.Resolver.Get(readCtx(cmd, "export"), seedName)
 		if err != nil {
 			if kcerrors.Code(err) == kcerrors.ExitDenied || kcerrors.Code(err) == kcerrors.ExitNotFound {
-				denied++
-				if _, ok := requestedSeeds[seedName]; ok {
-					unmatched--
-				}
+				deniedSeeds[seedName] = struct{}{}
 				continue
 			}
 			return err
 		}
 		rows[i].OTPAuth = string(seed)
-		if _, ok := requestedSeeds[seedName]; ok {
-			unmatched--
-		}
 	}
-	if denied > 0 {
-		fmt.Fprintf(cmd.ErrOrStderr(), "kc: %d seed(s) were not exported because kc could not read them (policy or missing entry); their OTPAuth cell is empty\n", denied)
+	if len(deniedSeeds) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: %d seed(s) were not exported because kc could not read them (policy or missing entry); their OTPAuth cell is empty\n", len(deniedSeeds))
+	}
+	unmatched := 0
+	for seed := range requestedSeeds {
+		if _, denied := deniedSeeds[seed]; denied {
+			continue
+		}
+		login := strings.TrimSuffix(seed, ".otp")
+		if _, ok := rowTitles[login]; !ok {
+			unmatched++
+		}
 	}
 	if unmatched > 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(),
