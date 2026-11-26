@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"filippo.io/age"
 	"github.com/camem2442/keycli/internal/agebundle"
 	"github.com/camem2442/keycli/internal/app"
+	"github.com/camem2442/keycli/internal/applecsv"
 	"github.com/camem2442/keycli/internal/dotenv"
 	"github.com/camem2442/keycli/internal/exportrecv"
 	"github.com/camem2442/keycli/internal/kcerrors"
@@ -23,13 +26,16 @@ func newExportCmd(a *app.App) *cobra.Command {
 	var stdout bool
 	var verifiedRecipient string
 	var outputFile string
+	var allowPlaintext bool
 
 	cmd := &cobra.Command{
 		Use:   "export NAME...",
-		Short: "Export secrets (dotenv clipboard or age bundle)",
+		Short: "Export secrets (dotenv clipboard, age bundle, or Apple Passwords CSV)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			guarded := cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("output-file")
+			// --format csv uses --output-file too, but it is not an age bundle.
+			guarded := format != "csv" &&
+				(cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("output-file"))
 			if guarded {
 				if format != "" || toGitHub != "" || stdout || toRecipient == "" || verifiedRecipient == "" || outputFile == "" || len(args) != 1 {
 					return fmt.Errorf("verified export requires one secret, one explicit age recipient, verified recipient and output file")
@@ -44,6 +50,25 @@ func newExportCmd(a *app.App) *cobra.Command {
 				if _, ok := parsed.(*age.X25519Recipient); !ok || ssh {
 					return fmt.Errorf("verified export requires an X25519 recipient")
 				}
+			}
+			switch format {
+			case "", "dotenv":
+			case "csv":
+				if !allowPlaintext {
+					return fmt.Errorf("csv export writes plaintext; re-run with --allow-plaintext")
+				}
+				if outputFile == "" {
+					return fmt.Errorf("csv export requires --output-file")
+				}
+				if stdout || toRecipient != "" || toGitHub != "" || verifiedRecipient != "" {
+					return fmt.Errorf("csv export cannot be combined with --stdout, --to, --to-github or --verified-recipient")
+				}
+				return exportAppleCSV(cmd, a, args, outputFile)
+			default:
+				return fmt.Errorf("unknown --format %q; use dotenv or csv", format)
+			}
+			if allowPlaintext {
+				return fmt.Errorf("--allow-plaintext applies only to --format csv")
 			}
 			secrets := map[string][]byte{}
 			for _, name := range args {
@@ -83,13 +108,71 @@ func newExportCmd(a *app.App) *cobra.Command {
 			return kcerrors.ErrUsage
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "", "dotenv: copy to clipboard (never print to TTY)")
+	cmd.Flags().StringVar(&format, "format", "", "dotenv: copy to clipboard (never print to TTY); csv: plaintext file for Apple Passwords")
 	cmd.Flags().StringVar(&toRecipient, "to", "", "age1… or ssh-… recipient")
 	cmd.Flags().StringVar(&toGitHub, "to-github", "", "Fetch ssh keys from github.com/USER.keys")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write dotenv to stdout when stdout is not a TTY")
+	cmd.Flags().BoolVar(&allowPlaintext, "allow-plaintext", false, "With --format csv: acknowledge that the output file is unencrypted")
 	cmd.Flags().StringVar(&verifiedRecipient, "verified-recipient", "", "recipient independently verified by operator before reading secrets")
-	cmd.Flags().StringVar(&outputFile, "output-file", "", "create a new encrypted bundle file (0600; requires verified recipient)")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "create a new encrypted bundle file (0600; requires verified recipient); with --format csv: plaintext CSV file (0600)")
 	return cmd
+}
+
+// exportAppleCSV writes the six-column CSV that the Apple Passwords app
+// imports. Notes come from kc metadata; URL and OTPAuth stay empty because kc
+// does not hold them.
+func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile string) error {
+	items, err := a.Resolver.List(cmd.Context())
+	if err != nil {
+		return err
+	}
+	notes := make(map[string]string, len(items))
+	for _, it := range items {
+		notes[strings.ToLower(it.Name)] = it.Note
+	}
+
+	rows := make([]applecsv.Row, 0, len(names))
+	for _, name := range names {
+		canon := a.Resolver.CanonicalName(name)
+		val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
+		if err != nil {
+			if kcerrors.Code(err) == kcerrors.ExitNotFound {
+				fmt.Fprintf(cmd.ErrOrStderr(), "kc: %s 없음. 사용자에게 'kc set %s' 실행을 요청하세요.\n", name, name)
+			}
+			if kcerrors.Code(err) == kcerrors.ExitDenied {
+				fmt.Fprintf(cmd.ErrOrStderr(), "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
+			}
+			return err
+		}
+		if !utf8.Valid(val) {
+			return fmt.Errorf("secret %s is not valid UTF-8; the csv format is text-only", canon)
+		}
+		rows = append(rows, applecsv.Row{
+			Title:    canon,
+			Password: string(val),
+			Notes:    notes[strings.ToLower(canon)],
+		})
+	}
+
+	data, err := applecsv.Format(rows)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create csv output: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write csv output: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close csv output; inspect the file before reuse: %w", err)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"kc: wrote %d row(s) to %s (plaintext, 0600). Import it in Passwords (File > Import Passwords from File), then delete it.\n",
+		len(rows), outputFile)
+	return nil
 }
 
 func exportDotenv(cmd *cobra.Command, a *app.App, secrets map[string][]byte, stdout bool) error {

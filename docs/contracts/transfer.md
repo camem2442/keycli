@@ -26,10 +26,41 @@ status: implemented
 |---|---|---|
 | Codex Cloud, Claude Code 웹 | `--format dotenv` (클립보드) | 두 플랫폼 모두 `.env` 붙여넣기 지원 |
 | Cursor | push 우선, 일괄 붙여넣기는 **NOT VERIFIED** | |
+| Apple Passwords (macOS·iOS) | `--format csv` (평문 파일, `0600`·`O_EXCL`) | 앱은 CSV 가져오기만 제공하고 CLI·스크립팅 인터페이스가 없다 |
 
 `--stdout`은 stdout이 TTY가 **아닐 때만** dotenv 출력. TTY에서는 클립보드만.
 
 `--to-github USER`는 `https://github.com/USER.keys` 를 가져온다. **push 외 유일한 네트워크 사용** (export 시).
+
+## Apple Passwords (CSV)
+
+Apple Passwords 앱은 `File > Import Passwords from File`로 CSV를 읽고,
+`File > Export All Passwords to File`로 6열 CSV(`Title,URL,Username,Password,Notes,OTPAuth`)를
+쓴다. 두 경로 모두 **평문**이며 앱에는 CLI·스크립팅 인터페이스가 없다(`sdef` -192,
+[iCloud 웹 앱 없음](../reviews/2026-11-21-gitcoord-owner-signing-key.md)). 그래서 kc는
+파일로만 주고받는다.
+
+```bash
+kc export github --format csv --output-file /tmp/kc.csv --allow-plaintext
+# Passwords: File > Import Passwords from File > /tmp/kc.csv > Import > Delete kc.csv
+
+kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext --dry-run
+kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
+```
+
+한계와 손실:
+
+| 항목 | 동작 |
+|---|---|
+| passkey | CSV에 없다(앱이 내보내지 않음) |
+| 삭제 대기 항목 | 내보내기에서 빠진다 |
+| 항목당 두 번째 이후 URL | 첫 URL만 남고 나머지는 표시 없이 사라진다 |
+| 검증 코드 | Apple은 label 없는 `otpauth://totp?secret=…`로 쓴다. kc에는 TOTP가 없어 기본 미보관, `--keep-otp`면 `NAME.otp` 시크릿 |
+| 값의 CRLF | kc는 바이트를 보존하는 자체 CSV 코덱을 쓴다(표준 `encoding/csv`는 인용 필드 안의 CRLF를 LF로 바꾼다) |
+
+`kc export --format csv`는 URL·Username·OTPAuth를 빈 셀로 쓰고 kc note만 Notes에 넣는다.
+그래서 가져온 항목은 웹사이트 자동완성 대상이 아니다. 실제 Passwords 앱에서의
+가져오기·자동완성 결과는 **NOT VERIFIED**다.
 
 ## age 전달
 

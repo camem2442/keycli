@@ -39,7 +39,9 @@ status: implemented
 | `kc auth wif-check --registration PATH --registration-sha256 SHA256` | 등록된 GitHub Actions 또는 OCI 호스트의 OpenAI 모델 조회를 한 번 실행하고 메타데이터 영수증 출력. [호스트 등록과 실행](../guides/wif-host-check.md) |
 | `kc push cursor\|gh\|cloudflare [NAME...] [--repos …] [--worker W --worker-env E --wrangler-config PATH]` | 플랫폼 시크릿에 직접 등록 ([전송 계약](transfer.md)) |
 | `kc export NAME... --to KEY\|--to-github USER\|--format dotenv` | 암호화 번들 또는 클립보드용 dotenv |
+| `kc export NAME... --format csv --output-file F --allow-plaintext` | Apple Passwords 가져오기용 6열 CSV(`Title,URL,Username,Password,Notes,OTPAuth`). **평문·`0600`·`O_EXCL`**, stdout 불가, `--to`·`--to-github`·`--stdout`·`--verified-recipient`와 조합 불가. Title=시크릿 이름, Password=값, Notes=kc note, URL·Username·OTPAuth는 빈 셀. 값이 UTF-8이 아니면 거부. 성공 시 행 수만 stderr에 보고 ([가이드](../guides/apple-passwords-csv.md)) |
 | `kc import [--force]` | stdin의 age 번들을 저장소에 추가. 번들은 만료를 싣지 않으며, **기존 이름을 덮어쓰려 하면 거부**한다(`--force` 필요). 성공 시 "no expiry" 경고를 stderr에 남긴다 |
+| `kc import --format csv [--input-file F] --allow-plaintext [--dry-run] [--keep-otp] [--force]` | Apple Passwords CSV를 저장소에 추가. Title→이름(소문자·`[a-z0-9._-]`, 중복은 `-2`), Password→값, Username·URL·Notes→note, 같은 파일 내 중복 제목은 접미사. 이름이 이미 있으면 `--force` 필요. 비밀번호 없는 행은 건너뛰고, OTPAuth는 기본 미보관(개수만 보고)이며 `--keep-otp`면 `NAME.otp`로 저장한다 — note 필드는 `ls --json`으로 읽히므로 2FA seed를 note에 넣지 않는다. `--dry-run`은 이름만 출력하고 쓰지 않는다 ([가이드](../guides/apple-passwords-csv.md)) |
 | `kc status` | 내보낸 뒤 바뀐 항목 표시. 읽을 수 없는 이름은 값 없이 stderr에 이름·사유를 보고 |
 | `kc doctor [--json]` | 백엔드·config·키·PATH 충돌 (값 미출력) |
 | `kc plugin list [--json]` | `kc-backend-*` 발견, enabled, protocol v1, capabilities (enabled만 handshake) |

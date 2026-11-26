@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"filippo.io/age"
 	"github.com/camem2442/keycli/internal/agebundle"
 	"github.com/camem2442/keycli/internal/app"
+	"github.com/camem2442/keycli/internal/applecsv"
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
@@ -18,10 +20,22 @@ import (
 func newImportCmd(a *app.App) *cobra.Command {
 	var expectedDigest, verifiedRecipient, expectedName string
 	var force bool
+	var format, inputFile string
+	var allowPlaintext, dryRun, keepOTP bool
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Import an age bundle from stdin into the file store",
+		Short: "Import an age bundle from stdin, or an Apple Passwords CSV, into the file store",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			switch format {
+			case "":
+			case "csv":
+				return importAppleCSV(cmd, a, inputFile, allowPlaintext, dryRun, keepOTP, force)
+			default:
+				return fmt.Errorf("unknown --format %q; only csv is supported", format)
+			}
+			if inputFile != "" || allowPlaintext || dryRun || keepOTP {
+				return fmt.Errorf("--input-file, --allow-plaintext, --dry-run and --keep-otp apply only to --format csv")
+			}
 			guarded := cmd.Flags().Changed("expected-sha256") || cmd.Flags().Changed("verified-recipient") || cmd.Flags().Changed("expected-name")
 			if guarded && (expectedDigest == "" || verifiedRecipient == "" || expectedName == "") {
 				return fmt.Errorf("guarded import requires --expected-sha256, --verified-recipient and --expected-name")
@@ -95,7 +109,190 @@ func newImportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&verifiedRecipient, "verified-recipient", "", "receiver public recipient independently verified by operator")
 	cmd.Flags().StringVar(&expectedName, "expected-name", "", "single expected secret name; existing values are not overwritten")
 	cmd.Flags().BoolVar(&force, "force", false, "Allow an unguarded import to overwrite existing secret names")
+	cmd.Flags().StringVar(&format, "format", "", "csv: read an Apple Passwords CSV instead of an age bundle")
+	cmd.Flags().StringVar(&inputFile, "input-file", "", "with --format csv: read this file instead of stdin")
+	cmd.Flags().BoolVar(&allowPlaintext, "allow-plaintext", false, "with --format csv: acknowledge that the input is unencrypted")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "with --format csv: print the names that would be imported, write nothing")
+	cmd.Flags().BoolVar(&keepOTP, "keep-otp", false, "with --format csv: store each verification code as NAME.otp")
 	return cmd
+}
+
+// csvPlan is one secret that a CSV import will write.
+type csvPlan struct {
+	name  string
+	value []byte
+	note  string
+}
+
+// importAppleCSV turns the six-column Apple Passwords CSV into secrets. The
+// password column becomes the value; username, URL and the original notes
+// become metadata. Verification codes are secrets too, so they are never
+// copied into the note field — that field is readable through `kc ls --json`.
+func importAppleCSV(cmd *cobra.Command, a *app.App, inputFile string, allowPlaintext, dryRun, keepOTP, force bool) error {
+	if !allowPlaintext {
+		return fmt.Errorf("csv input is plaintext; re-run with --allow-plaintext")
+	}
+	var r io.Reader = cmd.InOrStdin()
+	if inputFile != "" {
+		f, err := os.Open(inputFile)
+		if err != nil {
+			return fmt.Errorf("open csv input: %w", err)
+		}
+		defer f.Close()
+		r = f
+	}
+	rows, err := applecsv.Parse(r)
+	if err != nil {
+		return err
+	}
+
+	items, err := a.Resolver.List(cmd.Context())
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]bool, len(items))
+	for _, it := range items {
+		existing[strings.ToLower(it.Name)] = true
+	}
+
+	plans, stats := planCSVImport(rows, existing, keepOTP)
+	if len(plans) == 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: csv에 가져올 항목이 없습니다 (건너뜀 %d행).\n", stats.skipped)
+		return nil
+	}
+	conflicts := conflictNames(plans, existing)
+	if len(conflicts) > 0 && !force {
+		return fmt.Errorf("refusing to overwrite %d existing secret(s): %s (re-run with --force)",
+			len(conflicts), strings.Join(conflicts, ", "))
+	}
+	if len(conflicts) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
+			len(conflicts), strings.Join(conflicts, ", "))
+	}
+
+	if dryRun {
+		names := make([]string, 0, len(plans))
+		for _, p := range plans {
+			names = append(names, p.name)
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: dry run: %d secret(s) would be written: %s\n",
+			len(names), summarise(names, 20))
+		reportCSVSkips(cmd, stats, keepOTP)
+		return nil
+	}
+
+	for _, p := range plans {
+		if err := a.Resolver.Set(cmd.Context(), p.name, p.value, backend.Meta{Note: p.note}); err != nil {
+			return fmt.Errorf("store %s: %w", p.name, err)
+		}
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"kc: imported %d secret(s) from CSV with no expiry — record rotation ownership; `kc ls` shows expires\n",
+		len(plans))
+	reportCSVSkips(cmd, stats, keepOTP)
+	fmt.Fprintln(cmd.ErrOrStderr(), "kc: delete the source CSV now that the import finished")
+	return nil
+}
+
+type csvStats struct {
+	skipped    int
+	noPassword int
+	otp        int
+}
+
+// planCSVImport builds the write set: one secret per row with a password, an
+// extra NAME.otp per row with a verification code when keepOTP is set. Titles
+// that collide inside the file get -2, -3 suffixes.
+func planCSVImport(rows []applecsv.Row, existing map[string]bool, keepOTP bool) ([]csvPlan, csvStats) {
+	var (
+		plans []csvPlan
+		stats csvStats
+		used  = make(map[string]bool, len(rows))
+	)
+	for _, row := range rows {
+		if strings.TrimSpace(row.Password) == "" {
+			stats.skipped++
+			stats.noPassword++
+			continue
+		}
+		name := uniqueName(applecsv.NameFromTitle(row.Title), used)
+		used[name] = true
+		plans = append(plans, csvPlan{
+			name:  name,
+			value: []byte(row.Password),
+			note:  csvNote(row),
+		})
+		if !applecsv.IsOTPAuth(row.OTPAuth) {
+			continue
+		}
+		if !keepOTP {
+			stats.otp++
+			continue
+		}
+		otpName := uniqueName(name+".otp", used)
+		used[otpName] = true
+		plans = append(plans, csvPlan{
+			name:  otpName,
+			value: []byte(row.OTPAuth),
+			note:  "otpauth from Apple Passwords entry " + name,
+		})
+	}
+	return plans, stats
+}
+
+func uniqueName(base string, used map[string]bool) string {
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !used[candidate] {
+			return candidate
+		}
+	}
+}
+
+func csvNote(row applecsv.Row) string {
+	var parts []string
+	if row.Username != "" {
+		parts = append(parts, "username="+row.Username)
+	}
+	if row.URL != "" {
+		parts = append(parts, "url="+row.URL)
+	}
+	if row.Notes != "" {
+		parts = append(parts, row.Notes)
+	}
+	return strings.Join(parts, " | ")
+}
+
+func conflictNames(plans []csvPlan, existing map[string]bool) []string {
+	var out []string
+	for _, p := range plans {
+		if existing[strings.ToLower(p.name)] {
+			out = append(out, p.name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func reportCSVSkips(cmd *cobra.Command, stats csvStats, keepOTP bool) {
+	if stats.noPassword > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: skipped %d row(s) without a password\n", stats.noPassword)
+	}
+	if stats.otp > 0 && !keepOTP {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"kc: %d verification code(s) were not imported (kc has no TOTP support); re-run with --keep-otp to store them as NAME.otp\n",
+			stats.otp)
+	}
+}
+
+func summarise(names []string, limit int) string {
+	if len(names) <= limit {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s, … (+%d)", strings.Join(names[:limit], ", "), len(names)-limit)
 }
 
 // overwriteCandidates returns the sorted canonical names in secrets that

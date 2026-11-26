@@ -1,5 +1,24 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-26 — Apple Passwords CSV 양방향
+
+`kc export --format csv --output-file F --allow-plaintext`와
+`kc import --format csv [--input-file F] --allow-plaintext [--dry-run] [--keep-otp]`를
+추가했다. 근거: Passwords 앱은 CSV 가져오기만 제공하고 CLI·스크립팅 인터페이스가 없어
+(`sdef` -192) 파일 경로만 가능하다. 형식은 `Title,URL,Username,Password,Notes,OTPAuth`
+이고 Apple은 검증 코드를 label 없는 `otpauth://totp?secret=…`로 쓴다. 표준
+`encoding/csv`는 인용 필드 안의 CRLF를 LF로 바꾸고 CRLF 출력 모드에서 홑 `\r`을 버려
+바이트가 달라지므로 `internal/applecsv`에 보존 코덱을 두었다.
+
+- 평문 출력은 `0600`·`O_EXCL`·stdout 금지, `--allow-plaintext` 없으면 거부.
+- 가져오기는 기존 이름을 `--force` 없이 덮어쓰지 않고, 비밀번호 없는 행은 건너뛴다.
+- `OTPAuth`는 기본 미보관(note 필드는 `ls --json`으로 읽히므로 seed를 넣지 않는다),
+  `--keep-otp`면 `NAME.otp` 시크릿.
+- 계약·가이드: [cli.md](docs/contracts/cli.md), [transfer.md](docs/contracts/transfer.md),
+  [apple-passwords-csv.md](docs/guides/apple-passwords-csv.md).
+- Linux CI: 코덱·CLI 가드·왕복 **PASS**(합성 값). 실제 Passwords 앱 가져오기·자동완성·
+  Touch ID 프롬프트는 **NOT VERIFIED**.
+
 ## 2026-11-21 — GitCoord owner 서명 키 보관
 
 GitCoord owner attestation용 Ed25519 키를 생성해 `kc set
