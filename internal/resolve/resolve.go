@@ -270,26 +270,55 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 	return out, nil
 }
 
-// Set writes to the first writable available backend.
-func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
-	canon := r.CanonicalName(name)
+// writeBackend returns the backend Set would write to.
+func (r *Resolver) writeBackend(ctx context.Context) (backend.Backend, error) {
 	for _, b := range r.backends {
 		if !b.Caps().CanWrite {
 			continue
 		}
-		ok, reason, err := b.Available(ctx)
+		ok, _, err := b.Available(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
-			if reason != "" {
-				continue
-			}
 			continue
 		}
-		return b.Set(ctx, canon, value, meta)
+		return b, nil
 	}
-	return fmt.Errorf("%w: 사용 가능한 쓰기 저장소 없음 (kc init 또는 KC_KEY 확인)", kcerrors.ErrLocked)
+	return nil, fmt.Errorf("%w: 사용 가능한 쓰기 저장소 없음 (kc init 또는 KC_KEY 확인)", kcerrors.ErrLocked)
+}
+
+// Set writes to the first writable available backend.
+func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
+	b, err := r.writeBackend(ctx)
+	if err != nil {
+		return err
+	}
+	return b.Set(ctx, r.CanonicalName(name), value, meta)
+}
+
+// StoredItem returns the metadata that Set would overwrite. It asks the write
+// backend itself, not List, because a read-only backend in front of it (env)
+// shadows the name without holding any metadata.
+func (r *Resolver) StoredItem(ctx context.Context, name string) (backend.Item, bool, error) {
+	b, err := r.writeBackend(ctx)
+	if err != nil {
+		return backend.Item{}, false, err
+	}
+	if !b.Caps().CanList {
+		return backend.Item{}, false, nil
+	}
+	items, err := b.List(ctx)
+	if err != nil {
+		return backend.Item{}, false, err
+	}
+	canon := r.CanonicalName(name)
+	for _, it := range items {
+		if strings.EqualFold(r.CanonicalName(it.Name), canon) {
+			return it, true, nil
+		}
+	}
+	return backend.Item{}, false, nil
 }
 
 // Delete removes from writable backends that hold the name.

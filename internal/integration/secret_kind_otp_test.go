@@ -372,3 +372,51 @@ allow = ["site_login"]
 		t.Fatalf("denied seed reported %d times: %q", strings.Count(stderr, "seed(s)"), stderr)
 	}
 }
+
+// TestRotationPreservesMetadataBehindEnvShadow covers the case where a
+// read-only backend in front of the store shadows the name: the merge must use
+// the record the write backend will overwrite, not the shadowing entry.
+func TestRotationPreservesMetadataBehindEnvShadow(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "kc")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configToml := `
+order = ["env", "store"]
+
+[backend.env]
+type = "env"
+
+[backend.store]
+type = "file"
+path = "` + filepath.Join(home, ".kc", "store.age") + `"
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configToml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"HOME=" + home, "KC_KEY=" + id.String()}
+	shadowed := append(append([]string{}, base...), "SHADOW_TOKEN=from-env")
+	if c, _, stderr := runKCSplit(shadowed, "first", "set", "shadow_token", "--no-verify",
+		"--kind", "login", "--url", "https://example.test/", "--username", "octocat"); c != 0 {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	// Rotate while the env backend still shadows the name.
+	if c, _, stderr := runKCSplit(shadowed, "second", "set", "shadow_token", "--no-verify"); c != 0 {
+		t.Fatalf("rotate failed: %s", stderr)
+	}
+	// Drop the shadow so ls reports the stored record.
+	c, meta, _ := runKCSplit(base, "", "ls", "--json")
+	if c != 0 || !strings.Contains(meta, `"kind": "login"`) ||
+		!strings.Contains(meta, `"username": "octocat"`) ||
+		!strings.Contains(meta, `"url": "https://example.test/"`) {
+		t.Fatalf("rotation behind an env shadow dropped metadata: %s", meta)
+	}
+	if c, got, _ := runKCSplit(base, "", "get", "shadow_token"); c != 0 || strings.TrimSpace(got) != "second" {
+		t.Fatalf("stored value did not rotate: %q (%d)", got, c)
+	}
+}

@@ -100,8 +100,12 @@ func newImportCmd(a *app.App) *cobra.Command {
 					len(overwrites), strings.Join(overwrites, ", "))
 			}
 			for name, val := range secrets {
-				prev, hasPrev := secretmeta.Stored(cmd.Context(), a, name)
-				if err := a.Resolver.Set(cmd.Context(), name, val, secretmeta.Preserve(prev, hasPrev, backend.Meta{})); err != nil {
+				meta := backend.Meta{}
+				prev, ok, err := secretmeta.Stored(cmd.Context(), a, name)
+				if err != nil {
+					return err
+				}
+				if err := a.Resolver.Set(cmd.Context(), name, val, secretmeta.Preserve(prev, ok, meta)); err != nil {
 					return err
 				}
 			}
