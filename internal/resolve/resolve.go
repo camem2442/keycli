@@ -190,6 +190,9 @@ type ListItem struct {
 	Backend      string   `json:"backend"`
 	Source       string   `json:"source,omitempty"`
 	Note         string   `json:"note"`
+	Kind         string   `json:"kind,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Username     string   `json:"username,omitempty"`
 	Expires      *string  `json:"expires"`
 	StaleExport  bool     `json:"stale_export"`
 	PolicyDenied bool     `json:"policy_denied"`
@@ -239,12 +242,15 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 					src = lk.SourceFor(canon)
 				}
 				li = ListItem{
-					Name:    canon,
-					Aliases: append([]string{}, aliases...),
-					Backend: b.InstanceName(),
-					Source:  src,
-					Note:    it.Note,
-					Expires: exp,
+					Name:     canon,
+					Aliases:  append([]string{}, aliases...),
+					Backend:  b.InstanceName(),
+					Source:   src,
+					Note:     it.Note,
+					Kind:     it.Kind,
+					URL:      it.URL,
+					Username: it.Username,
+					Expires:  exp,
 				}
 				byName[strings.ToLower(canon)] = li
 			}

@@ -138,8 +138,11 @@ func TestAppleCSVImportNamesAndVerificationCodes(t *testing.T) {
 		t.Fatal("verification code stored without --keep-otp")
 	}
 	c, meta, _ := runKCSplit(env, "", "ls", "--json")
-	if c != 0 || !strings.Contains(meta, "username=octocat") {
+	if c != 0 || !strings.Contains(meta, `"username": "octocat"`) {
 		t.Fatal("username not kept as metadata")
+	}
+	if strings.Contains(meta, "username=octocat") {
+		t.Fatal("username still folded into the note")
 	}
 	if strings.Contains(meta, "note one") {
 		t.Fatal("Notes cell copied into agent-readable metadata without --keep-notes")

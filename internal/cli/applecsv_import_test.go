@@ -48,8 +48,8 @@ func TestPlanCSVImportKeepsVerificationCodeOnlyOnRequest(t *testing.T) {
 		t.Fatalf("default must keep the code out of the store: %v %+v", plans, stats)
 	}
 	for _, p := range plans {
-		if p.note != "" {
-			t.Fatalf("code leaked into note: %q", p.note)
+		if p.meta.Note != "" {
+			t.Fatalf("code leaked into note: %q", p.meta.Note)
 		}
 	}
 
@@ -57,8 +57,11 @@ func TestPlanCSVImportKeepsVerificationCodeOnlyOnRequest(t *testing.T) {
 	if len(plans) != 2 || stats.otp != 0 {
 		t.Fatalf("--keep-otp plans = %v stats = %+v", plans, stats)
 	}
-	if plans[1].name != "site.otp" || string(plans[1].value) != rows[0].OTPAuth {
+	if plans[1].name != "site.otp" || string(plans[1].value) != rows[0].OTPAuth || plans[1].meta.Kind != "otp" {
 		t.Fatalf("otp plan = %+v", plans[1])
+	}
+	if plans[0].meta.Kind != "login" {
+		t.Fatalf("login plan kind = %q", plans[0].meta.Kind)
 	}
 }
 
@@ -68,10 +71,10 @@ func TestCSVNoteKeepsNotesCellOnlyOnRequest(t *testing.T) {
 		URL:      "https://example.test/",
 		Notes:    "RECOVERY-CODE-AAAA-BBBB",
 	}
-	if got, want := csvNote(row, false), "username=octocat | url=https://example.test/"; got != want {
-		t.Fatalf("default note = %q, want %q", got, want)
+	if got := csvNote(row, false); got != "" {
+		t.Fatalf("default note = %q, want empty", got)
 	}
-	if got, want := csvNote(row, true), "username=octocat | url=https://example.test/ | RECOVERY-CODE-AAAA-BBBB"; got != want {
+	if got, want := csvNote(row, true), "RECOVERY-CODE-AAAA-BBBB"; got != want {
 		t.Fatalf("--keep-notes note = %q, want %q", got, want)
 	}
 	if got := csvNote(applecsv.Row{}, false); got != "" {
