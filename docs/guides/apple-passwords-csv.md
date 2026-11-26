@@ -70,6 +70,8 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 - 이전 버전에서 가져온 항목의 note에 남아 있는 `username=… | url=…` 문자열은 자동으로
   전용 필드로 옮기지 않는다. 필요하면 `kc set NAME --kind login --url … --username …`으로
   다시 지정한다(같은 이름을 덮어쓰면 값이 바뀌므로 주의).
+- `--force`로 같은 이름을 다시 가져오면 CSV가 정본이다. 그 행의 `URL`·`Username` 셀이
+  비어 있으면 기존 값도 지워진다(빈 셀을 "변경 없음"으로 해석하지 않는다).
 
 ## 손실되는 것
 

@@ -14,6 +14,7 @@ import (
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/applecsv"
 	"github.com/camem2442/keycli/internal/backend"
+	"github.com/camem2442/keycli/internal/secretmeta"
 	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
 )
@@ -100,7 +101,8 @@ func newImportCmd(a *app.App) *cobra.Command {
 					len(overwrites), strings.Join(overwrites, ", "))
 			}
 			for name, val := range secrets {
-				if err := a.Resolver.Set(cmd.Context(), name, val, backend.Meta{}); err != nil {
+				prev, hasPrev := secretmeta.Stored(cmd.Context(), a, name)
+				if err := a.Resolver.Set(cmd.Context(), name, val, secretmeta.Preserve(prev, hasPrev, backend.Meta{})); err != nil {
 					return err
 				}
 			}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"filippo.io/age"
 	"github.com/camem2442/keycli/internal/backend/file"
 )
 
@@ -238,6 +239,15 @@ func TestSeedOnlyCSVExportFails(t *testing.T) {
 	if !strings.Contains(stderr, "site_login") {
 		t.Fatalf("error does not name the login entry to export: %q", stderr)
 	}
+	// A seed without the .otp suffix must not be suggested as its own login.
+	if c, _, stderr := runKCSplit(env, "synthetic-seed", "set", "github_2fa", "--no-verify", "--kind", "otp"); c != 0 {
+		t.Fatalf("set github_2fa failed: %s", stderr)
+	}
+	c, _, stderr = runKCSplit(env, "", "export", "github_2fa", "--format", "csv",
+		"--allow-plaintext", "--output-file", filepath.Join(t.TempDir(), "seed.csv"))
+	if c == 0 || !strings.Contains(stderr, "login entry") {
+		t.Fatalf("seed-only export without suffix: %d %q", c, stderr)
+	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("seed-only export left a file: %v", err)
 	}
@@ -253,18 +263,112 @@ func TestRotationKeepsAndReclassificationDropsMetadata(t *testing.T) {
 	if c, _, stderr := runKCSplit(env, "second", "set", "site_login", "--no-verify"); c != 0 {
 		t.Fatalf("rotate failed: %s", stderr)
 	}
+	if c, got, _ := runKCSplit(env, "", "get", "site_login"); c != 0 || strings.TrimSpace(got) != "second" {
+		t.Fatalf("rotation did not replace the value: %q (%d)", got, c)
+	}
 	c, meta, _ := runKCSplit(env, "", "ls", "--json")
 	if c != 0 || !strings.Contains(meta, `"kind": "login"`) ||
 		!strings.Contains(meta, `"username": "octocat"`) ||
 		!strings.Contains(meta, `"url": "https://example.test/"`) {
 		t.Fatalf("rotation dropped metadata: %s", meta)
 	}
+
+	// An explicit empty flag clears just that field.
+	if c, _, stderr := runKCSplit(env, "third", "set", "site_login", "--no-verify", "--url", ""); c != 0 {
+		t.Fatalf("clear url failed: %s", stderr)
+	}
+	c, meta, _ = runKCSplit(env, "", "ls", "--json")
+	if c != 0 || strings.Contains(meta, `"url"`) || !strings.Contains(meta, `"username": "octocat"`) {
+		t.Fatalf("--url \"\" did not clear only the url: %s", meta)
+	}
+
 	// Reclassifying away from login drops the login-only fields.
-	if c, _, stderr := runKCSplit(env, "third", "set", "site_login", "--no-verify", "--kind", "token"); c != 0 {
+	if c, _, stderr := runKCSplit(env, "fourth", "set", "site_login", "--no-verify", "--kind", "token"); c != 0 {
 		t.Fatalf("reclassify failed: %s", stderr)
 	}
 	c, meta, _ = runKCSplit(env, "", "ls", "--json")
-	if c != 0 || !strings.Contains(meta, `"kind": "token"`) || strings.Contains(meta, `"username"`) {
+	if c != 0 || !strings.Contains(meta, `"kind": "token"`) || strings.Contains(meta, `"username"`) || strings.Contains(meta, `"url"`) {
 		t.Fatalf("reclassification kept login fields: %s", meta)
+	}
+
+	// --kind none returns the entry to unclassified.
+	if c, _, stderr := runKCSplit(env, "fifth", "set", "site_login", "--no-verify", "--kind", "none"); c != 0 {
+		t.Fatalf("--kind none failed: %s", stderr)
+	}
+	c, meta, _ = runKCSplit(env, "", "ls", "--json")
+	if c != 0 || strings.Contains(meta, `"kind"`) {
+		t.Fatalf("--kind none left a classification: %s", meta)
+	}
+}
+
+// TestCSVExportDeniedSeedKeepsLoginRow covers the policy path: the login row
+// is exported, the seed it points at is denied, and the cell stays empty
+// without failing or double-reporting.
+func TestCSVExportDeniedSeedKeepsLoginRow(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".config", "kc")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configToml := `
+middleware = ["policy"]
+order = ["env", "store"]
+
+[backend.env]
+type = "env"
+
+[backend.store]
+type = "file"
+path = "` + filepath.Join(home, ".kc", "store.age") + `"
+
+[policy.agent.codex]
+allow = ["site_login"]
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configToml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	admin := []string{"HOME=" + home, "KC_KEY=" + id.String()}
+	if c, _, stderr := runKCSplit(admin, "synthetic-only", "set", "site_login", "--no-verify",
+		"--kind", "login", "--url", "https://example.test/"); c != 0 {
+		t.Fatalf("set login failed: %s", stderr)
+	}
+	uri := "otpauth://totp?secret=" + rfcSeedB32 + "&digits=6&period=30"
+	if c, _, stderr := runKCSplit(admin, uri, "set", "site_login.otp", "--no-verify", "--kind", "otp"); c != 0 {
+		t.Fatalf("set otp failed: %s", stderr)
+	}
+
+	agent := append(append([]string{}, admin...), "KC_AGENT=codex")
+	out := filepath.Join(t.TempDir(), "passwords.csv")
+	c, _, stderr := runKCSplit(agent, "", "export", "site_login", "--format", "csv",
+		"--allow-plaintext", "--output-file", out)
+	if c != 0 {
+		t.Fatalf("export denied the login row too: %s", stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), uri) {
+		t.Fatalf("denied seed was exported: %q", data)
+	}
+	if !strings.Contains(string(data), "site_login,https://example.test/") {
+		t.Fatalf("login row missing: %q", data)
+	}
+	if !strings.Contains(stderr, "도") && !strings.Contains(stderr, "were not exported") {
+		t.Fatalf("denied seed not reported: %q", stderr)
+	}
+
+	// A second export naming the same row twice must not double-count.
+	c, _, stderr = runKCSplit(agent, "", "export", "site_login", "site_login", "--format", "csv",
+		"--allow-plaintext", "--output-file", filepath.Join(t.TempDir(), "again.csv"))
+	if c != 0 {
+		t.Fatalf("duplicate export failed: %s", stderr)
+	}
+	if strings.Count(stderr, "1 seed(s)") != 1 {
+		t.Fatalf("denied seed reported %d times: %q", strings.Count(stderr, "seed(s)"), stderr)
 	}
 }
