@@ -141,15 +141,6 @@ func (c Config) Code(t time.Time) (string, error) {
 	return fmt.Sprintf("%0*d", c.digits, binary32%mod), nil
 }
 
-// Remaining reports how many seconds the current step has left.
-func (c Config) Remaining(t time.Time) int {
-	rem := c.period - int(t.Unix()%int64(c.period))
-	if rem == c.period {
-		return c.period
-	}
-	return rem
-}
-
 func (c Config) hash() hash.Hash {
 	switch c.algorithm {
 	case "SHA256":

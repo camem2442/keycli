@@ -167,10 +167,16 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 		})
 	}
 
+	if len(rows) == 0 {
+		return fmt.Errorf("csv export writes login rows only; an otp entry is merged into its login row, so export the login name (for example %q) instead",
+			strings.TrimSuffix(a.Resolver.CanonicalName(names[0]), ".otp"))
+	}
+
 	// Attach seeds that belong to an exported login row, reading each one
 	// through the normal policy path. A denied seed leaves the cell empty
 	// rather than failing the export or leaking anything.
-	unmerged := len(requestedSeeds)
+	unmatched := len(requestedSeeds)
+	denied := 0
 	for i := range rows {
 		seedName := strings.ToLower(rows[i].Title) + ".otp"
 		if _, ok := meta[seedName]; !ok {
@@ -179,20 +185,26 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 		seed, _, err := a.Resolver.Get(readCtx(cmd, "export"), seedName)
 		if err != nil {
 			if kcerrors.Code(err) == kcerrors.ExitDenied || kcerrors.Code(err) == kcerrors.ExitNotFound {
-				fmt.Fprintf(cmd.ErrOrStderr(), "kc: %s seed를 읽을 수 없어 OTPAuth 셀을 비웁니다(정책 거부 또는 누락).\n", seedName)
+				denied++
+				if _, ok := requestedSeeds[seedName]; ok {
+					unmatched--
+				}
 				continue
 			}
 			return err
 		}
 		rows[i].OTPAuth = string(seed)
 		if _, ok := requestedSeeds[seedName]; ok {
-			unmerged--
+			unmatched--
 		}
 	}
-	if unmerged > 0 {
+	if denied > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: %d seed(s) were not exported because kc could not read them (policy or missing entry); their OTPAuth cell is empty\n", denied)
+	}
+	if unmatched > 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"kc: %d otp entry(ies) have no matching login row and were not written (Apple stores a code on a login row)\n",
-			unmerged)
+			unmatched)
 	}
 
 	data, err := applecsv.Format(rows)

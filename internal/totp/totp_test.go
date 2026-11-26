@@ -133,13 +133,10 @@ func TestConfigStringIsRedacted(t *testing.T) {
 	}
 }
 
-func TestRemainingAndStepRollover(t *testing.T) {
+func TestStepRollover(t *testing.T) {
 	cfg, err := Parse(base32Of("12345678901234567890"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got := cfg.Remaining(time.Unix(59, 0)); got != 1 {
-		t.Fatalf("remaining at 59 = %d", got)
 	}
 	first, _ := cfg.Code(time.Unix(59, 0))
 	second, _ := cfg.Code(time.Unix(60, 0))

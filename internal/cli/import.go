@@ -329,7 +329,7 @@ func reportCSVSkips(cmd *cobra.Command, stats csvStats, keepOTP bool) {
 	}
 	if stats.otp > 0 && !keepOTP {
 		fmt.Fprintf(cmd.ErrOrStderr(),
-			"kc: %d verification code(s) were not imported (kc has no TOTP support); re-run with --keep-otp to store them as NAME.otp\n",
+			"kc: %d verification code(s) were not imported; re-run with --keep-otp to store them as kind=otp NAME.otp entries\n",
 			stats.otp)
 	}
 }

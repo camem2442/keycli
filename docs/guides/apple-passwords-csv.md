@@ -67,6 +67,9 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
   2FA seed를 거기에 넣지 않는다. `--keep-otp`를 주면 `NAME.otp` 시크릿(`kind=otp`)으로
   저장한다. 저장한 seed로 코드를 뽑으려면 [일회용 코드](one-time-codes.md)를 보라.
 - `--dry-run`은 쓸 이름만 보고하고 아무것도 쓰지 않는다.
+- 이전 버전에서 가져온 항목의 note에 남아 있는 `username=… | url=…` 문자열은 자동으로
+  전용 필드로 옮기지 않는다. 필요하면 `kc set NAME --kind login --url … --username …`으로
+  다시 지정한다(같은 이름을 덮어쓰면 값이 바뀌므로 주의).
 
 ## 손실되는 것
 
