@@ -17,8 +17,9 @@
   파이프에는 `--stdout`을 요구한다(`op item get --otp`와 다른 선택). `kc exec`의 기본
   전체 주입은 `kind=otp` 항목을 건너뛴다 — seed가 자식 env로 새지 않게.
 - 오류 메시지는 seed를 반복하지 않고, `totp.Config`는 `String`/`GoString`이 redacted다.
-- 메타데이터 병합은 CLI(`internal/secretmeta`)에서 한다. file store는 받은 값을 그대로
-  쓴다. 플래그 없이 같은 이름을 다시 저장(교체)해도 `kind`·`url`·`username`은 유지되고,
+- 메타데이터 병합은 CLI(`internal/secretmeta`)에서 하고, 기준 레코드는 **쓰기 백엔드**가
+  가진 것이다(env처럼 앞에서 이름을 가리는 읽기 전용 백엔드가 아님). file store는 받은
+  값을 그대로 쓴다. 플래그 없이 같은 이름을 다시 저장(교체)해도 `kind`·`url`·`username`은 유지되고,
   `--url ""`처럼 명시한 빈 값은 지운다. `--kind none`은 미분류로 되돌린다. `login`이 아닌
   kind로 바꾸면 `url`·`username`은 지워진다. age 복원·마법사도 기존 분류를 보존한다.
 - `kind=otp`는 새 저장이든 교체든 provider 검증을 건너뛴다(seed를 외부 API로 보내지 않음).

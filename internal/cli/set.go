@@ -68,9 +68,11 @@ func newSetCmd(a *app.App) *cobra.Command {
 			if kind == "none" {
 				kind = ""
 			}
-			prev, hasPrev := secretmeta.Stored(cmd.Context(), a, name)
+			prev, hasPrev, err := secretmeta.Stored(cmd.Context(), a, name)
+			if err != nil {
+				return err
+			}
 			var value []byte
-			var err error
 			var cp clip.Provider
 			if fromClip {
 				cp = clip.Provider{Config: a.Config}
@@ -118,10 +120,13 @@ func newSetCmd(a *app.App) *cobra.Command {
 			// provider API. kc otp validates it locally instead. A plain
 			// rotation keeps the stored kind, so resolve it before deciding.
 			effectiveKind := kind
-			if effectiveKind == "" && hasPrev {
+			if !cmd.Flags().Changed("kind") && hasPrev {
 				effectiveKind = prev.Kind
 			}
-			if !noVerify && effectiveKind != "otp" {
+			// --kind none unclassifies a stored seed; it is still a seed, so
+			// keep it away from provider probes.
+			unclassifyingSeed := kind == "" && hasPrev && prev.Kind == "otp"
+			if !noVerify && effectiveKind != "otp" && !unclassifyingSeed {
 				vout, err := verify.Run(cmd.Context(), name, note, value, nil)
 				if err != nil {
 					return err
