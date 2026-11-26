@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/kcerrors"
@@ -13,6 +14,7 @@ import (
 
 func newExecCmd(a *app.App) *cobra.Command {
 	var only []string
+	var otpNames []string
 	var require bool
 	cmd := &cobra.Command{
 		Use:   "exec [--only a,b] [--require] -- CMD...",
@@ -50,6 +52,10 @@ func newExecCmd(a *app.App) *cobra.Command {
 					if _, ok := filter[strings.ToLower(it.Name)]; !ok {
 						continue
 					}
+				} else if it.Kind == "otp" {
+					// A seed is not injected into children by default; ask for
+					// the generated code with --otp instead.
+					continue
 				}
 				val, _, err := a.Resolver.Get(readCtx(cmd, "exec"), it.Name)
 				if err != nil {
@@ -69,6 +75,19 @@ func newExecCmd(a *app.App) *cobra.Command {
 					env = append(env, fmt.Sprintf("%s=%s", key, string(val)))
 				}
 			}
+			for _, name := range otpNames {
+				_, code, err := otpCode(cmd.Context(), a, "exec", name, time.Now())
+				if err != nil {
+					if kcerrors.Code(err) == kcerrors.ExitNotFound {
+						fmt.Fprintf(os.Stderr, "kc: OTP 시크릿 '%s' 없음. 자식 프로세스를 시작하지 않습니다.\n", name)
+					}
+					if kcerrors.Code(err) == kcerrors.ExitDenied {
+						fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
+					}
+					return err
+				}
+				env = append(env, otpEnvKey(name)+"="+code)
+			}
 			c := exec.Command(args[0], args[1:]...)
 			c.Env = env
 			c.Stdin = os.Stdin
@@ -85,6 +104,7 @@ func newExecCmd(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&only, "only", nil, "Only inject these secret names")
 	cmd.Flags().BoolVar(&require, "require", false, "With --only: fail before starting the child if any named secret is missing or denied")
+	cmd.Flags().StringSliceVar(&otpNames, "otp", nil, "Inject the current one-time code for these entries as NAME_OTP")
 	return cmd
 }
 
