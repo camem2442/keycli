@@ -9,6 +9,10 @@
 
 상태 단어: **COMPLETE / PARTIAL / BLOCKED / DEFERRED / NOT VERIFIED**만 사용. 실행하지 않은 검사는 PASS가 아니다.
 
+## 다중 에이전트 세션과 배포 자격증명 경계
+
+작업 시작 전 [세션 루트 소비자 계약](docs/guides/session-roots.md)에서 독립 worktree·기존 Goal/Writer·원격 효과를 구분한다. MockTimer 관련 Cloudflare 권한은 [배포 자격증명 경계](docs/guides/mocktimer-production-custody.md)에만 정의하며 일반 에이전트에 발급하지 않는다. 이 링크는 실행기 설치·토큰 구성 변경·실제 배포의 증거가 아니다.
+
 ## 불변식
 
 1. 비밀 값은 argv·로그·커밋·문서·테스트 fixture에 남기지 않는다. 키체인 쓰기는 `security -i` stdin으로 넘긴다.
