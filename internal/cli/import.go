@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -80,10 +81,23 @@ func newImportCmd(a *app.App) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
 					len(overwrites), strings.Join(overwrites, ", "))
 			}
+			// Names that already existed are only written with --force. New names
+			// are created atomically: the pre-flight list above is not held under
+			// the store lock, so a concurrent writer can otherwise create a name
+			// between the check and the set and be silently overwritten.
+			fresh := make(map[string][]byte, len(secrets))
 			for name, val := range secrets {
-				if err := a.Resolver.Set(cmd.Context(), name, val, backend.Meta{}); err != nil {
-					return err
+				canonical := a.Resolver.CanonicalName(name)
+				if existing[strings.ToLower(canonical)] {
+					if err := a.Resolver.Set(cmd.Context(), canonical, val, backend.Meta{}); err != nil {
+						return err
+					}
+					continue
 				}
+				fresh[canonical] = val
+			}
+			if err := createImports(cmd.Context(), fs, fresh); err != nil {
+				return err
 			}
 			// The bundle carries no expiry, so ownership must be explicit.
 			fmt.Fprintf(cmd.ErrOrStderr(),
@@ -96,6 +110,29 @@ func newImportCmd(a *app.App) *cobra.Command {
 	cmd.Flags().StringVar(&expectedName, "expected-name", "", "single expected secret name; existing values are not overwritten")
 	cmd.Flags().BoolVar(&force, "force", false, "Allow an unguarded import to overwrite existing secret names")
 	return cmd
+}
+
+// absentCreator is the atomic create used for imported names that did not
+// exist when the bundle was checked.
+type absentCreator interface {
+	SetIfAbsent(ctx context.Context, name string, value []byte, meta backend.Meta) error
+}
+
+// createImports writes names that were absent at pre-flight time. It relies on
+// the store's atomic create so a name added by a concurrent writer after the
+// list is refused instead of overwritten.
+func createImports(ctx context.Context, target absentCreator, values map[string][]byte) error {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := target.SetIfAbsent(ctx, name, values[name], backend.Meta{}); err != nil {
+			return fmt.Errorf("refusing to overwrite %q created during import: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // overwriteCandidates returns the sorted canonical names in secrets that
