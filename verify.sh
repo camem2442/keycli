@@ -83,7 +83,19 @@ run_policy() {
 run_release() {
   bash "$ROOT/scripts/lifecycle.sh" release
   # Exercise the built Linux release binary, not just its Go unit-test source.
-  bash "$ROOT/scripts/verify-mcp-binary.sh" "$ROOT/dist/kc-linux-amd64"
+  # The smoke runs the artifact, so it must match the host architecture: an
+  # amd64 binary on arm64 (or the reverse) needs emulation and is not native
+  # acceptance.
+  local bin=""
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64) bin=kc-linux-amd64 ;;
+    Linux/aarch64 | Linux/arm64) bin=kc-linux-arm64 ;;
+  esac
+  if [[ -z "$bin" ]]; then
+    echo "verify.sh: release smoke requires a native Linux host ($(uname -s)/$(uname -m)); artifacts were built but not executed" >&2
+    exit 1
+  fi
+  bash "$ROOT/scripts/verify-mcp-binary.sh" "$ROOT/dist/$bin"
 }
 
 run_mac_smoke() {
