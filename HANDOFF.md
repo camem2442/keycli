@@ -30,17 +30,21 @@
 - 계약·가이드: [cli.md](docs/contracts/cli.md), [transfer.md](docs/contracts/transfer.md),
   [apple-passwords-csv.md](docs/guides/apple-passwords-csv.md),
   [one-time-codes.md](docs/guides/one-time-codes.md).
-- **설치본 교체(2026-11-26)**: `~/.local/bin/kc`를 `v0.10.0(352e12d)`에서 이 브랜치
-  최신 빌드(go1.22.12, `CGO_ENABLED=0`; 설치 시점 `7b65707`)로 바꿨다. 이전 바이너리는
-  `~/.local/share/keycli-backups/kc-v0.10.0-352e12d-20261126.bin`에 두었다. 이전 커밋은
-  현재 HEAD의 조상이라 후퇴가 아니며, `kc ls`/`status`/`doctor`와 저장소 파일이 교체 전후
-  동일함을 확인했다. PR #104는 아직 열려 있으므로 이 설치본은 **미병합 브랜치 빌드**다.
+- **병합·설치본(2026-11-28)**: PR #103 → main `27e992b`, PR #104 → main `d98c459`로
+  병합됐고 두 원격 브랜치는 삭제했다. `~/.local/bin/kc`는 병합된 main에서 재빌드한
+  `v0.8.0-105-gd98c459`(go1.22.12, `CGO_ENABLED=0`)다. 교체 전 바이너리 두 개
+  (`v0.10.0(352e12d)`, `v0.8.0-101-g7b65707`)는 `~/.local/share/keycli-backups/`에 있다.
+  교체 전후 `~/.kc/store.age` 해시·mtime이 동일함을 확인했다.
 - 검증: `internal/totp` RFC 벡터·파서 **PASS**, `internal/cli` **PASS**,
   `internal/integration`의 kind/CSV 왕복/`otp`/`exec --otp`/`cp --otp` **PASS**(합성 값).
   `verify.sh --suite docs`·`policy` **PASS**. `--suite unit`은 이 macOS에서 Go 1.22로 빌드한
   cgo 동적 바이너리가 `dyld: missing LC_UUID`로 죽어 실행 불가다 — `import "net"`만 있는
   최소 프로그램으로 재현했고 Go 1.27은 정상이라 환경 문제로 확정했다. 실행은 로컬 Go,
   gofmt·vet은 1.22로 확인했다.
+- 병합된 exact source `d98c459`에서 `go test -tags=kc_testhooks ./...`와
+  `verify.sh --suite docs`·`policy`, `gofmt`·`go vet` **PASS**. `scripts/mac-smoke.sh`도
+  실제 로그인 키체인에서 **PASS**(테스트 항목 생성·읽기 2회·재빌드 읽기·`ls --json`·`cp`·
+  ai-core 읽기 전용·`kc.age` 왕복·`kc link`·`setup-git`·sandbox exit 3, 정리 후 잔여 0).
 - 추가 실측: TOTP를 독립 Python 구현과 218개 대조(불일치 0), 실제 pty/파이프 TTY 경계,
   독립 TOTP 검증기에 코드 제출(200)·오답 거부(401)·seed 비주입, 실제 로그인 키체인에서
   set/get/교체/ls/rm. macOS Passwords 앱은 가져오기 안내·파일 패널까지 확인했으나 실제
