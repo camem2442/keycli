@@ -48,7 +48,7 @@ type Pending struct {
 
 // String and GoString prevent accidental credential reflection in diagnostics.
 // Pending is still secret-bearing; callers must never serialize or forward it.
-func (Pending) String() string { return "oauth.Pending{credentials:redacted}" }
+func (Pending) String() string     { return "oauth.Pending{credentials:redacted}" }
 func (p Pending) GoString() string { return p.String() }
 
 func secureEndpoint(raw string) bool {

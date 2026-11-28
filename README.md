@@ -33,6 +33,7 @@ kc push gh --user MY_TOKEN        # gh secret (stdin)
 kc push cloudflare --worker NAME TOKEN  # Worker secret (wrangler, stdin)
 kc export --format dotenv A B       # 클립보드 dotenv
 kc export A --to age1… | ssh vm kc import
+kc export A --format csv --output-file /tmp/kc.csv --allow-plaintext  # Apple Passwords 가져오기용
 ```
 
 ## 시작
