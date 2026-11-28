@@ -1,0 +1,5 @@
+# MockTimer Worker version registration review
+
+The existing KeyCLI HostBridge operation allowlist and production Product loader remain unchanged. The new typed review function consumes the exact ordered ASCII plan from MockTimer #1080, reuses TargetDigest, and mirrors workspace-infra #980's proposed resource identity. A shared independently calculated vector pins the plan/resource/target digests. Upload and activation have different mutation IDs and target digests, one proposed common Worker resource, and no authority. A review is not a RegisteredOperation; it must not be accepted by the real registry loader.
+
+The actual Worker artifact provider adapter, independent version byte/config proof, common resource enrollment and durable guarded execution are not implemented by this change. In particular, the existing secret-stage operation must not be used to authorize artifact upload or traffic activation. Production and Rehearsal are distinct targets; this contract only describes the synthetic Production-shaped fixture. No provider/credential access or operating approval. Verify with the existing hostbridge Go suite.

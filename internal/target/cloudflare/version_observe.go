@@ -190,6 +190,12 @@ func (o *VersionRESTObserver) GetVersion(ctx context.Context, accountID, worker,
 }
 
 func (o *VersionRESTObserver) get(ctx context.Context, path string, dst any) error {
+	return o.getBounded(ctx, path, dst, 1<<20)
+}
+
+// Artifact code readback has a distinct explicit byte ceiling. Keep the
+// existing small metadata/secret observer ceiling unchanged.
+func (o *VersionRESTObserver) getBounded(ctx context.Context, path string, dst any, limit int64) error {
 	u, err := url.Parse(cloudflareAPIOrigin + path)
 	if err != nil || u.Host != "api.cloudflare.com" || u.Scheme != "https" {
 		return errors.New("invalid Cloudflare GET endpoint")
@@ -208,8 +214,8 @@ func (o *VersionRESTObserver) get(ctx context.Context, path string, dst any) err
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("Cloudflare observation returned HTTP %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20+1))
-	if err != nil || len(data) > 1<<20 {
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil || int64(len(data)) > limit {
 		return errors.New("Cloudflare response exceeded limit")
 	}
 	var envelope struct {
