@@ -42,9 +42,12 @@ func init() {
 }
 
 type secretRecord struct {
-	Value   string     `json:"value"`
-	Note    string     `json:"note,omitempty"`
-	Expires *time.Time `json:"expires,omitempty"`
+	Value    string     `json:"value"`
+	Note     string     `json:"note,omitempty"`
+	Expires  *time.Time `json:"expires,omitempty"`
+	Kind     string     `json:"kind,omitempty"`
+	URL      string     `json:"url,omitempty"`
+	Username string     `json:"username,omitempty"`
 }
 
 type storeData struct {
@@ -68,7 +71,7 @@ type Store struct {
 func (s *Store) InstanceName() string { return s.instance }
 func (s *Store) Kind() string         { return "file" }
 func (s *Store) Caps() backend.Capabilities {
-	return backend.Capabilities{CanWrite: true, CanList: true}
+	return backend.Capabilities{CanWrite: true, CanList: true, HasMetadata: true}
 }
 
 func (s *Store) Available(ctx context.Context) (bool, string, error) {
@@ -110,9 +113,12 @@ func (s *Store) List(ctx context.Context) ([]backend.Item, error) {
 	var items []backend.Item
 	for name, rec := range data.Secrets {
 		items = append(items, backend.Item{
-			Name:    name,
-			Note:    rec.Note,
-			Expires: rec.Expires,
+			Name:     name,
+			Note:     rec.Note,
+			Expires:  rec.Expires,
+			Kind:     rec.Kind,
+			URL:      rec.URL,
+			Username: rec.Username,
 		})
 	}
 	return items, nil
@@ -135,9 +141,12 @@ func (s *Store) Set(ctx context.Context, name string, value []byte, meta backend
 	}
 	key := strings.ToLower(name)
 	data.Secrets[key] = secretRecord{
-		Value:   string(value),
-		Note:    meta.Note,
-		Expires: meta.Expires,
+		Value:    string(value),
+		Note:     meta.Note,
+		Expires:  meta.Expires,
+		Kind:     meta.Kind,
+		URL:      meta.URL,
+		Username: meta.Username,
 	}
 	return s.writeStoreLocked(data)
 }
@@ -168,7 +177,14 @@ func (s *Store) SetIfAbsent(ctx context.Context, name string, value []byte, meta
 			return fmt.Errorf("secret already exists")
 		}
 	}
-	data.Secrets[key] = secretRecord{Value: string(value), Note: meta.Note, Expires: meta.Expires}
+	data.Secrets[key] = secretRecord{
+		Value:    string(value),
+		Note:     meta.Note,
+		Expires:  meta.Expires,
+		Kind:     meta.Kind,
+		URL:      meta.URL,
+		Username: meta.Username,
+	}
 	return s.writeStoreLocked(data)
 }
 

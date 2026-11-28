@@ -53,6 +53,7 @@ func newRoot(openApp func(context.Context) (*app.App, error)) *cobra.Command {
 	root.AddCommand(newSetCmd(a))
 	root.AddCommand(newExecCmd(a))
 	root.AddCommand(newCpCmd(a))
+	root.AddCommand(newOtpCmd(a))
 	root.AddCommand(newRmCmd(a))
 	root.AddCommand(newInitCmd(a))
 	root.AddCommand(newPushCmd(a))

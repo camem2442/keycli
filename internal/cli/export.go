@@ -14,6 +14,7 @@ import (
 	"github.com/camem2442/keycli/internal/dotenv"
 	"github.com/camem2442/keycli/internal/exportrecv"
 	"github.com/camem2442/keycli/internal/kcerrors"
+	"github.com/camem2442/keycli/internal/resolve"
 	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -120,21 +121,30 @@ func newExportCmd(a *app.App) *cobra.Command {
 }
 
 // exportAppleCSV writes the six-column CSV that the Apple Passwords app
-// imports. Notes come from kc metadata; URL and OTPAuth stay empty because kc
-// does not hold them.
+// imports. URL and Username come from the login entry's own metadata, and a
+// stored seed (NAME.otp) is merged into its login row's OTPAuth cell because
+// Apple keeps a verification code on a login item, not on a separate entry.
 func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile string) error {
 	items, err := a.Resolver.List(cmd.Context())
 	if err != nil {
 		return err
 	}
-	notes := make(map[string]string, len(items))
+	meta := make(map[string]resolve.ListItem, len(items))
 	for _, it := range items {
-		notes[strings.ToLower(it.Name)] = it.Note
+		meta[strings.ToLower(it.Name)] = it
 	}
 
 	rows := make([]applecsv.Row, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	requestedSeeds := make(map[string]struct{}, len(names))
+	var seedHints []string
 	for _, name := range names {
 		canon := a.Resolver.CanonicalName(name)
+		lower := strings.ToLower(canon)
+		if _, dup := seen[lower]; dup {
+			continue
+		}
+		seen[lower] = struct{}{}
 		val, _, err := a.Resolver.Get(readCtx(cmd, "export"), name)
 		if err != nil {
 			if kcerrors.Code(err) == kcerrors.ExitNotFound {
@@ -148,11 +158,72 @@ func exportAppleCSV(cmd *cobra.Command, a *app.App, names []string, outputFile s
 		if !utf8.Valid(val) {
 			return fmt.Errorf("secret %s is not valid UTF-8; the csv format is text-only", canon)
 		}
+		if meta[lower].Kind == "otp" {
+			// The seed belongs on its login row; merge it in the second pass.
+			requestedSeeds[lower] = struct{}{}
+			if login := strings.TrimSuffix(canon, ".otp"); login != canon && login != "" {
+				seedHints = append(seedHints, login)
+			}
+			continue
+		}
+		m := meta[lower]
 		rows = append(rows, applecsv.Row{
 			Title:    canon,
+			URL:      m.URL,
+			Username: m.Username,
 			Password: string(val),
-			Notes:    notes[strings.ToLower(canon)],
+			Notes:    m.Note,
 		})
+	}
+
+	if len(rows) == 0 {
+		if len(seedHints) > 0 {
+			return fmt.Errorf("csv export writes login rows only; a seed is merged into its login row, so export %s instead",
+				strings.Join(seedHints, ", "))
+		}
+		return fmt.Errorf("csv export writes login rows only; a seed (kind=otp) is merged into its login row, so name that login entry instead")
+	}
+
+	// Attach seeds that belong to an exported login row, reading each one
+	// through the normal policy path. A denied seed leaves the cell empty
+	// rather than failing the export or leaking anything.
+	rowTitles := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		rowTitles[strings.ToLower(row.Title)] = struct{}{}
+	}
+	deniedSeeds := make(map[string]struct{})
+	for i := range rows {
+		seedName := strings.ToLower(rows[i].Title) + ".otp"
+		if _, ok := meta[seedName]; !ok {
+			continue
+		}
+		seed, _, err := a.Resolver.Get(readCtx(cmd, "export"), seedName)
+		if err != nil {
+			if kcerrors.Code(err) == kcerrors.ExitDenied || kcerrors.Code(err) == kcerrors.ExitNotFound {
+				deniedSeeds[seedName] = struct{}{}
+				continue
+			}
+			return err
+		}
+		rows[i].OTPAuth = string(seed)
+	}
+	if len(deniedSeeds) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "kc: %d seed(s) were not exported because kc could not read them (policy or missing entry); their OTPAuth cell is empty\n", len(deniedSeeds))
+	}
+	unmatched := 0
+	for seed := range requestedSeeds {
+		if _, denied := deniedSeeds[seed]; denied {
+			continue
+		}
+		login := strings.TrimSuffix(seed, ".otp")
+		if _, ok := rowTitles[login]; !ok {
+			unmatched++
+		}
+	}
+	if unmatched > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"kc: %d otp entry(ies) have no matching login row and were not written (Apple stores a code on a login row)\n",
+			unmatched)
 	}
 
 	data, err := applecsv.Format(rows)

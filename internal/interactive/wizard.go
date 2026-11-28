@@ -10,6 +10,7 @@ import (
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/backend"
 	"github.com/camem2442/keycli/internal/clip"
+	"github.com/camem2442/keycli/internal/secretmeta"
 )
 
 // RunSetWizard guides the user through setting a new or updated secret.
@@ -112,11 +113,15 @@ func RunSetWizard(ctx context.Context, a *app.App, initialName string) (string, 
 		break
 	}
 
-	// Save to resolver
-	if err := a.Resolver.Set(ctx, name, secretValue, backend.Meta{
-		Note:    note,
-		Expires: exp,
-	}); err != nil {
+	// Save to resolver. The wizard collects no classification, so keep any
+	// that the entry already had.
+	meta := backend.Meta{Note: note, Expires: exp}
+	prev, ok, err := secretmeta.Stored(ctx, a, name)
+	if err != nil {
+		return "", err
+	}
+	meta = secretmeta.Preserve(prev, ok, meta)
+	if err := a.Resolver.Set(ctx, name, secretValue, meta); err != nil {
 		return "", err
 	}
 

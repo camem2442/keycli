@@ -55,12 +55,13 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 | passkey | CSV에 없다(앱이 내보내지 않음) |
 | 삭제 대기 항목 | 내보내기에서 빠진다 |
 | 항목당 두 번째 이후 URL | 첫 URL만 남고 나머지는 표시 없이 사라진다 |
-| 검증 코드 | Apple은 label 없는 `otpauth://totp?secret=…`로 쓴다. kc에는 TOTP가 없어 기본 미보관, `--keep-otp`면 `NAME.otp` 시크릿 |
+| 검증 코드 | Apple은 label 없는 `otpauth://totp?secret=…`로 쓴다. 기본 미보관, `--keep-otp`면 `kind=otp`인 `NAME.otp` 시크릿. 내보낼 때는 `NAME` 로그인 행의 `OTPAuth` 셀로 합쳐진다 |
 | 값의 CRLF | kc는 바이트를 보존하는 자체 CSV 코덱을 쓴다(표준 `encoding/csv`는 인용 필드 안의 CRLF를 LF로 바꾼다) |
 | Notes 셀 | 기본 미보관. `ls --json`으로 읽히는 메타데이터라 복구 코드·seed가 들어 있을 수 있다. `--keep-notes`로만 포함 |
+| URL·Username | note가 아니라 `kind=login` 항목의 전용 필드(`url`, `username`)로 왕복한다. 미분류 항목은 빈 셀 |
 | alias 이름 | `Resolver.Set`이 canonical로 바꾸므로 충돌 검사도 canonical로 한다(`gh` → `github`) |
 
-`kc export --format csv`는 URL·Username·OTPAuth를 빈 셀로 쓰고 kc note만 Notes에 넣는다.
+`kc export --format csv`는 `kind=login` 항목의 URL·Username과, 짝이 맞는 `kind=otp` 항목이 있으면 그 `OTPAuth`를 채운다. 미분류 항목은 이 세 셀이 빈 셀이고 kc note만 Notes에 들어간다.
 그래서 가져온 항목은 웹사이트 자동완성 대상이 아니다. 실제 Passwords 앱에서의
 가져오기·자동완성 결과는 **NOT VERIFIED**다.
 

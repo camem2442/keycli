@@ -14,6 +14,7 @@ import (
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/applecsv"
 	"github.com/camem2442/keycli/internal/backend"
+	"github.com/camem2442/keycli/internal/secretmeta"
 	"github.com/camem2442/keycli/internal/transferguard"
 	"github.com/spf13/cobra"
 )
@@ -99,8 +100,14 @@ func newImportCmd(a *app.App) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "kc: --force: overwriting %d existing secret(s): %s\n",
 					len(overwrites), strings.Join(overwrites, ", "))
 			}
+			stored, err := secretmeta.StoredAll(cmd.Context(), a)
+			if err != nil {
+				return err
+			}
 			for name, val := range secrets {
-				if err := a.Resolver.Set(cmd.Context(), name, val, backend.Meta{}); err != nil {
+				prev, ok := stored[secretmeta.Key(a, name)]
+				meta := secretmeta.Preserve(prev, ok, backend.Meta{})
+				if err := a.Resolver.Set(cmd.Context(), name, val, meta); err != nil {
 					return err
 				}
 			}
@@ -127,7 +134,7 @@ func newImportCmd(a *app.App) *cobra.Command {
 type csvPlan struct {
 	name  string
 	value []byte
-	note  string
+	meta  backend.Meta
 }
 
 // importAppleCSV turns the six-column Apple Passwords CSV into secrets. The
@@ -221,7 +228,7 @@ func writeCSVPlans(ctx context.Context, fs csvFileWriter, plans []csvPlan, exist
 		if force && existing[strings.ToLower(p.name)] {
 			write = fs.Set
 		}
-		if err := write(ctx, p.name, p.value, backend.Meta{Note: p.note}); err != nil {
+		if err := write(ctx, p.name, p.value, p.meta); err != nil {
 			return fmt.Errorf("store %s: %w", p.name, err)
 		}
 	}
@@ -258,7 +265,12 @@ func planCSVImport(rows []applecsv.Row, canonical func(string) string, existing 
 		plans = append(plans, csvPlan{
 			name:  name,
 			value: []byte(row.Password),
-			note:  csvNote(row, keepNotes),
+			meta: backend.Meta{
+				Kind:     "login",
+				URL:      row.URL,
+				Username: row.Username,
+				Note:     csvNote(row, keepNotes),
+			},
 		})
 		if !applecsv.IsOTPAuth(row.OTPAuth) {
 			continue
@@ -272,7 +284,10 @@ func planCSVImport(rows []applecsv.Row, canonical func(string) string, existing 
 		plans = append(plans, csvPlan{
 			name:  otpName,
 			value: []byte(row.OTPAuth),
-			note:  "otpauth from Apple Passwords entry " + name,
+			meta: backend.Meta{
+				Kind: "otp",
+				Note: "otpauth from Apple Passwords entry " + name,
+			},
 		})
 	}
 	return plans, stats
@@ -295,21 +310,13 @@ func assignedName(base string, canonical func(string) string, existing, used map
 	}
 }
 
-// csvNote keeps only fields that are metadata. Apple's Notes cell is opt-in
-// because it is readable through `kc ls --json`, and people do keep recovery
-// codes and seeds there.
+// csvNote keeps the Notes cell only when asked: it is readable through
+// `kc ls --json`, and people do keep recovery codes and seeds there.
 func csvNote(row applecsv.Row, keepNotes bool) string {
-	var parts []string
-	if row.Username != "" {
-		parts = append(parts, "username="+row.Username)
+	if keepNotes {
+		return row.Notes
 	}
-	if row.URL != "" {
-		parts = append(parts, "url="+row.URL)
-	}
-	if keepNotes && row.Notes != "" {
-		parts = append(parts, row.Notes)
-	}
-	return strings.Join(parts, " | ")
+	return ""
 }
 
 func conflictNames(plans []csvPlan, existing map[string]bool) []string {
@@ -329,7 +336,7 @@ func reportCSVSkips(cmd *cobra.Command, stats csvStats, keepOTP bool) {
 	}
 	if stats.otp > 0 && !keepOTP {
 		fmt.Fprintf(cmd.ErrOrStderr(),
-			"kc: %d verification code(s) were not imported (kc has no TOTP support); re-run with --keep-otp to store them as NAME.otp\n",
+			"kc: %d verification code(s) were not imported; re-run with --keep-otp to store them as kind=otp NAME.otp entries\n",
 			stats.otp)
 	}
 }

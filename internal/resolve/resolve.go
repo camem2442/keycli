@@ -190,6 +190,9 @@ type ListItem struct {
 	Backend      string   `json:"backend"`
 	Source       string   `json:"source,omitempty"`
 	Note         string   `json:"note"`
+	Kind         string   `json:"kind,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Username     string   `json:"username,omitempty"`
 	Expires      *string  `json:"expires"`
 	StaleExport  bool     `json:"stale_export"`
 	PolicyDenied bool     `json:"policy_denied"`
@@ -239,12 +242,15 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 					src = lk.SourceFor(canon)
 				}
 				li = ListItem{
-					Name:    canon,
-					Aliases: append([]string{}, aliases...),
-					Backend: b.InstanceName(),
-					Source:  src,
-					Note:    it.Note,
-					Expires: exp,
+					Name:     canon,
+					Aliases:  append([]string{}, aliases...),
+					Backend:  b.InstanceName(),
+					Source:   src,
+					Note:     it.Note,
+					Kind:     it.Kind,
+					URL:      it.URL,
+					Username: it.Username,
+					Expires:  exp,
 				}
 				byName[strings.ToLower(canon)] = li
 			}
@@ -264,26 +270,64 @@ func (r *Resolver) List(ctx context.Context) ([]ListItem, error) {
 	return out, nil
 }
 
-// Set writes to the first writable available backend.
-func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
-	canon := r.CanonicalName(name)
+// writeBackend returns the backend Set would write to.
+func (r *Resolver) writeBackend(ctx context.Context) (backend.Backend, error) {
 	for _, b := range r.backends {
 		if !b.Caps().CanWrite {
 			continue
 		}
-		ok, reason, err := b.Available(ctx)
+		ok, _, err := b.Available(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
-			if reason != "" {
-				continue
-			}
 			continue
 		}
-		return b.Set(ctx, canon, value, meta)
+		return b, nil
 	}
-	return fmt.Errorf("%w: 사용 가능한 쓰기 저장소 없음 (kc init 또는 KC_KEY 확인)", kcerrors.ErrLocked)
+	return nil, fmt.Errorf("%w: 사용 가능한 쓰기 저장소 없음 (kc init 또는 KC_KEY 확인)", kcerrors.ErrLocked)
+}
+
+// Set writes to the first writable available backend.
+func (r *Resolver) Set(ctx context.Context, name string, value []byte, meta backend.Meta) error {
+	b, err := r.writeBackend(ctx)
+	if err != nil {
+		return err
+	}
+	return b.Set(ctx, r.CanonicalName(name), value, meta)
+}
+
+// StoredItems returns every metadata record the write backend holds, keyed by
+// canonical name. It asks that backend directly instead of List, because a
+// read-only backend in front of it (env) shadows names without holding any
+// metadata. Backends that do not persist metadata return nil.
+func (r *Resolver) StoredItems(ctx context.Context) (map[string]backend.Item, error) {
+	b, err := r.writeBackend(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !b.Caps().HasMetadata {
+		return nil, nil
+	}
+	items, err := b.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]backend.Item, len(items))
+	for _, it := range items {
+		out[strings.ToLower(r.CanonicalName(it.Name))] = it
+	}
+	return out, nil
+}
+
+// StoredItem returns the metadata that Set would overwrite.
+func (r *Resolver) StoredItem(ctx context.Context, name string) (backend.Item, bool, error) {
+	items, err := r.StoredItems(ctx)
+	if err != nil {
+		return backend.Item{}, false, err
+	}
+	it, ok := items[strings.ToLower(r.CanonicalName(name))]
+	return it, ok, nil
 }
 
 // Delete removes from writable backends that hold the name.

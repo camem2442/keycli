@@ -9,11 +9,11 @@
 | 열 | 내용 |
 |---|---|
 | `Title` | kc는 시크릿 이름을 쓴다 |
-| `URL` | kc 내보내기에서는 빈 셀 |
-| `Username` | kc 내보내기에서는 빈 셀(가져올 때는 note로 보존) |
+| `URL` | `--kind login` 항목의 URL(그 외에는 빈 셀) |
+| `Username` | `--kind login` 항목의 사용자 이름(그 외에는 빈 셀) |
 | `Password` | 시크릿 값 |
-| `Notes` | kc note |
-| `OTPAuth` | Apple은 label 없는 `otpauth://totp?secret=…&algorithm=SHA1&digits=6&period=30` |
+| `Notes` | file store의 note |
+| `OTPAuth` | `kind=otp` 항목(`NAME.otp`)이 있으면 그 URI. Apple은 label 없는 `otpauth://totp?secret=…&algorithm=SHA1&digits=6&period=30`로 쓴다 |
 
 Apple은 모든 행에 6개 셀을 쓰고, 비어 있는 필드는 빈 셀로 나간다. kc의 CSV 코덱은
 인용 필드 안의 CRLF를 보존한다(표준 `encoding/csv`는 LF로 바꾸고, CRLF 출력 모드에서는
@@ -32,7 +32,11 @@ kc export github gitcoord_owner_ed25519 \
 - stdout·TTY 출력 없음. stderr에 행 수와 삭제 안내만 남는다.
 - `--to`·`--to-github`·`--stdout`·`--verified-recipient`와 함께 쓸 수 없다.
 - 값이 UTF-8이 아니면(바이너리 시크릿) 그 이름을 지목해 거부한다.
-- URL이 비어 있으므로 웹사이트 자동완성에는 쓰이지 않는다. 사람이 읽고 복사하는 용도다.
+- `kc set NAME --kind login --url … --username …`으로 저장한 항목만 URL·Username 셀이
+  채워진다. 미분류 항목은 지금까지처럼 빈 셀로 나가고, Bad credentials·수동 입력과 같다.
+- `kind=otp` 항목(`NAME.otp`)은 독립 행이 아니라 `NAME` 행의 `OTPAuth` 셀로 합쳐진다(Apple이
+  검증 코드를 로그인 항목에 붙이기 때문). 짝이 되는 로그인 행이 없으면 몇 개를 쓰지
+  못했는지 stderr에 이름 없이 보고한다.
 
 가져온 뒤에는 파일을 지운다. Passwords 앱도 가져오기 직후 삭제 버튼을 제공한다.
 
@@ -47,18 +51,27 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 - `--allow-plaintext` 없으면 거부한다. stdin도 받는다(`--input-file` 생략).
 - `Title` → 이름: 소문자, `[a-z0-9._-]` 유지, 나머지는 `-`로 접는다. 같은 파일 안에서
   중복이면 `-2`, `-3`.
-- `Password` → 값. `Username`·`URL` → note(`username=… | url=…`). Apple의 `Notes` 셀은
-  **기본 미보관**이다 — `kc ls --json`으로 에이전트에 읽히고, 사람들이 복구 코드·seed를
-  거기에 넣기 때문이다. 필요하면 `--keep-notes`로 명시한다.
+- `Password` → 값, `kind=login`. `URL`·`Username`은 note 문자열이 아니라 **전용 필드**로
+  저장한다(`kc ls --json`의 `url`·`username`, 값이 있을 때만). 그래서 CSV 왕복에서
+  사용자 이름·URL이 note 글자로 굳지 않는다. Apple의 `Notes` 셀은 **기본 미보관**이다 —
+  `kc ls --json`으로 에이전트에 읽히고, 사람들이 복구 코드·seed를 거기에 넣기 때문이다.
+  필요하면 `--keep-notes`로 명시한다.
 - CSV는 설정된 로컬 file store에만 저장하며, 다른 백엔드로 우회하지 않는다.
-- 이미 있는 이름은 `--force` 없이는 거부한다. `--force`도 계획에 포함된 충돌 이름만 대체한다. 이름은 쓰기 전에
+- 이미 있는 이름은 `--force` 없이는 거부한다(age 번들 가져오기와 같은 규칙). `--force`도
+  계획에 포함된 충돌 이름만 대체한다. 이름은 쓰기 전에
   canonical로 해석하므로 alias(`gh` → `github`)도 충돌로 잡힌다. 파일 안 중복에서 생기는
   `-2` 접미사는 기존 이름과 겹치지 않을 때까지 올라간다.
 - `--dry-run`은 이름과 `--force`가 필요한 이름만 보고하고, 충돌이 있어도 실패하지 않는다.
 - 비밀번호가 빈 행은 건너뛰고 개수만 보고한다.
 - `OTPAuth`는 **기본 미보관**이다. note 필드는 `kc ls --json`으로 에이전트에 읽히므로
-  2FA seed를 거기에 넣지 않는다. `--keep-otp`를 주면 `NAME.otp` 시크릿으로 저장한다.
+  2FA seed를 거기에 넣지 않는다. `--keep-otp`를 주면 `NAME.otp` 시크릿(`kind=otp`)으로
+  저장한다. 저장한 seed로 코드를 뽑으려면 [일회용 코드](one-time-codes.md)를 보라.
 - `--dry-run`은 쓸 이름만 보고하고 아무것도 쓰지 않는다.
+- 이전 버전에서 가져온 항목의 note에 남아 있는 `username=… | url=…` 문자열은 자동으로
+  전용 필드로 옮기지 않는다. 필요하면 `kc set NAME --kind login --url … --username …`으로
+  다시 지정한다(같은 이름을 덮어쓰면 값이 바뀌므로 주의).
+- `--force`로 같은 이름을 다시 가져오면 CSV가 정본이다. 그 행의 `URL`·`Username` 셀이
+  비어 있으면 기존 값도 지워진다(빈 셀을 "변경 없음"으로 해석하지 않는다).
 
 ## 손실되는 것
 
@@ -72,4 +85,8 @@ kc import --format csv --input-file ~/Downloads/Passwords.csv --allow-plaintext
 ## 검증 상태
 
 - Linux CI: `internal/applecsv` 코덱·CLI 가드·왕복 가져오기 **PASS**(합성 값만).
-- 실제 macOS Passwords 앱의 가져오기 오류 목록·자동완성·Touch ID 프롬프트: **NOT VERIFIED**.
+- kind/url/username 왕복과 `OTPAuth` 병합: Linux 통합 테스트 **PASS**(합성 값).
+- 실제 macOS Passwords 앱: 메뉴 `파일 > 파일에서 암호 가져오기…` → 안내 시트 → 표준 열기
+  패널에 kc의 6열 CSV가 표시되는 것까지 **확인**. 실제 가져오기 실행·항목 생성·`OTPAuth`
+  인식·삭제는 세션 간섭(앱 전환, 화면 오버레이)으로 **BLOCKED** — 자동완성·Touch ID
+  프롬프트도 **NOT VERIFIED**.

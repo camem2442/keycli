@@ -1,5 +1,52 @@
 # HANDOFF — keycli (`kc`)
 
+## 2026-11-26 — 시크릿 종류(`kind`)와 일회용 코드(S2)
+
+시크릿에 **종류**를 붙였다: `kc set --kind login|token|key|otp|note`, 그리고
+`--kind login`에서만 `--url`·`--username`. `kind`·`url`·`username`은 file store에만
+저장되고 `kc ls --json`에 **값이 있을 때만** 실린다(스키마 v1의 하위 호환 추가). 미분류
+항목은 지금까지와 똑같이 필드를 생략한다.
+
+- Apple CSV 왕복이 좋아졌다: 가져오기는 `kind=login`·`url`·`username`을 전용 필드로
+  저장하고(이전에는 note 문자열), 내보내기는 그 필드로 URL·Username 셀을 채운다.
+  `--keep-otp`는 `kind=otp`인 `NAME.otp`로 저장하고, 내보낼 때 `NAME` 행의 `OTPAuth`
+  셀로 합친다. 짝이 없는 seed는 이름 없이 개수만 보고한다.
+- **일회용 코드(S2)**: `internal/totp`(RFC 6238, SHA1/256/512, 6–8자리, HOTP 거부)를
+  추가하고 `kc otp NAME [--stdout] [--at RFC3339]`·`kc cp NAME --otp`·
+  `kc exec --otp NAME -- CMD`를 붙였다. `kc otp`는 **stdout이 TTY일 때만** 출력하고
+  파이프에는 `--stdout`을 요구한다(`op item get --otp`와 다른 선택). `kc exec`의 기본
+  전체 주입은 `kind=otp` 항목을 건너뛴다 — seed가 자식 env로 새지 않게.
+- 오류 메시지는 seed를 반복하지 않고, `totp.Config`는 `String`/`GoString`이 redacted다.
+- 메타데이터 병합은 CLI(`internal/secretmeta`)에서 하고, 기준 레코드는 **쓰기 백엔드**가
+  가진 것이다(env처럼 앞에서 이름을 가리는 읽기 전용 백엔드가 아님). file store는 받은
+  값을 그대로 쓴다. 플래그 없이 같은 이름을 다시 저장(교체)해도 `kind`·`url`·`username`은 유지되고,
+  `--url ""`처럼 명시한 빈 값은 지운다. `--kind none`은 미분류로 되돌린다. `login`이 아닌
+  kind로 바꾸면 `url`·`username`은 지워진다. age 복원·마법사도 기존 분류를 보존한다.
+- `kind=otp`는 새 저장이든 교체든 provider 검증을 건너뛴다(seed를 외부 API로 보내지 않음).
+- `kc export NAME.otp --format csv`처럼 seed만 지정하면 0행 CSV를 성공으로 쓰지 않고,
+  짝이 되는 로그인 이름을 안내하며 실패한다.
+- S3(`--watch`, QR 재표시, 자동 채움)는 만들지 않고 이유·재검토 조건을
+  [계획](docs/planning/keycli-otp-s3-watch-20261126.md)에 남겼다.
+- 계약·가이드: [cli.md](docs/contracts/cli.md), [transfer.md](docs/contracts/transfer.md),
+  [apple-passwords-csv.md](docs/guides/apple-passwords-csv.md),
+  [one-time-codes.md](docs/guides/one-time-codes.md).
+- **설치본 교체(2026-11-26)**: `~/.local/bin/kc`를 `v0.10.0(352e12d)`에서 이 브랜치
+  최신 빌드(go1.22.12, `CGO_ENABLED=0`; 설치 시점 `7b65707`)로 바꿨다. 이전 바이너리는
+  `~/.local/share/keycli-backups/kc-v0.10.0-352e12d-20261126.bin`에 두었다. 이전 커밋은
+  현재 HEAD의 조상이라 후퇴가 아니며, `kc ls`/`status`/`doctor`와 저장소 파일이 교체 전후
+  동일함을 확인했다. PR #104는 아직 열려 있으므로 이 설치본은 **미병합 브랜치 빌드**다.
+- 검증: `internal/totp` RFC 벡터·파서 **PASS**, `internal/cli` **PASS**,
+  `internal/integration`의 kind/CSV 왕복/`otp`/`exec --otp`/`cp --otp` **PASS**(합성 값).
+  `verify.sh --suite docs`·`policy` **PASS**. `--suite unit`은 이 macOS에서 Go 1.22로 빌드한
+  cgo 동적 바이너리가 `dyld: missing LC_UUID`로 죽어 실행 불가다 — `import "net"`만 있는
+  최소 프로그램으로 재현했고 Go 1.27은 정상이라 환경 문제로 확정했다. 실행은 로컬 Go,
+  gofmt·vet은 1.22로 확인했다.
+- 추가 실측: TOTP를 독립 Python 구현과 218개 대조(불일치 0), 실제 pty/파이프 TTY 경계,
+  독립 TOTP 검증기에 코드 제출(200)·오답 거부(401)·seed 비주입, 실제 로그인 키체인에서
+  set/get/교체/ls/rm. macOS Passwords 앱은 가져오기 안내·파일 패널까지 확인했으나 실제
+  가져오기는 세션 간섭으로 **BLOCKED**(사용자 볼트 무변경). 실제 provider 로그인·자동 채움:
+  **NOT VERIFIED**.
+
 ## 2026-11-26 — Apple Passwords CSV 양방향
 
 `kc export --format csv --output-file F --allow-plaintext`와

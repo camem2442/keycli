@@ -11,19 +11,30 @@ type Capabilities struct {
 	CanList      bool
 	Interactive  bool
 	NeedsNetwork bool
+	// HasMetadata reports whether the backend persists Kind/URL/Username.
+	HasMetadata bool
 }
 
 // Item is list metadata without a secret value.
 type Item struct {
-	Name    string
-	Note    string
-	Expires *time.Time
+	Name     string
+	Note     string
+	Expires  *time.Time
+	Kind     string
+	URL      string
+	Username string
 }
 
 // Meta accompanies Set operations.
+//
+// Only the file store persists Kind, URL and Username; backends that cannot
+// store metadata (keychain, env, link) ignore them.
 type Meta struct {
-	Note    string
-	Expires *time.Time
+	Note     string
+	Expires  *time.Time
+	Kind     string
+	URL      string
+	Username string
 }
 
 // Backend is a named secret store instance.

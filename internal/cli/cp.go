@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/camem2442/keycli/internal/app"
 	"github.com/camem2442/keycli/internal/clip"
@@ -12,6 +13,7 @@ import (
 )
 
 func newCpCmd(a *app.App) *cobra.Command {
+	var asOTP bool
 	cmd := &cobra.Command{
 		Use:   "cp [NAME]",
 		Short: "Copy a secret to clipboard (auto-clear after 30s)",
@@ -40,6 +42,20 @@ func newCpCmd(a *app.App) *cobra.Command {
 				}
 				name = selected.Name
 			}
+			if asOTP {
+				_, code, err := otpCode(cmd.Context(), a, "cp", name, time.Now())
+				if err != nil {
+					if kcerrors.Code(err) == kcerrors.ExitDenied {
+						fmt.Fprintf(os.Stderr, "kc: 정책에 의해 '%s' 읽기가 거부되었습니다. 사용자에게 허용 목록 변경을 요청하세요.\n", name)
+					}
+					return err
+				}
+				if err := clipboardCopyWithAutoClear(a, code, os.Getenv("KC_CLIP_OSC52") == "1"); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "kc: %s 일회용 코드 복사됨 (%v 후 자동 삭제)\n", name, clip.AutoClearDelay())
+				return nil
+			}
 			val, _, err := a.Resolver.Get(readCtx(cmd, "cp"), name)
 			if err != nil {
 				if kcerrors.Code(err) == kcerrors.ExitDenied {
@@ -55,5 +71,6 @@ func newCpCmd(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asOTP, "otp", false, "Copy the current one-time code instead of the secret value")
 	return cmd
 }
